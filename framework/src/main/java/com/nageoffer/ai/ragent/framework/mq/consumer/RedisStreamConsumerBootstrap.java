@@ -35,8 +35,9 @@ import org.springframework.data.redis.stream.StreamMessageListenerContainer;
 
 import java.net.InetAddress;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -60,29 +61,86 @@ public class RedisStreamConsumerBootstrap implements SmartLifecycle {
     private final MQConsumerScanner mqConsumerScanner;
     private final MessageWrapperCodec messageWrapperCodec;
 
-    private final List<StreamMessageListenerContainer<String, MapRecord<String, String, String>>> containers = new ArrayList<>();
-    private final List<ExecutorService> executors = new ArrayList<>();
+    private final List<StreamMessageListenerContainer<String, MapRecord<String, String, String>>> containers = new CopyOnWriteArrayList<>();
+    private final List<ExecutorService> executors = new CopyOnWriteArrayList<>();
 
     private volatile boolean running = false;
+    private volatile boolean starting = false;
+    private volatile boolean stopping = false;
+    private volatile ExecutorService bootstrapExecutor;
 
     @Override
     public void start() {
-        List<MQConsumerDefinition> consumerDefinitions = mqConsumerScanner.scan();
-        if (consumerDefinitions.isEmpty()) {
-            log.info("未发现 @MQConsumer 注解的消费者 Bean，跳过 Redis Stream 消费者注册");
+        ExecutorService executor;
+        synchronized (this) {
+            if (running || starting) {
+                return;
+            }
+
+            bootstrapExecutor = ensureBootstrapExecutor();
+            starting = true;
+            stopping = false;
+            executor = bootstrapExecutor;
+        }
+
+        executor.execute(() -> doStartAsync(executor));
+    }
+
+    private void doStartAsync(ExecutorService startupExecutor) {
+        try {
+            List<MQConsumerDefinition> consumerDefinitions = mqConsumerScanner.scan();
+            if (consumerDefinitions.isEmpty()) {
+                log.info("未发现 @MQConsumer 注解的消费者 Bean，跳过 Redis Stream 消费者注册");
+                return;
+            }
+
+            String consumerName = getConsumerName();
+            CompletableFuture<?>[] startupTasks = consumerDefinitions.stream()
+                    .map(definition -> CompletableFuture.runAsync(
+                            () -> registerConsumer(definition, consumerName),
+                            startupExecutor
+                    ))
+                    .toArray(CompletableFuture[]::new);
+
+            CompletableFuture.allOf(startupTasks).join();
+            String topics = consumerDefinitions.stream()
+                    .map(MQConsumerDefinition::getTopic)
+                    .distinct()
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("");
+            log.info("Redis Stream 消费者启动完成，已注册 {} 个消费者，topics: [{}]", containers.size(), topics);
+        } catch (Exception e) {
+            log.error("Redis Stream 消费者异步启动异常", e);
+        } finally {
+            synchronized (this) {
+                starting = false;
+                running = !stopping && !containers.isEmpty();
+            }
+        }
+    }
+
+    private void registerConsumer(MQConsumerDefinition definition, String consumerName) {
+        if (stopping) {
             return;
         }
 
-        String consumerName = getConsumerName();
+        String topic = definition.getTopic();
+        String consumerGroup = definition.getConsumerGroup();
 
-        for (MQConsumerDefinition definition : consumerDefinitions) {
-            String topic = definition.getTopic();
-            String consumerGroup = definition.getConsumerGroup();
+        createConsumerGroupIfAbsent(topic, consumerGroup);
+        if (stopping) {
+            return;
+        }
 
-            createConsumerGroupIfAbsent(topic, consumerGroup);
-
-            ExecutorService executor = buildConsumerExecutor(topic);
+        ExecutorService executor = buildConsumerExecutor(topic);
+        StreamMessageListenerContainer<String, MapRecord<String, String, String>> container = null;
+        try {
             executors.add(executor);
+            if (stopping) {
+                executors.remove(executor);
+                shutdownGracefully(executor);
+                return;
+            }
 
             StreamMessageListenerContainer.StreamMessageListenerContainerOptions<String, MapRecord<String, String, String>> options =
                     StreamMessageListenerContainer.StreamMessageListenerContainerOptions.builder()
@@ -91,8 +149,7 @@ public class RedisStreamConsumerBootstrap implements SmartLifecycle {
                             .pollTimeout(Duration.ofSeconds(3))
                             .build();
 
-            StreamMessageListenerContainer<String, MapRecord<String, String, String>> container =
-                    StreamMessageListenerContainer.create(redisConnectionFactory, options);
+            container = StreamMessageListenerContainer.create(redisConnectionFactory, options);
 
             StreamListener<String, MapRecord<String, String, String>> listener =
                     new RedisStreamMessageListener(
@@ -112,13 +169,29 @@ public class RedisStreamConsumerBootstrap implements SmartLifecycle {
 
             container.register(readRequest, listener);
             container.start();
+            if (stopping) {
+                container.stop();
+                executors.remove(executor);
+                shutdownGracefully(executor);
+                return;
+            }
+
             containers.add(container);
-
-            log.info("Redis Stream 消费者注册成功，bean: {}, topic: {}, consumerGroup: {}, consumerName: {}",
+            log.debug("Redis Stream 消费者注册成功，bean: {}, topic: {}, consumerGroup: {}, consumerName: {}",
                     definition.beanName(), topic, consumerGroup, consumerName);
+        } catch (Exception e) {
+            if (container != null) {
+                try {
+                    container.stop();
+                } catch (Exception stopEx) {
+                    log.warn("停止启动失败的 StreamMessageListenerContainer 异常，topic: {}", topic, stopEx);
+                }
+            }
+            executors.remove(executor);
+            shutdownGracefully(executor);
+            log.error("Redis Stream 消费者注册失败，bean: {}, topic: {}, consumerGroup: {}",
+                    definition.beanName(), topic, consumerGroup, e);
         }
-
-        running = true;
     }
 
     @Override
@@ -136,7 +209,22 @@ public class RedisStreamConsumerBootstrap implements SmartLifecycle {
     }
 
     private void doStop() {
-        log.info("开始停止 Redis Stream 消费者...");
+        ExecutorService currentBootstrapExecutor;
+        synchronized (this) {
+            if (!running && !starting && containers.isEmpty() && executors.isEmpty()) {
+                return;
+            }
+            log.info("开始停止 Redis Stream 消费者...");
+            stopping = true;
+            running = false;
+            starting = false;
+            currentBootstrapExecutor = bootstrapExecutor;
+            bootstrapExecutor = null;
+        }
+
+        if (currentBootstrapExecutor != null) {
+            shutdownGracefully(currentBootstrapExecutor);
+        }
 
         // 1. 先停止容器，避免继续拉取消息
         for (StreamMessageListenerContainer<String, MapRecord<String, String, String>> container : containers) {
@@ -154,7 +242,6 @@ public class RedisStreamConsumerBootstrap implements SmartLifecycle {
 
         containers.clear();
         executors.clear();
-        running = false;
 
         log.info("Redis Stream 消费者已全部停止");
     }
@@ -178,7 +265,7 @@ public class RedisStreamConsumerBootstrap implements SmartLifecycle {
 
     @Override
     public boolean isRunning() {
-        return running;
+        return running || starting;
     }
 
     @Override
@@ -190,7 +277,7 @@ public class RedisStreamConsumerBootstrap implements SmartLifecycle {
     private void createConsumerGroupIfAbsent(String topic, String consumerGroup) {
         try {
             stringRedisTemplate.opsForStream().createGroup(topic, consumerGroup);
-            log.info("创建 consumer group 成功，topic: {}, group: {}", topic, consumerGroup);
+            log.debug("创建 consumer group 成功，topic: {}, group: {}", topic, consumerGroup);
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("BUSYGROUP")) {
                 log.debug("Consumer group 已存在，topic: {}, group: {}", topic, consumerGroup);
@@ -213,6 +300,27 @@ public class RedisStreamConsumerBootstrap implements SmartLifecycle {
                 },
                 new ThreadPoolExecutor.CallerRunsPolicy()
         );
+    }
+
+    private synchronized ExecutorService ensureBootstrapExecutor() {
+        if (bootstrapExecutor != null && !bootstrapExecutor.isShutdown() && !bootstrapExecutor.isTerminated()) {
+            return bootstrapExecutor;
+        }
+
+        AtomicInteger index = new AtomicInteger();
+        int parallelism = Math.max(2, Runtime.getRuntime().availableProcessors());
+        bootstrapExecutor = new ThreadPoolExecutor(
+                parallelism, parallelism, 60, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(),
+                runnable -> {
+                    Thread thread = new Thread(runnable);
+                    thread.setName("stream_bootstrap_" + index.incrementAndGet());
+                    thread.setDaemon(false);
+                    return thread;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+        return bootstrapExecutor;
     }
 
     private String getConsumerName() {

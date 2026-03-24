@@ -23,10 +23,12 @@ import cn.hutool.core.lang.Assert;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nageoffer.ai.ragent.infra.embedding.EmbeddingService;
 import com.nageoffer.ai.ragent.knowledge.controller.request.KnowledgeChunkCreateRequest;
+import com.nageoffer.ai.ragent.knowledge.controller.request.KnowledgeDocumentPageRequest;
 import com.nageoffer.ai.ragent.knowledge.controller.request.KnowledgeDocumentUpdateRequest;
 import com.nageoffer.ai.ragent.knowledge.controller.request.KnowledgeDocumentUploadRequest;
 import com.nageoffer.ai.ragent.knowledge.controller.vo.KnowledgeChunkVO;
@@ -167,7 +169,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         ProcessMode processMode = ProcessMode.normalize(request == null ? null : request.getProcessMode());
         ChunkingMode chunkingMode = null;
         String chunkConfig = null;
-        Long pipelineId = null;
+        String pipelineId = null;
 
         if (ProcessMode.CHUNK == processMode) {
             // 分块模式：解析分块策略和配置
@@ -178,7 +180,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             if (request == null || !StringUtils.hasText(request.getPipelineId())) {
                 throw new ClientException("使用Pipeline模式时，必须指定Pipeline ID");
             }
-            pipelineId = Long.parseLong(request.getPipelineId());
+            pipelineId = request.getPipelineId();
             // 验证Pipeline是否存在
             try {
                 ingestionPipelineService.get(request.getPipelineId());
@@ -188,7 +190,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
 
         KnowledgeDocumentDO documentDO = KnowledgeDocumentDO.builder()
-                .kbId(Long.parseLong(kbId))
+                .kbId(kbId)
                 .docName(stored.getOriginalFilename())
                 .enabled(1)
                 .chunkCount(0)
@@ -248,17 +250,15 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             return;
         }
 
-        // 统一在执行前清理旧向量，非 pipeline 模式后续会写入新向量，pipeline 模式由管道自身 indexer 写入
-        vectorStoreService.deleteDocumentVectors(String.valueOf(documentDO.getKbId()), docId);
         runChunkTask(documentDO);
     }
 
     private void runChunkTask(KnowledgeDocumentDO documentDO) {
-        String docId = String.valueOf(documentDO.getId());
+        String docId = documentDO.getId();
         ProcessMode processMode = ProcessMode.normalize(documentDO.getProcessMode());
 
         KnowledgeDocumentChunkLogDO chunkLog = KnowledgeDocumentChunkLogDO.builder()
-                .docId(documentDO.getId())
+                .docId(docId)
                 .status(DocumentStatus.RUNNING.getCode())
                 .processMode(processMode.getValue())
                 .chunkStrategy(documentDO.getChunkStrategy())
@@ -285,16 +285,10 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 chunkResults = result.chunks();
             }
 
-            // 删旧写新同一事务保证 DB 原子性；向量写入后再更新状态 SUCCESS
-            int savedCount = persistChunks(docId, chunkResults);
-
-            if (ProcessMode.PIPELINE != processMode) {
-                long embeddingStart = System.currentTimeMillis();
-                vectorStoreService.indexDocumentChunks(String.valueOf(documentDO.getKbId()), docId, chunkResults);
-                embeddingDuration = System.currentTimeMillis() - embeddingStart;
-            }
-
-            markChunkSuccess(documentDO.getId(), savedCount);
+            long embeddingStart = System.currentTimeMillis();
+            String collectionName = resolveCollectionName(documentDO.getKbId());
+            int savedCount = persistChunksAndVectorsAtomically(collectionName, docId, chunkResults);
+            embeddingDuration = System.currentTimeMillis() - embeddingStart;
 
             long totalDuration = System.currentTimeMillis() - totalStartTime;
             updateChunkLog(chunkLog.getId(), DocumentStatus.SUCCESS.getCode(), savedCount,
@@ -309,10 +303,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
     }
 
-    /**
-     * 将分块结果持久化到 DB（删旧写新原子执行），返回实际保存的分块数
-     */
-    private int persistChunks(String docId, List<VectorChunk> chunkResults) {
+    private int persistChunksAndVectorsAtomically(String collectionName, String docId, List<VectorChunk> chunkResults) {
         List<KnowledgeChunkCreateRequest> chunks = chunkResults.stream()
                 .map(vc -> {
                     KnowledgeChunkCreateRequest req = new KnowledgeChunkCreateRequest();
@@ -325,20 +316,20 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             knowledgeChunkService.deleteByDocId(docId);
             knowledgeChunkService.batchCreate(docId, chunks);
+            vectorStoreService.deleteDocumentVectors(collectionName, docId);
+            vectorStoreService.indexDocumentChunks(collectionName, docId, chunkResults);
+            KnowledgeDocumentDO updateDocumentDO = KnowledgeDocumentDO.builder()
+                    .id(docId)
+                    .chunkCount(chunks.size())
+                    .status(DocumentStatus.SUCCESS.getCode())
+                    .updatedBy(UserContext.getUsername())
+                    .build();
+            docMapper.updateById(updateDocumentDO);
         });
         return chunks.size();
     }
 
-    private void markChunkSuccess(Long docId, int chunkCount) {
-        KnowledgeDocumentDO update = new KnowledgeDocumentDO();
-        update.setId(docId);
-        update.setChunkCount(chunkCount);
-        update.setStatus(DocumentStatus.SUCCESS.getCode());
-        update.setUpdatedBy(UserContext.getUsername());
-        docMapper.updateById(update);
-    }
-
-    private void updateChunkLog(Long logId, String status, int chunkCount, long extractDuration,
+    private void updateChunkLog(String logId, String status, int chunkCount, long extractDuration,
                                 long chunkDuration, long embeddingDuration, long totalDuration,
                                 String errorMessage) {
         KnowledgeDocumentChunkLogDO update = new KnowledgeDocumentChunkLogDO();
@@ -359,7 +350,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
      */
     private ChunkProcessResult runChunkProcess(KnowledgeDocumentDO documentDO) {
         ChunkingMode chunkingMode = resolveChunkingMode(documentDO.getChunkStrategy());
-        String embeddingModel = resolveEmbeddingModel(documentDO.getKbId());
+        KnowledgeBaseDO kbDO = kbMapper.selectById(documentDO.getKbId());
+        String embeddingModel = kbDO.getEmbeddingModel();
         ChunkingOptions config = buildChunkingOptions(chunkingMode, documentDO, embeddingModel);
 
         long extractStart = System.currentTimeMillis();
@@ -386,18 +378,15 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
      */
     private List<VectorChunk> runPipelineProcess(KnowledgeDocumentDO documentDO) {
         String docId = String.valueOf(documentDO.getId());
-        Long pipelineId = documentDO.getPipelineId();
+        String pipelineId = documentDO.getPipelineId();
 
         if (pipelineId == null) {
             throw new IllegalStateException("Pipeline模式下Pipeline ID为空：docId=" + docId);
         }
 
         KnowledgeBaseDO kbDO = kbMapper.selectById(documentDO.getKbId());
-        if (kbDO == null) {
-            throw new IllegalStateException("知识库不存在：kbId=" + documentDO.getKbId());
-        }
 
-        PipelineDefinition pipelineDef = ingestionPipelineService.getDefinition(String.valueOf(pipelineId));
+        PipelineDefinition pipelineDef = ingestionPipelineService.getDefinition(pipelineId);
 
         byte[] fileBytes;
         try (InputStream is = fileStorageService.openStream(documentDO.getFileUrl())) {
@@ -408,12 +397,13 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         IngestionContext context = IngestionContext.builder()
                 .taskId(docId)
-                .pipelineId(String.valueOf(pipelineId))
+                .pipelineId(pipelineId)
                 .rawBytes(fileBytes)
                 .mimeType(documentDO.getFileType())
                 .vectorSpaceId(VectorSpaceId.builder()
                         .logicalName(kbDO.getCollectionName())
                         .build())
+                .skipIndexerWrite(true)
                 .build();
 
         IngestionContext result = ingestionEngine.execute(pipelineDef, context);
@@ -438,7 +428,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         runChunkTask(documentDO);
     }
 
-    private void markChunkFailed(Long docId) {
+    private void markChunkFailed(String docId) {
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
         txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         txTemplate.executeWithoutResult(status -> {
@@ -456,11 +446,18 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         KnowledgeDocumentDO documentDO = docMapper.selectById(docId);
         Assert.notNull(documentDO, () -> new ClientException("文档不存在"));
 
+        knowledgeChunkService.deleteByDocId(docId);
+        scheduleService.deleteByDocId(docId);
+        chunkLogMapper.delete(Wrappers.lambdaQuery(KnowledgeDocumentChunkLogDO.class)
+                .eq(KnowledgeDocumentChunkLogDO::getDocId, docId));
+
         documentDO.setDeleted(1);
         documentDO.setUpdatedBy(UserContext.getUsername());
         docMapper.deleteById(documentDO);
 
-        vectorStoreService.deleteDocumentVectors(String.valueOf(documentDO.getKbId()), docId);
+        String collectionName = resolveCollectionName(documentDO.getKbId());
+        vectorStoreService.deleteDocumentVectors(collectionName, docId);
+        deleteStoredFileQuietly(documentDO);
     }
 
     @Override
@@ -489,20 +486,17 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     @Override
-    public IPage<KnowledgeDocumentVO> page(String kbId, Page<KnowledgeDocumentVO> page, String status, String keyword) {
-        Page<KnowledgeDocumentDO> mpPage = new Page<>(page.getCurrent(), page.getSize());
-        LambdaQueryWrapper<KnowledgeDocumentDO> qw = new LambdaQueryWrapper<KnowledgeDocumentDO>()
+    public IPage<KnowledgeDocumentVO> page(String kbId, KnowledgeDocumentPageRequest requestParam) {
+        Page<KnowledgeDocumentDO> pageParam = new Page<>(requestParam.getCurrent(), requestParam.getSize());
+        LambdaQueryWrapper<KnowledgeDocumentDO> queryWrapper = Wrappers.lambdaQuery(KnowledgeDocumentDO.class)
                 .eq(KnowledgeDocumentDO::getKbId, kbId)
                 .eq(KnowledgeDocumentDO::getDeleted, 0)
-                .like(keyword != null && !keyword.isBlank(), KnowledgeDocumentDO::getDocName, keyword)
-                .eq(status != null && !status.isBlank(), KnowledgeDocumentDO::getStatus, status)
+                .like(requestParam.getKeyword() != null && !requestParam.getKeyword().isBlank(), KnowledgeDocumentDO::getDocName, requestParam.getKeyword())
+                .eq(requestParam.getStatus() != null && !requestParam.getStatus().isBlank(), KnowledgeDocumentDO::getStatus, requestParam.getStatus())
                 .orderByDesc(KnowledgeDocumentDO::getCreateTime);
 
-        IPage<KnowledgeDocumentDO> result = docMapper.selectPage(mpPage, qw);
-
-        Page<KnowledgeDocumentVO> voPage = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
-        voPage.setRecords(result.getRecords().stream().map(each -> BeanUtil.toBean(each, KnowledgeDocumentVO.class)).toList());
-        return voPage;
+        return docMapper.selectPage(pageParam, queryWrapper)
+                .convert(each -> BeanUtil.toBean(each, KnowledgeDocumentVO.class));
     }
 
     @Override
@@ -526,7 +520,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             return records;
         }
 
-        Set<Long> kbIds = new HashSet<>();
+        Set<String> kbIds = new HashSet<>();
         for (KnowledgeDocumentSearchVO record : records) {
             if (record.getKbId() != null) {
                 kbIds.add(record.getKbId());
@@ -537,7 +531,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
 
         List<KnowledgeBaseDO> bases = kbMapper.selectByIds(kbIds);
-        Map<Long, String> nameMap = new HashMap<>();
+        Map<String, String> nameMap = new HashMap<>();
         if (bases != null) {
             for (KnowledgeBaseDO base : bases) {
                 nameMap.put(base.getId(), base.getName());
@@ -564,22 +558,26 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         if (!enabled) {
             // 禁用文档时，从向量库中删除对应的向量
-            vectorStoreService.deleteDocumentVectors(String.valueOf(documentDO.getKbId()), docId);
+            String collectionName = resolveCollectionName(documentDO.getKbId());
+            vectorStoreService.deleteDocumentVectors(collectionName, docId);
         } else {
             // 启用文档时，根据文档分块记录重建向量索引
-            String embeddingModel = resolveEmbeddingModel(documentDO.getKbId());
+            KnowledgeBaseDO kbDO = kbMapper.selectById(documentDO.getKbId());
+            String collectionName = kbDO.getCollectionName();
+            String embeddingModel = kbDO.getEmbeddingModel();
             List<KnowledgeChunkVO> chunks = knowledgeChunkService.listByDocId(docId);
             List<VectorChunk> vectorChunks = chunks.parallelStream().map(each -> {
                         List<Float> embed = embedContent(each.getContent(), embeddingModel);
                         return VectorChunk.builder()
                                 .chunkId(each.getId())
                                 .content(each.getContent())
+                                .index(each.getChunkIndex())
                                 .embedding(toArray(embed))
                                 .build();
                     })
                     .toList();
             if (CollUtil.isNotEmpty(vectorChunks)) {
-                vectorStoreService.indexDocumentChunks(String.valueOf(documentDO.getKbId()), docId, vectorChunks);
+                vectorStoreService.indexDocumentChunks(collectionName, docId, vectorChunks);
             }
         }
     }
@@ -594,9 +592,9 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         IPage<KnowledgeDocumentChunkLogDO> result = chunkLogMapper.selectPage(mpPage, qw);
 
         List<KnowledgeDocumentChunkLogDO> records = result.getRecords();
-        Map<Long, String> pipelineNameMap = new HashMap<>();
+        Map<String, String> pipelineNameMap = new HashMap<>();
         if (CollUtil.isNotEmpty(records)) {
-            Set<Long> pipelineIds = new HashSet<>();
+            Set<String> pipelineIds = new HashSet<>();
             for (KnowledgeDocumentChunkLogDO record : records) {
                 if (record.getPipelineId() != null) {
                     pipelineIds.add(record.getPipelineId());
@@ -639,12 +637,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 : totalDuration - extract - chunk - embedding;
     }
 
-    private String resolveEmbeddingModel(Long kbId) {
-        if (kbId == null) {
-            return null;
-        }
-        KnowledgeBaseDO kbDO = kbMapper.selectById(kbId);
-        return kbDO != null ? kbDO.getEmbeddingModel() : null;
+    private String resolveCollectionName(String kbId) {
+        return kbMapper.selectById(kbId).getCollectionName();
     }
 
     private List<Float> embedContent(String content, String embeddingModel) {
@@ -801,6 +795,17 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             }
         }
         return defaultValue;
+    }
+
+    private void deleteStoredFileQuietly(KnowledgeDocumentDO documentDO) {
+        if (documentDO == null || !StringUtils.hasText(documentDO.getFileUrl())) {
+            return;
+        }
+        try {
+            fileStorageService.deleteByUrl(documentDO.getFileUrl());
+        } catch (Exception e) {
+            log.warn("删除文档存储文件失败, docId={}, fileUrl={}", documentDO.getId(), documentDO.getFileUrl(), e);
+        }
     }
 
     private static float[] toArray(List<Float> list) {
