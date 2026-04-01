@@ -16,7 +16,7 @@ spring:
     driver-class-name: org.postgresql.Driver
     type: com.zaxxer.hikari.HikariDataSource
     username: postgres
-    password: postgres
+    password: 123456
     url: jdbc:postgresql://127.0.0.1:5432/ragent?client_encoding=UTF8
     hikari:
       connection-timeout: 5000
@@ -99,13 +99,14 @@ ai:
         embedding: /api/embed
     bailian:
       url: https://dashscope.aliyuncs.com
-      api-key: ${BAILIAN_API_KEY:}
+
+      api-key: sk-30d5eaf3dcaa464a930a2ada383414dd
       endpoints:
         chat: /compatible-mode/v1/chat/completions
         rerank: /api/v1/services/rerank/text-rerank/text-rerank
     siliconflow:
       url: https://api.siliconflow.cn
-      api-key: ${SILICONFLOW_API_KEY:}
+      api-key: sk-qkzmitcckbgdsoiurxxhghgwligkplxajdvyqnhtchiqdzag
       endpoints:
         chat: /v1/chat/completions
         embedding: /v1/embeddings

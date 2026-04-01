@@ -1,20 +1,3 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.nageoffer.ai.ragent.rag.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
@@ -44,6 +27,7 @@ import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
 import com.nageoffer.ai.ragent.rag.service.RAGChatService;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamCallbackFactory;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamTaskManager;
+import com.nageoffer.ai.ragent.interview.service.InterviewRetrieveService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,6 +35,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.CHAT_SYSTEM_PROMPT_PATH;
 import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.DEFAULT_TOP_K;
@@ -76,6 +61,7 @@ public class RAGChatServiceImpl implements RAGChatService {
     private final QueryRewriteService queryRewriteService;
     private final IntentResolver intentResolver;
     private final RetrievalEngine retrievalEngine;
+    private final InterviewRetrieveService interviewRetrieveService;
 
     @Override
     @ChatRateLimit
@@ -94,6 +80,20 @@ public class RAGChatServiceImpl implements RAGChatService {
 
         RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(question, history);
         List<SubQuestionIntent> subIntents = intentResolver.resolve(rewriteResult);
+
+        // 检查是否是面试相关问题
+        boolean isInterviewQuestion = isInterviewQuestion(rewriteResult.rewrittenQuestion());
+        if (isInterviewQuestion) {
+            handleInterviewQuestion(rewriteResult.rewrittenQuestion(), callback);
+            return;
+        }
+
+        // 检查是否是查看答案请求
+        boolean isViewAnswers = isViewAnswersRequest(rewriteResult.rewrittenQuestion());
+        if (isViewAnswers) {
+            handleViewAnswersRequest(rewriteResult.rewrittenQuestion(), callback);
+            return;
+        }
 
         GuidanceDecision guidanceDecision = guidanceService.detectAmbiguity(rewriteResult.rewrittenQuestion(), subIntents);
         if (guidanceDecision.isPrompt()) {
@@ -192,5 +192,143 @@ public class RAGChatServiceImpl implements RAGChatService {
                 .build();
 
         return llmService.streamChat(chatRequest, callback);
+    }
+
+    /**
+     * 检查是否是面试相关问题
+     * @param question 用户问题
+     * @return 是否是面试相关问题
+     */
+    private boolean isInterviewQuestion(String question) {
+        String lowerQuestion = question.toLowerCase();
+        return lowerQuestion.contains("面试") &&
+                (lowerQuestion.contains("python") ||
+                        lowerQuestion.contains("java") ||
+                        lowerQuestion.contains("前端") ||
+                        lowerQuestion.contains("算法"));
+    }
+
+    /**
+     * 检查是否是查看答案请求
+     * @param question 用户问题
+     * @return 是否是查看答案请求
+     */
+    private boolean isViewAnswersRequest(String question) {
+        String lowerQuestion = question.toLowerCase();
+        return lowerQuestion.contains("查看答案") ||
+                lowerQuestion.contains("参考答案") ||
+                lowerQuestion.contains("答案");
+    }
+
+    /**
+     * 处理面试相关问题
+     * @param question 用户问题
+     * @param callback 回调
+     */
+    private void handleInterviewQuestion(String question, StreamCallback callback) {
+        try {
+            // 解析问题，提取岗位信息
+            String positionId = extractPositionId(question);
+            int questionCount = 4; // 至少4个问题
+
+            // 调用InterviewRetrieveService获取多个不同难度的题目
+            Map<String, Object> result = interviewRetrieveService.selectMultipleQuestions(positionId, questionCount);
+
+            // 检查是否有错误
+            if (result.containsKey("error")) {
+                callback.onContent("处理面试问题失败: " + result.get("message"));
+                callback.onComplete();
+                return;
+            }
+
+            // 构建响应内容
+            StringBuilder response = new StringBuilder();
+            response.append("根据你的需求，我为你准备了以下").append(questionCount).append("个不同难度的面试题目：\n\n");
+
+            // 添加题目信息（只显示题目，不显示答案）
+            List<Map<String, Object>> questions = (List<Map<String, Object>>) result.get("questions");
+            if (questions != null && !questions.isEmpty()) {
+                for (int i = 0; i < questions.size(); i++) {
+                    Map<String, Object> questionInfo = questions.get(i);
+                    response.append(i + 1).append(". 题目：").append(questionInfo.get("questionText")).append("\n");
+                    response.append("   难度：").append(questionInfo.get("difficulty")).append("\n\n");
+                }
+            }
+
+            // 提示用户回答完所有问题后获取答案
+            response.append("请回答完所有问题后，输入'查看答案'来获取参考答案。\n");
+
+            // 发送响应
+            callback.onContent(response.toString());
+            callback.onComplete();
+        } catch (Exception e) {
+            log.error("处理面试问题失败", e);
+            callback.onContent("处理面试问题失败，请稍后重试");
+            callback.onComplete();
+        }
+    }
+
+    /**
+     * 处理查看答案请求
+     * @param question 用户问题
+     * @param callback 回调
+     */
+    private void handleViewAnswersRequest(String question, StreamCallback callback) {
+        try {
+            // 解析问题，提取岗位信息
+            String positionId = extractPositionId(question);
+            int questionCount = 4; // 至少4个问题
+
+            // 调用InterviewRetrieveService获取多个不同难度的题目（包含答案）
+            Map<String, Object> result = interviewRetrieveService.selectMultipleQuestions(positionId, questionCount);
+
+            // 检查是否有错误
+            if (result.containsKey("error")) {
+                callback.onContent("处理查看答案请求失败: " + result.get("message"));
+                callback.onComplete();
+                return;
+            }
+
+            // 构建响应内容
+            StringBuilder response = new StringBuilder();
+            response.append("以下是面试题目的参考答案：\n\n");
+
+            // 添加题目和答案信息
+            List<Map<String, Object>> questions = (List<Map<String, Object>>) result.get("questions");
+            if (questions != null && !questions.isEmpty()) {
+                for (int i = 0; i < questions.size(); i++) {
+                    Map<String, Object> questionInfo = questions.get(i);
+                    response.append(i + 1).append(". 题目：").append(questionInfo.get("questionText")).append("\n");
+                    response.append("   难度：").append(questionInfo.get("difficulty")).append("\n");
+                    response.append("   参考答案：").append(questionInfo.get("referenceAnswer")).append("\n\n");
+                }
+            }
+
+            // 发送响应
+            callback.onContent(response.toString());
+            callback.onComplete();
+        } catch (Exception e) {
+            log.error("处理查看答案请求失败", e);
+            callback.onContent("处理查看答案请求失败，请稍后重试");
+            callback.onComplete();
+        }
+    }
+
+    /**
+     * 从问题中提取岗位ID
+     * @param question 用户问题
+     * @return 岗位ID
+     */
+    private String extractPositionId(String question) {
+        String lowerQuestion = question.toLowerCase();
+        if (lowerQuestion.contains("python") && lowerQuestion.contains("算法")) {
+            return "pos_python_001";
+        } else if (lowerQuestion.contains("java")) {
+            return "pos_java_001";
+        } else if (lowerQuestion.contains("前端") || lowerQuestion.contains("web")) {
+            return "pos_web_001";
+        } else {
+            return "pos_java_001";
+        }
     }
 }

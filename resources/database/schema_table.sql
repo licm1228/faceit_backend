@@ -377,7 +377,7 @@ CREATE TABLE `t_sample_question`
     `id`          bigint(20) NOT NULL COMMENT 'ID',
     `title`       varchar(64)  DEFAULT NULL COMMENT '展示标题',
     `description` varchar(255) DEFAULT NULL COMMENT '描述或提示',
-    `question`    varchar(1024) NOT NULL COMMENT '示例问题内容',
+    `question`    varchar(1024) NOT NULL COMMENT '示例问题内容',git remote -v
     `create_time` datetime     DEFAULT NULL COMMENT '创建时间',
     `update_time` datetime     DEFAULT NULL COMMENT '更新时间',
     `deleted`     tinyint(4) DEFAULT '0' COMMENT '是否删除 0：正常 1：删除',
