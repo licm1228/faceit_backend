@@ -1,0 +1,94 @@
+package com.nageoffer.ai.ragent.interview.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
+import com.nageoffer.ai.ragent.interview.mapper.QuestionMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class QuestionService {
+
+    private final QuestionMapper questionMapper;
+
+    public List<QuestionEntity> getAllQuestions() {
+        LambdaQueryWrapper<QuestionEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(QuestionEntity::getDeleted, 0)
+                .orderByDesc(QuestionEntity::getCreateTime);
+        return questionMapper.selectList(wrapper);
+    }
+
+    public List<QuestionEntity> getQuestionsByPosition(String positionId) {
+        LambdaQueryWrapper<QuestionEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(QuestionEntity::getPositionId, positionId)
+                .eq(QuestionEntity::getDeleted, 0)
+                .orderByAsc(QuestionEntity::getDifficulty);
+        return questionMapper.selectList(wrapper);
+    }
+
+    public List<QuestionEntity> getQuestionsByType(String positionId, String questionType) {
+        LambdaQueryWrapper<QuestionEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(QuestionEntity::getPositionId, positionId)
+                .eq(QuestionEntity::getQuestionType, questionType)
+                .eq(QuestionEntity::getDeleted, 0);
+        return questionMapper.selectList(wrapper);
+    }
+
+    public QuestionEntity getQuestionById(String id) {
+        return questionMapper.selectById(id);
+    }
+
+    public QuestionEntity selectRandomQuestion(String positionId, Integer difficulty) {
+        LambdaQueryWrapper<QuestionEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(QuestionEntity::getPositionId, positionId)
+                .eq(QuestionEntity::getDeleted, 0);
+        if (difficulty != null) {
+            wrapper.eq(QuestionEntity::getDifficulty, difficulty);
+        }
+        // 不同数据库的随机排序语法不同
+        // MySQL使用ORDER BY RAND()
+        // PostgreSQL使用ORDER BY RANDOM()
+        wrapper.last("ORDER BY RANDOM() LIMIT 1");
+        QuestionEntity question = questionMapper.selectOne(wrapper);
+
+        // 如果没有找到题目，尝试不按难度筛选
+        if (question == null && difficulty != null) {
+            LambdaQueryWrapper<QuestionEntity> fallbackWrapper = new LambdaQueryWrapper<>();
+            fallbackWrapper.eq(QuestionEntity::getPositionId, positionId)
+                    .eq(QuestionEntity::getDeleted, 0);
+            fallbackWrapper.last("ORDER BY RANDOM() LIMIT 1");
+            question = questionMapper.selectOne(fallbackWrapper);
+        }
+
+        return question;
+    }
+
+    @Transactional
+    public QuestionEntity createQuestion(QuestionEntity entity) {
+        entity.setCreateTime(LocalDateTime.now());
+        entity.setUpdateTime(LocalDateTime.now());
+        entity.setDeleted(0);
+        questionMapper.insert(entity);
+        return entity;
+    }
+
+    @Transactional
+    public QuestionEntity updateQuestion(QuestionEntity entity) {
+        entity.setUpdateTime(LocalDateTime.now());
+        questionMapper.updateById(entity);
+        return entity;
+    }
+
+    @Transactional
+    public void deleteQuestion(String id) {
+        QuestionEntity entity = new QuestionEntity();
+        entity.setId(id);
+        entity.setDeleted(1);
+        entity.setUpdateTime(LocalDateTime.now());
+        questionMapper.updateById(entity);
+    }
+}
