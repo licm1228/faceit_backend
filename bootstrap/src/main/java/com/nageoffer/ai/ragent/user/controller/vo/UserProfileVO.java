@@ -15,26 +15,34 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.interview.entity;
+package com.nageoffer.ai.ragent.user.controller.vo;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
-import java.time.LocalDateTime;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 @Data
-@TableName("t_interview_answer")
-public class InterviewAnswerEntity {
-    @TableId(type = IdType.ASSIGN_ID)
-    private String id;
-    private String sessionId;
-    private String questionId;
-    private String userAnswer;
-    private Integer score;
-    private String feedback;
-    private String suggestions;
-    private LocalDateTime createTime;
-    private LocalDateTime updateTime;
-    private Integer deleted;
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class UserProfileVO {
+
+    private int totalSessions;
+
+    private int completedSessions;
+
+    private double averageScore;
+
+    private Integer lastScore;
+
+    private double averageDurationMinutes;
+
+    private String performanceLevel;
+
+    private String recommendation;
+
+    private List<String> weakTopics;
 }
