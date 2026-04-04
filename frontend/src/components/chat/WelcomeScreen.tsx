@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowUpRight, BookOpen, Bot, Brain, Check, Lightbulb, Send, Square } from "lucide-react";
+import { ArrowUpRight, BookOpen, Bot, Brain, Check, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { listSampleQuestions } from "@/services/sampleQuestionService";
@@ -39,11 +39,21 @@ const DEFAULT_PRESETS: PromptPreset[] = [
 export function WelcomeScreen() {
   const [value, setValue] = React.useState("");
   const [isFocused, setIsFocused] = React.useState(false);
+  const [isRecording, setIsRecording] = React.useState(false);
   const [promptPresets, setPromptPresets] = React.useState<PromptPreset[]>(DEFAULT_PRESETS);
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const audioChunksRef = React.useRef<Blob[]>([]);
   const { sendMessage, isStreaming, cancelGeneration, deepThinkingEnabled, setDeepThinkingEnabled } =
     useChatStore();
+
+  // 检测浏览器是否支持MediaRecorder API
+  const isMediaRecorderSupported = React.useMemo(() => {
+    const supported = typeof window !== 'undefined' && 'MediaRecorder' in window;
+    console.log('MediaRecorder support:', supported);
+    return supported;
+  }, []);
 
   const focusInput = React.useCallback(() => {
     const el = textareaRef.current;
@@ -124,6 +134,148 @@ export function WelcomeScreen() {
   };
 
   const hasContent = value.trim().length > 0;
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // 尝试使用支持的音频格式
+      let mimeType = 'audio/webm';
+      const types = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/wav'
+      ];
+
+      for (const type of types) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          mimeType = type;
+          break;
+        }
+      }
+
+      // 创建AudioContext和ScriptProcessorNode来直接获取PCM数据
+      const audioContext = new AudioContext({ sampleRate: 16000 });
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const pcmDataRef: Float32Array[] = [];
+
+      processor.onaudioprocess = (event) => {
+        const inputData = event.inputBuffer.getChannelData(0);
+        // 复制数据以避免被覆盖
+        const copyData = new Float32Array(inputData.length);
+        copyData.set(inputData);
+        pcmDataRef.push(copyData);
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        // 停止处理音频
+        source.disconnect();
+        processor.disconnect();
+
+        // 合并所有PCM数据
+        const totalLength = pcmDataRef.reduce((sum, data) => sum + data.length, 0);
+        const mergedData = new Float32Array(totalLength);
+        let offset = 0;
+        for (const data of pcmDataRef) {
+          mergedData.set(data, offset);
+          offset += data.length;
+        }
+
+        // 将Float32转换为Int16
+        const int16Data = new Int16Array(mergedData.length);
+        for (let i = 0; i < mergedData.length; i++) {
+          let s = Math.max(-1, Math.min(1, mergedData[i]));
+          int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+
+        // 将Int16数据转换为Base64
+        const uint8Data = new Uint8Array(int16Data.buffer);
+        let binary = '';
+        const len = uint8Data.byteLength;
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(uint8Data[i]);
+        }
+        const base64Audio = btoa(binary);
+
+        // 直接发送PCM数据
+        await recognizeSpeechPCM(base64Audio);
+
+        // 关闭媒体流
+        stream.getTracks().forEach(track => track.stop());
+        audioContext.close();
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error('无法访问麦克风:', error);
+      alert('无法访问麦克风，请检查权限设置');
+      setIsRecording(false);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const recognizeSpeechPCM = async (base64Audio: string) => {
+    console.log('开始识别PCM语音，Base64长度:', base64Audio.length);
+
+    try {
+      const response = await fetch('/api/ragent/speech/recognize/base64', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+          audio: base64Audio,
+          format: 'pcm',
+          sampleRate: '16000',
+          language: 'zh_cn'
+        })
+      });
+
+      console.log('语音识别响应状态:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('语音识别失败:', response.status, errorText);
+        throw new Error(`语音识别失败: ${response.status}`);
+      }
+
+      const text = await response.text();
+      console.log('识别结果:', text);
+
+      if (text) {
+        setValue(text);
+        focusInput();
+      } else {
+        alert('未识别到语音内容，请重试');
+      }
+    } catch (error) {
+      console.error('语音识别错误:', error);
+      alert('语音识别失败，请重试');
+    }
+  };
 
   return (
     <div className="relative flex min-h-full items-center justify-center overflow-hidden px-4 py-16 sm:px-6">
@@ -226,22 +378,40 @@ export function WelcomeScreen() {
                   ) : null}
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={!hasContent && !isStreaming}
-                aria-label={isStreaming ? "停止生成" : "发送消息"}
-                className={cn(
-                  "ml-auto inline-flex items-center justify-center rounded-full p-2.5 transition-all duration-200",
-                  isStreaming
-                    ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
-                    : hasContent
-                      ? "bg-[#3B82F6] text-white hover:bg-[#2563EB]"
-                      : "cursor-not-allowed bg-[#F5F5F5] text-[#CCCCCC]"
+              <div className="flex items-center gap-2">
+                {isMediaRecorderSupported && (
+                  <button
+                    type="button"
+                    onClick={isRecording ? stopRecording : startRecording}
+                    disabled={isStreaming}
+                    aria-label={isRecording ? "停止录音" : "开始录音"}
+                    className={cn(
+                      "rounded-full p-2.5 transition-all duration-200",
+                      isRecording
+                        ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
+                        : "bg-[#F5F5F5] text-[#666666] hover:bg-[#EEEEEE]"
+                    )}
+                  >
+                    {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </button>
                 )}
-              >
-                {isStreaming ? <Square className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={!hasContent && !isStreaming}
+                  aria-label={isStreaming ? "停止生成" : "发送消息"}
+                  className={cn(
+                    "ml-auto rounded-full p-2.5 transition-all duration-200",
+                    isStreaming
+                      ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
+                      : hasContent
+                        ? "bg-[#3B82F6] text-white hover:bg-[#2563EB]"
+                        : "cursor-not-allowed bg-[#F5F5F5] text-[#CCCCCC]"
+                  )}
+                >
+                  {isStreaming ? <Square className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
           </div>
           {deepThinkingEnabled ? (
