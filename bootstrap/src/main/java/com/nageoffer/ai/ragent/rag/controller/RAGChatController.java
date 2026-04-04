@@ -46,9 +46,9 @@ public class RAGChatController {
             message = "当前会话处理中，请稍后再发起新的对话"
     )
     @GetMapping(value = "/rag/v3/chat", produces = "text/event-stream;charset=UTF-8")
-    public SseEmitter chat(@RequestParam String question,
-                           @RequestParam(required = false) String conversationId,
-                           @RequestParam(required = false, defaultValue = "false") Boolean deepThinking) {
+    public SseEmitter chat(@RequestParam("question") String question,
+                           @RequestParam(value = "conversationId", required = false) String conversationId,
+                           @RequestParam(value = "deepThinking", required = false, defaultValue = "false") Boolean deepThinking) {
         SseEmitter emitter = new SseEmitter(0L);
         ragChatService.streamChat(question, conversationId, deepThinking, emitter);
         return emitter;
