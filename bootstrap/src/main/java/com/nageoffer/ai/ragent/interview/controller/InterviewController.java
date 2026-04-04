@@ -1,12 +1,19 @@
 package com.nageoffer.ai.ragent.interview.controller;
 
+import com.nageoffer.ai.ragent.interview.entity.InterviewAnswerEntity;
+import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
+import com.nageoffer.ai.ragent.interview.service.AIEvaluationService;
+import com.nageoffer.ai.ragent.interview.service.InterviewAnswerService;
 import com.nageoffer.ai.ragent.interview.service.InterviewRetrieveService;
+import com.nageoffer.ai.ragent.interview.service.InterviewSessionService;
 import com.nageoffer.ai.ragent.interview.service.QuestionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -16,9 +23,183 @@ public class InterviewController {
 
     private final QuestionService questionService;
     private final InterviewRetrieveService interviewRetrieveService;
+    private final InterviewSessionService interviewSessionService;
+    private final InterviewAnswerService interviewAnswerService;
+    private final AIEvaluationService aiEvaluationService;
 
     /**
-     * AI 面试官选题
+     * 创建面试会话
+     * @param userId 用户ID
+     * @param positionId 岗位ID
+     * @return 会话信息
+     */
+    @PostMapping("/create-session")
+    public Map<String, Object> createSession(
+            @RequestParam String userId,
+            @RequestParam String positionId) {
+
+        InterviewSessionEntity session = interviewSessionService.createSession(userId, positionId);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("data", session);
+        return result;
+    }
+
+    /**
+     * 开始面试
+     * @param sessionId 会话ID
+     * @return 会话信息
+     */
+    @PostMapping("/start-session")
+    public Map<String, Object> startSession(
+            @RequestParam String sessionId) {
+
+        InterviewSessionEntity session = interviewSessionService.startSession(sessionId);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("data", session);
+        return result;
+    }
+
+    /**
+     * 获取面试题目
+     * @param sessionId 会话ID
+     * @param difficulty 难度（可选，1-5）
+     * @return 题目信息
+     */
+    @GetMapping("/get-question")
+    public Map<String, Object> getQuestion(
+            @RequestParam String sessionId,
+            @RequestParam(required = false) Integer difficulty) {
+
+        InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
+        QuestionEntity question = questionService.selectRandomQuestion(session.getPositionId(), difficulty);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("data", question);
+        return result;
+    }
+
+    /**
+     * 提交回答并评估
+     * @param sessionId 会话ID
+     * @param questionId 题目ID
+     * @param userAnswer 学生回答
+     * @return 评估结果
+     */
+    @PostMapping("/submit-answer")
+    public Map<String, Object> submitAnswer(
+            @RequestParam String sessionId,
+            @RequestParam String questionId,
+            @RequestBody String userAnswer) {
+
+        // 保存回答
+        InterviewAnswerEntity answer = interviewAnswerService.saveAnswer(sessionId, questionId, userAnswer);
+
+        // 获取题目信息
+        QuestionEntity question = questionService.getQuestionById(questionId);
+
+        // AI评估回答
+        Map<String, Object> evaluation = aiEvaluationService.evaluateAnswer(question, userAnswer);
+
+        // 更新评估结果
+        interviewAnswerService.evaluateAnswer(answer.getId(),
+                (Integer) evaluation.get("score"),
+                (String) evaluation.get("feedback"),
+                (String) evaluation.get("suggestions"));
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("data", evaluation);
+        return result;
+    }
+
+    /**
+     * 完成面试并生成报告
+     * @param sessionId 会话ID
+     * @return 评估报告
+     */
+    @PostMapping("/complete-session")
+    public Map<String, Object> completeSession(
+            @RequestParam String sessionId) {
+
+        // 获取所有回答
+        List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(sessionId);
+
+        // 计算总分
+        int totalScore = 0;
+        List<Map<String, Object>> answerEvaluations = new ArrayList<>();
+        for (InterviewAnswerEntity answer : answers) {
+            totalScore += answer.getScore();
+            Map<String, Object> eval = new HashMap<>();
+            eval.put("score", answer.getScore());
+            eval.put("feedback", answer.getFeedback());
+            eval.put("suggestions", answer.getSuggestions());
+            answerEvaluations.add(eval);
+        }
+
+        // 生成评估报告
+        String evaluationReport = aiEvaluationService.generateEvaluationReport(
+                sessionId,
+                answerEvaluations.toArray(new Map[0])
+        );
+
+        // 完成会话
+        InterviewSessionEntity session = interviewSessionService.completeSession(
+                sessionId,
+                totalScore,
+                evaluationReport
+        );
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("data", session);
+        return result;
+    }
+
+    /**
+     * 获取用户面试历史
+     * @param userId 用户ID
+     * @return 面试历史列表
+     */
+    @GetMapping("/history")
+    public Map<String, Object> getInterviewHistory(
+            @RequestParam String userId) {
+
+        List<InterviewSessionEntity> sessions = interviewSessionService.getSessionsByUserId(userId);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("data", sessions);
+        return result;
+    }
+
+    /**
+     * 获取面试详情和评估报告
+     * @param sessionId 会话ID
+     * @return 面试详情
+     */
+    @GetMapping("/session-detail")
+    public Map<String, Object> getSessionDetail(
+            @RequestParam String sessionId) {
+
+        InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
+        List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(sessionId);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        Map<String, Object> data = new HashMap<>();
+        data.put("session", session);
+        data.put("answers", answers);
+        result.put("data", data);
+        return result;
+    }
+
+    /**
+     * AI 面试官选题（保留原有接口）
      * @param positionId 岗位ID
      * @param difficulty 难度（可选，1-5）
      * @return 题目信息
@@ -37,7 +218,7 @@ public class InterviewController {
     }
 
     /**
-     * AI 面试官选题并检索相关知识库内容
+     * AI 面试官选题并检索相关知识库内容（保留原有接口）
      * @param positionId 岗位ID
      * @param difficulty 难度（可选，1-5）
      * @return 题目信息和相关知识库内容
@@ -53,28 +234,5 @@ public class InterviewController {
         response.put("code", 200);
         response.put("data", result);
         return response;
-    }
-
-    /**
-     * 评估学生回答（模拟）
-     */
-    @PostMapping("/evaluate")
-    public Map<String, Object> evaluate(
-            @RequestParam String questionId,
-            @RequestBody String userAnswer) {
-
-        QuestionEntity question = questionService.getQuestionById(questionId);
-
-        // TODO: 调用 AI 评估回答质量
-        // 这里先返回模拟数据
-        Map<String, Object> evaluation = new HashMap<>();
-        evaluation.put("score", 85);
-        evaluation.put("feedback", "回答不错，技术点覆盖全面");
-        evaluation.put("suggestions", "可以再深入讲解一下红黑树");
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("data", evaluation);
-        return result;
     }
 }
