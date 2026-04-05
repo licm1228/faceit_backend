@@ -45,6 +45,26 @@ public class InterviewAnswerService {
     }
 
     @Transactional
+    public InterviewAnswerEntity evaluateAnswer(String answerId, Integer score, Integer technicalScore,
+                                              Integer expressionScore, Integer logicScore,
+                                              Integer knowledgeScore, String feedback, String suggestions) {
+        InterviewAnswerEntity entity = interviewAnswerMapper.selectById(answerId);
+        if (entity != null) {
+            entity.setScore(score);
+            entity.setTechnicalScore(technicalScore);
+            entity.setExpressionScore(expressionScore);
+            entity.setLogicScore(logicScore);
+            entity.setKnowledgeScore(knowledgeScore);
+            entity.setFeedback(feedback);
+            entity.setSuggestions(suggestions);
+            entity.setIsCorrect(score >= 60);
+            entity.setUpdateTime(LocalDateTime.now());
+            interviewAnswerMapper.updateById(entity);
+        }
+        return entity;
+    }
+
+    @Transactional
     public void deleteAnswer(String id) {
         InterviewAnswerEntity entity = new InterviewAnswerEntity();
         entity.setId(id);
