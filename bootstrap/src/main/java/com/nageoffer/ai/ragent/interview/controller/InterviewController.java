@@ -47,6 +47,29 @@ public class InterviewController {
     }
 
     /**
+     * 创建面试会话（带时间限制和题目数量）
+     * @param userId 用户ID
+     * @param positionId 岗位ID
+     * @param timeLimit 时间限制（分钟）
+     * @param totalQuestions 题目数量
+     * @return 会话信息
+     */
+    @PostMapping("/create-session-with-options")
+    public Map<String, Object> createSessionWithOptions(
+            @RequestParam String userId,
+            @RequestParam String positionId,
+            @RequestParam(required = false) Integer timeLimit,
+            @RequestParam(required = false) Integer totalQuestions) {
+
+        InterviewSessionEntity session = interviewSessionService.createSession(userId, positionId, timeLimit, totalQuestions);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("data", session);
+        return result;
+    }
+
+    /**
      * 开始面试
      * @param sessionId 会话ID
      * @return 会话信息
@@ -76,6 +99,9 @@ public class InterviewController {
 
         InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
         QuestionEntity question = questionService.selectRandomQuestion(session.getPositionId(), difficulty);
+
+        // 增加题目计数
+        interviewSessionService.incrementQuestionCount(sessionId);
 
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
@@ -108,12 +134,41 @@ public class InterviewController {
         // 更新评估结果
         interviewAnswerService.evaluateAnswer(answer.getId(),
                 (Integer) evaluation.get("score"),
+                (Integer) evaluation.get("technicalScore"),
+                (Integer) evaluation.get("expressionScore"),
+                (Integer) evaluation.get("logicScore"),
+                (Integer) evaluation.get("knowledgeScore"),
                 (String) evaluation.get("feedback"),
                 (String) evaluation.get("suggestions"));
 
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("data", evaluation);
+        return result;
+    }
+
+    /**
+     * 生成追问
+     * @param sessionId 会话ID
+     * @param questionId 原题目ID
+     * @param userAnswer 用户回答
+     * @return 追问题目
+     */
+    @PostMapping("/ask-follow-up")
+    public Map<String, Object> askFollowUp(
+            @RequestParam String sessionId,
+            @RequestParam String questionId,
+            @RequestBody String userAnswer) {
+
+        // 获取原题目
+        QuestionEntity originalQuestion = questionService.getQuestionById(questionId);
+
+        // 生成追问
+        QuestionEntity followUpQuestion = aiEvaluationService.generateFollowUpQuestion(originalQuestion, userAnswer);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("data", followUpQuestion);
         return result;
     }
 
@@ -136,6 +191,10 @@ public class InterviewController {
             totalScore += answer.getScore();
             Map<String, Object> eval = new HashMap<>();
             eval.put("score", answer.getScore());
+            eval.put("technicalScore", answer.getTechnicalScore());
+            eval.put("expressionScore", answer.getExpressionScore());
+            eval.put("logicScore", answer.getLogicScore());
+            eval.put("knowledgeScore", answer.getKnowledgeScore());
             eval.put("feedback", answer.getFeedback());
             eval.put("suggestions", answer.getSuggestions());
             answerEvaluations.add(eval);

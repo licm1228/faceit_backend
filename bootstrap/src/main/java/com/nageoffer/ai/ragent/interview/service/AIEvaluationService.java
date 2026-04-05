@@ -35,6 +35,10 @@ public class AIEvaluationService {
             // 返回默认评估结果
             Map<String, Object> defaultEvaluation = new HashMap<>();
             defaultEvaluation.put("score", 0);
+            defaultEvaluation.put("technicalScore", 0);
+            defaultEvaluation.put("expressionScore", 0);
+            defaultEvaluation.put("logicScore", 0);
+            defaultEvaluation.put("knowledgeScore", 0);
             defaultEvaluation.put("feedback", "评估服务暂时不可用");
             defaultEvaluation.put("suggestions", "请稍后再试");
             return defaultEvaluation;
@@ -61,6 +65,37 @@ public class AIEvaluationService {
         }
     }
 
+    /**
+     * 生成追问
+     * @param question 原题目
+     * @param userAnswer 用户回答
+     * @return 追问题目
+     */
+    public QuestionEntity generateFollowUpQuestion(QuestionEntity question, String userAnswer) {
+        // 构建追问提示词
+        String prompt = buildFollowUpPrompt(question, userAnswer);
+
+        try {
+            // 调用LLM服务生成追问
+            String followUpResult = llmService.chat(prompt);
+            System.out.println("Follow-up Question: " + followUpResult);
+
+            // 解析追问结果
+            QuestionEntity followUpQuestion = new QuestionEntity();
+            followUpQuestion.setParentQuestionId(question.getId());
+            followUpQuestion.setPositionId(question.getPositionId());
+            followUpQuestion.setQuestionType(question.getQuestionType());
+            followUpQuestion.setDifficulty(question.getDifficulty());
+            followUpQuestion.setQuestionText(followUpResult);
+            followUpQuestion.setReferenceAnswer("");
+            followUpQuestion.setKeywords(question.getKeywords());
+            return followUpQuestion;
+        } catch (Exception e) {
+            System.err.println("Follow-up generation error: " + e.getMessage());
+            return null;
+        }
+    }
+
     private String buildEvaluationPrompt(QuestionEntity question, String userAnswer) {
         return "你是一位专业的技术面试官，请评估以下学生的回答：\n" +
                 "题目：" + question.getQuestionText() + "\n" +
@@ -68,14 +103,17 @@ public class AIEvaluationService {
                 "学生回答：" + userAnswer + "\n" +
                 "请从以下几个方面进行评估：\n" +
                 "1. 技术准确性（0-30分）\n" +
-                "2. 完整性（0-25分）\n" +
-                "3. 深度和广度（0-20分）\n" +
-                "4. 表达清晰度（0-15分）\n" +
-                "5. 逻辑连贯性（0-10分）\n" +
+                "2. 表达能力（0-25分）\n" +
+                "3. 逻辑清晰度（0-25分）\n" +
+                "4. 知识覆盖度（0-20分）\n" +
                 "总分为各项之和（0-100分）\n" +
                 "同时提供详细的反馈和改进建议。\n" +
                 "请按照以下格式输出：\n" +
                 "评分：[总分]\n" +
+                "技术准确性：[分数]\n" +
+                "表达能力：[分数]\n" +
+                "逻辑清晰度：[分数]\n" +
+                "知识覆盖度：[分数]\n" +
                 "反馈：[详细反馈]\n" +
                 "建议：[改进建议]";
     }
@@ -88,6 +126,10 @@ public class AIEvaluationService {
             Map<String, Object> answer = answers[i];
             prompt.append("问题").append(i + 1).append("：\n");
             prompt.append("评分：").append(answer.get("score")).append("\n");
+            prompt.append("技术准确性：").append(answer.get("technicalScore")).append("\n");
+            prompt.append("表达能力：").append(answer.get("expressionScore")).append("\n");
+            prompt.append("逻辑清晰度：").append(answer.get("logicScore")).append("\n");
+            prompt.append("知识覆盖度：").append(answer.get("knowledgeScore")).append("\n");
             prompt.append("反馈：").append(answer.get("feedback")).append("\n");
             prompt.append("建议：").append(answer.get("suggestions")).append("\n\n");
         }
@@ -103,11 +145,26 @@ public class AIEvaluationService {
         return prompt.toString();
     }
 
+    private String buildFollowUpPrompt(QuestionEntity question, String userAnswer) {
+        return "你是一位专业的技术面试官，根据以下题目和学生回答，生成一个相关的追问：\n" +
+                "题目：" + question.getQuestionText() + "\n" +
+                "学生回答：" + userAnswer + "\n" +
+                "要求：\n" +
+                "1. 追问应该针对学生回答中的薄弱环节或需要进一步澄清的地方\n" +
+                "2. 追问应该与原题目相关，能够深入了解学生的技术水平\n" +
+                "3. 追问应该简洁明了，直击问题核心\n" +
+                "4. 只输出追问内容，不要添加任何其他说明";
+    }
+
     private Map<String, Object> parseEvaluationResult(String result) {
         Map<String, Object> evaluation = new HashMap<>();
 
         // 设置默认值，防止空结果
         evaluation.put("score", 0);
+        evaluation.put("technicalScore", 0);
+        evaluation.put("expressionScore", 0);
+        evaluation.put("logicScore", 0);
+        evaluation.put("knowledgeScore", 0);
         evaluation.put("feedback", "");
         evaluation.put("suggestions", "");
 
@@ -134,6 +191,12 @@ public class AIEvaluationService {
                     evaluation.put("score", 0);
                 }
             }
+
+            // 提取各维度评分
+            extractScore(result, "技术准确性：", "technicalScore", evaluation);
+            extractScore(result, "表达能力：", "expressionScore", evaluation);
+            extractScore(result, "逻辑清晰度：", "logicScore", evaluation);
+            extractScore(result, "知识覆盖度：", "knowledgeScore", evaluation);
 
             // 尝试提取反馈
             int feedbackIndex = result.indexOf("反馈：");
@@ -163,4 +226,20 @@ public class AIEvaluationService {
         return evaluation;
     }
 
+    private void extractScore(String result, String prefix, String key, Map<String, Object> evaluation) {
+        int index = result.indexOf(prefix);
+        if (index != -1) {
+            int endIndex = result.indexOf("\n", index);
+            if (endIndex == -1) endIndex = result.length();
+            String scoreStr = result.substring(index + prefix.length(), endIndex).trim();
+            try {
+                scoreStr = scoreStr.replaceAll("[^0-9]", "");
+                if (!scoreStr.isEmpty()) {
+                    evaluation.put(key, Integer.parseInt(scoreStr));
+                }
+            } catch (NumberFormatException e) {
+                evaluation.put(key, 0);
+            }
+        }
+    }
 }

@@ -33,6 +33,23 @@ public class InterviewSessionService {
         entity.setUserId(userId);
         entity.setPositionId(positionId);
         entity.setStatus("pending");
+        entity.setCurrentQuestionCount(0);
+        entity.setCreateTime(LocalDateTime.now());
+        entity.setUpdateTime(LocalDateTime.now());
+        entity.setDeleted(0);
+        interviewSessionMapper.insert(entity);
+        return entity;
+    }
+
+    @Transactional
+    public InterviewSessionEntity createSession(String userId, String positionId, Integer timeLimit, Integer totalQuestions) {
+        InterviewSessionEntity entity = new InterviewSessionEntity();
+        entity.setUserId(userId);
+        entity.setPositionId(positionId);
+        entity.setStatus("pending");
+        entity.setCurrentQuestionCount(0);
+        entity.setTimeLimit(timeLimit);
+        entity.setTotalQuestions(totalQuestions);
         entity.setCreateTime(LocalDateTime.now());
         entity.setUpdateTime(LocalDateTime.now());
         entity.setDeleted(0);
@@ -64,6 +81,16 @@ public class InterviewSessionService {
             interviewSessionMapper.updateById(entity);
         }
         return entity;
+    }
+
+    @Transactional
+    public void incrementQuestionCount(String sessionId) {
+        InterviewSessionEntity entity = interviewSessionMapper.selectById(sessionId);
+        if (entity != null) {
+            entity.setCurrentQuestionCount(entity.getCurrentQuestionCount() + 1);
+            entity.setUpdateTime(LocalDateTime.now());
+            interviewSessionMapper.updateById(entity);
+        }
     }
 
     @Transactional

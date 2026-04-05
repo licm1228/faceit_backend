@@ -16,8 +16,9 @@ public class QuestionEntity {
     private Integer difficulty;
     private String questionText;
     private String referenceAnswer;
-    private String[] keywords;
+    private String keywords;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private Integer deleted;
+    private String parentQuestionId; // 新增
 }
