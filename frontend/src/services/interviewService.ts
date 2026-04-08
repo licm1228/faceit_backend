@@ -125,3 +125,8 @@ export async function getInterviewSessionDetail(sessionId: string) {
   const query = new URLSearchParams({ sessionId });
   return api.get<SessionDetail>(`/interview/session-detail?${query.toString()}`);
 }
+
+export async function listInterviewSessionsByUser(userId: string) {
+  const query = new URLSearchParams({ userId });
+  return api.get<InterviewSession[]>(`/interview/history?${query.toString()}`);
+}

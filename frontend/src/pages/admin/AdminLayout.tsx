@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Briefcase,
   FileQuestion,
+  ClipboardCheck,
   KeyRound,
   Search,
   Settings,
@@ -140,6 +141,11 @@ const menuGroups: MenuGroup[] = [
             path: "/admin/interview/questions",
             label: "题库管理",
             icon: FileQuestion
+          },
+          {
+            path: "/admin/interview/sessions",
+            label: "会话查询",
+            icon: ClipboardCheck
           }
         ]
       },
@@ -185,7 +191,8 @@ const breadcrumbMap: Record<string, string> = {
   users: "用户管理",
   interview: "面试系统",
   positions: "岗位管理",
-  questions: "题库管理"
+  questions: "题库管理",
+  sessions: "会话查询"
 };
 
 export function AdminLayout() {

@@ -21,6 +21,7 @@ import { QueryTermMappingPage } from "@/pages/admin/query-term-mapping/QueryTerm
 import { UserListPage } from "@/pages/admin/users/UserListPage";
 import { PositionManagementPage } from "@/pages/admin/interview/PositionManagementPage";
 import { QuestionManagementPage } from "@/pages/admin/interview/QuestionManagementPage";
+import { InterviewSessionsPage } from "@/pages/admin/interview/InterviewSessionsPage";
 import { useAuthStore } from "@/stores/authStore";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -171,6 +172,10 @@ export const router = createBrowserRouter([
       {
         path: "interview/questions",
         element: <QuestionManagementPage />
+      },
+      {
+        path: "interview/sessions",
+        element: <InterviewSessionsPage />
       }
     ]
   },
