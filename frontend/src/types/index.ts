@@ -47,3 +47,18 @@ export interface CompletionPayload {
   messageId?: string | null;
   title?: string | null;
 }
+
+export interface InterviewPosition {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface InterviewQuestion {
+  id: string;
+  positionId: string;
+  questionType?: string;
+  difficulty?: number;
+  questionText: string;
+  referenceAnswer?: string;
+}

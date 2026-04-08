@@ -213,6 +213,22 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   <span className="block text-xs text-[#94A3B8]">从空白开始</span>
                 </span>
               </button>
+              <button
+                type="button"
+                className="mt-2 flex w-full items-center gap-3 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-left transition-colors hover:bg-[#DBEAFE]"
+                onClick={() => {
+                  navigate("/interview");
+                  onClose();
+                }}
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-[0_6px_14px_rgba(37,99,235,0.3)]">
+                  <MessageSquare className="h-4 w-4" />
+                </span>
+                <span className="flex-1">
+                  <span className="block text-sm font-semibold text-[#1F2937]">模拟面试</span>
+                  <span className="block text-xs text-[#64748B]">岗位选题与评估</span>
+                </span>
+              </button>
               {user?.role === "admin" ? (
                 <button
                   type="button"

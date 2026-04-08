@@ -30,7 +30,9 @@ api.interceptors.response.use(
   (response) => {
     const payload = response.data;
     if (payload && typeof payload === "object" && "code" in payload) {
-      if (payload.code !== "0") {
+      const code = payload.code;
+      const isSuccess = code === "0" || code === 0 || code === 200 || code === "200";
+      if (!isSuccess) {
         const message = payload.message || "请求失败";
         const isAuthExpired = typeof message === "string" && message.includes("未登录");
         if (isAuthExpired) {

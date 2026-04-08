@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Github, Menu } from "lucide-react";
+import { useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chatStore";
@@ -9,6 +10,7 @@ interface HeaderProps {
 }
 
 export function Header({ onToggleSidebar }: HeaderProps) {
+  const location = useLocation();
   const { currentSessionId, sessions } = useChatStore();
   const [starCount, setStarCount] = React.useState<number | null>(null);
   const currentSession = React.useMemo(
@@ -43,6 +45,13 @@ export function Header({ onToggleSidebar }: HeaderProps) {
     return `${text}k`;
   }, [starCount]);
 
+  const pageTitle = React.useMemo(() => {
+    if (location.pathname.startsWith("/interview")) {
+      return "模拟面试";
+    }
+    return currentSession?.title || "新对话";
+  }, [currentSession?.title, location.pathname]);
+
   return (
     <header className="sticky top-0 z-20 bg-white">
       <div className="flex h-16 items-center justify-between px-6">
@@ -56,9 +65,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <p className="text-base font-medium text-gray-900">
-            {currentSession?.title || "新对话"}
-          </p>
+          <p className="text-base font-medium text-gray-900">{pageTitle}</p>
         </div>
         <div className="flex items-center gap-2">
           <a
