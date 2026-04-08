@@ -4,6 +4,8 @@ export interface Position {
   id: string;
   name: string;
   description?: string;
+  requiredSkills?: string;
+  interviewFocus?: string;
 }
 
 export interface Question {
@@ -48,6 +50,38 @@ export interface SessionDetail {
 
 export async function listPositions() {
   return api.get<Position[]>("/position/list");
+}
+
+export async function createPosition(payload: Partial<Position>) {
+  return api.post<Position>("/position/create", payload);
+}
+
+export async function updatePosition(payload: Partial<Position> & { id: string }) {
+  return api.put<Position>("/position/update", payload);
+}
+
+export async function deletePosition(id: string) {
+  return api.delete<void>(`/position/${id}`);
+}
+
+export async function listQuestions() {
+  return api.get<Question[]>("/question/list");
+}
+
+export async function listQuestionsByPosition(positionId: string) {
+  return api.get<Question[]>(`/question/by-position/${positionId}`);
+}
+
+export async function createQuestion(payload: Partial<Question>) {
+  return api.post<Question>("/question/create", payload);
+}
+
+export async function updateQuestion(payload: Partial<Question> & { id: string }) {
+  return api.put<Question>("/question/update", payload);
+}
+
+export async function deleteQuestion(id: string) {
+  return api.delete<void>(`/question/${id}`);
 }
 
 export async function createInterviewSession(userId: string, positionId: string) {

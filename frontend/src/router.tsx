@@ -19,6 +19,8 @@ import { SystemSettingsPage } from "@/pages/admin/settings/SystemSettingsPage";
 import { SampleQuestionPage } from "@/pages/admin/sample-questions/SampleQuestionPage";
 import { QueryTermMappingPage } from "@/pages/admin/query-term-mapping/QueryTermMappingPage";
 import { UserListPage } from "@/pages/admin/users/UserListPage";
+import { PositionManagementPage } from "@/pages/admin/interview/PositionManagementPage";
+import { QuestionManagementPage } from "@/pages/admin/interview/QuestionManagementPage";
 import { useAuthStore } from "@/stores/authStore";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -161,6 +163,14 @@ export const router = createBrowserRouter([
       {
         path: "users",
         element: <UserListPage />
+      },
+      {
+        path: "interview/positions",
+        element: <PositionManagementPage />
+      },
+      {
+        path: "interview/questions",
+        element: <QuestionManagementPage />
       }
     ]
   },

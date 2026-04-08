@@ -15,6 +15,8 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  Briefcase,
+  FileQuestion,
   KeyRound,
   Search,
   Settings,
@@ -124,6 +126,24 @@ const menuGroups: MenuGroup[] = [
         icon: KeyRound
       },
       {
+        id: "interview",
+        path: "/admin/interview/positions",
+        label: "面试系统",
+        icon: MessageSquare,
+        children: [
+          {
+            path: "/admin/interview/positions",
+            label: "岗位管理",
+            icon: Briefcase
+          },
+          {
+            path: "/admin/interview/questions",
+            label: "题库管理",
+            icon: FileQuestion
+          }
+        ]
+      },
+      {
         path: "/admin/traces",
         label: "链路追踪",
         icon: Workflow
@@ -162,7 +182,10 @@ const breadcrumbMap: Record<string, string> = {
   "sample-questions": "示例问题",
   mappings: "关键词映射",
   settings: "系统设置",
-  users: "用户管理"
+  users: "用户管理",
+  interview: "面试系统",
+  positions: "岗位管理",
+  questions: "题库管理"
 };
 
 export function AdminLayout() {
@@ -178,7 +201,7 @@ export function AdminLayout() {
     confirmPassword: ""
   });
   const [starCount, setStarCount] = useState<number | null>(null);
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ ingestion: true, intent: true });
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ ingestion: true, intent: true, interview: true });
   const [kbQuery, setKbQuery] = useState("");
   const [kbOptions, setKbOptions] = useState<KnowledgeBase[]>([]);
   const [docOptions, setDocOptions] = useState<KnowledgeDocumentSearchItem[]>([]);
@@ -298,6 +321,11 @@ export function AdminLayout() {
       }
     }
 
+    if (section === "interview" && segments.length > 2) {
+      const child = segments[2];
+      items.push({ label: breadcrumbMap[child] || child });
+    }
+
     if (section === "knowledge" && segments.length > 2) {
       items.push({ label: "文档管理" });
     }
@@ -326,14 +354,16 @@ export function AdminLayout() {
   const isIngestionActive = location.pathname.startsWith("/admin/ingestion");
   const isIntentActive =
     location.pathname.startsWith("/admin/intent-tree") || location.pathname.startsWith("/admin/intent-list");
+  const isInterviewActive = location.pathname.startsWith("/admin/interview/");
 
   useEffect(() => {
     setOpenGroups((prev) => ({
       ...prev,
       ingestion: prev.ingestion || isIngestionActive,
-      intent: prev.intent || isIntentActive
+      intent: prev.intent || isIntentActive,
+      interview: prev.interview || isInterviewActive
     }));
-  }, [isIngestionActive, isIntentActive]);
+  }, [isIngestionActive, isIntentActive, isInterviewActive]);
 
   const handlePasswordSubmit = async () => {
     if (!passwordForm.currentPassword || !passwordForm.newPassword) {
