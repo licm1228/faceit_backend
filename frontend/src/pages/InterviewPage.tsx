@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Mic, MicOff, Timer } from "lucide-react";
 import { toast } from "sonner";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -161,6 +162,15 @@ export function InterviewPage() {
   const progressPercent = Math.min(100, Math.round((Math.max(questionIndex, 1) / QUESTION_LIMIT) * 100));
   const minutePart = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secondPart = String(secondsLeft % 60).padStart(2, "0");
+  const trendData = React.useMemo(() => {
+    return [...history]
+      .filter((item) => typeof item.totalScore === "number")
+      .sort((a, b) => new Date(a.createTime || 0).getTime() - new Date(b.createTime || 0).getTime())
+      .map((item, index) => ({
+        index: index + 1,
+        score: item.totalScore as number
+      }));
+  }, [history]);
 
   return (
     <MainLayout>
@@ -398,6 +408,22 @@ export function InterviewPage() {
                       <p className="mt-1 text-xs text-[#1D4ED8]">分数：{answer.score ?? "-"}</p>
                     </div>
                   ))}
+                </div>
+              </div>
+            ) : null}
+            {trendData.length > 0 ? (
+              <div className="mt-4 rounded-2xl border border-[#E5E7EB] bg-white p-3">
+                <p className="text-sm font-semibold text-[#1F2937]">成长趋势（历史总分）</p>
+                <div className="mt-3 h-[220px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={trendData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                      <XAxis dataKey="index" tick={{ fill: "#6B7280", fontSize: 12 }} />
+                      <YAxis domain={[0, 100]} tick={{ fill: "#6B7280", fontSize: 12 }} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="score" stroke="#2563EB" strokeWidth={2} dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             ) : null}
