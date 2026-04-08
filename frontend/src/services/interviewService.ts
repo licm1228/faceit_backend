@@ -48,6 +48,32 @@ export interface SessionDetail {
   }>;
 }
 
+export interface UserProfile {
+  totalSessions: number;
+  completedSessions: number;
+  averageScore: number;
+  lastScore?: number;
+  averageDurationMinutes: number;
+  performanceLevel?: string;
+  recommendation?: string;
+  weakTopics?: string[];
+}
+
+export interface GrowthCurvePoint {
+  time: string;
+  score: number;
+  status?: string;
+  durationMinutes?: number;
+}
+
+export interface Recommendation {
+  summary: string;
+  focusAreas: string[];
+  nextStep: string;
+  averageScore: number;
+  completedSessions: number;
+}
+
 export async function listPositions() {
   return api.get<Position[]>("/position/list");
 }
@@ -89,6 +115,21 @@ export async function createInterviewSession(userId: string, positionId: string)
   return api.post<InterviewSession>(`/interview/create-session?${query.toString()}`);
 }
 
+export async function createInterviewSessionWithOptions(
+  userId: string,
+  positionId: string,
+  options?: { timeLimit?: number; totalQuestions?: number }
+) {
+  const query = new URLSearchParams({ userId, positionId });
+  if (options?.timeLimit) {
+    query.set("timeLimit", String(options.timeLimit));
+  }
+  if (options?.totalQuestions) {
+    query.set("totalQuestions", String(options.totalQuestions));
+  }
+  return api.post<InterviewSession>(`/interview/create-session-with-options?${query.toString()}`);
+}
+
 export async function startInterviewSession(sessionId: string) {
   const query = new URLSearchParams({ sessionId });
   return api.post<InterviewSession>(`/interview/start-session?${query.toString()}`);
@@ -105,6 +146,15 @@ export async function getInterviewQuestion(sessionId: string, difficulty?: numbe
 export async function submitInterviewAnswer(sessionId: string, questionId: string, userAnswer: string) {
   const query = new URLSearchParams({ sessionId, questionId });
   return api.post<AnswerEvaluation>(`/interview/submit-answer?${query.toString()}`, userAnswer, {
+    headers: {
+      "Content-Type": "text/plain;charset=UTF-8"
+    }
+  });
+}
+
+export async function askFollowUpQuestion(sessionId: string, questionId: string, userAnswer: string) {
+  const query = new URLSearchParams({ sessionId, questionId });
+  return api.post<Question>(`/interview/ask-follow-up?${query.toString()}`, userAnswer, {
     headers: {
       "Content-Type": "text/plain;charset=UTF-8"
     }
@@ -129,4 +179,28 @@ export async function getInterviewSessionDetail(sessionId: string) {
 export async function listInterviewSessionsByUser(userId: string) {
   const query = new URLSearchParams({ userId });
   return api.get<InterviewSession[]>(`/interview/history?${query.toString()}`);
+}
+
+export async function getUserProfile() {
+  return api.get<UserProfile>("/user/profile");
+}
+
+export async function getGrowthCurve(limit = 10) {
+  return api.get<GrowthCurvePoint[]>("/user/growth-curve", {
+    params: { limit }
+  });
+}
+
+export async function getUserRecommendation() {
+  return api.get<Recommendation>("/user/recommendation");
+}
+
+export async function recognizeSpeechBase64(audioBase64: string, format = "pcm", sampleRate = 16000, language = "zh_cn") {
+  const query = new URLSearchParams({
+    audio: audioBase64,
+    format,
+    sampleRate: String(sampleRate),
+    language
+  });
+  return api.post<string>(`/speech/recognize/base64?${query.toString()}`);
 }

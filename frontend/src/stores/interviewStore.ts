@@ -1,12 +1,26 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 
-import type { AnswerEvaluation, InterviewSession, Position, Question, SessionDetail } from "@/services/interviewService";
+import type {
+  AnswerEvaluation,
+  GrowthCurvePoint,
+  InterviewSession,
+  Position,
+  Question,
+  Recommendation,
+  SessionDetail,
+  UserProfile
+} from "@/services/interviewService";
 import {
+  askFollowUpQuestion,
   completeInterviewSession,
   createInterviewSession,
+  createInterviewSessionWithOptions,
+  getGrowthCurve,
   getInterviewQuestion,
   getInterviewSessionDetail,
+  getUserProfile,
+  getUserRecommendation,
   listInterviewHistory,
   listPositions,
   startInterviewSession,
@@ -19,17 +33,27 @@ interface InterviewState {
   currentSession: InterviewSession | null;
   currentQuestion: Question | null;
   currentEvaluation: AnswerEvaluation | null;
+  followUpQuestion: Question | null;
   sessionDetail: SessionDetail | null;
+  profile: UserProfile | null;
+  growthCurve: GrowthCurvePoint[];
+  recommendation: Recommendation | null;
   difficulty: number;
   loading: boolean;
   submitting: boolean;
   fetchPositions: () => Promise<void>;
-  createAndStartSession: (userId: string, positionId: string) => Promise<void>;
+  createAndStartSession: (
+    userId: string,
+    positionId: string,
+    options?: { timeLimit?: number; totalQuestions?: number }
+  ) => Promise<void>;
   fetchQuestion: () => Promise<void>;
   submitAnswer: (answer: string) => Promise<void>;
+  generateFollowUp: (answer: string) => Promise<void>;
   completeSession: () => Promise<void>;
   fetchHistory: (userId: string) => Promise<void>;
   fetchSessionDetail: (sessionId: string) => Promise<void>;
+  fetchProfileData: () => Promise<void>;
   setDifficulty: (difficulty: number) => void;
   resetCurrentFlow: () => void;
 }
@@ -40,7 +64,11 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   currentSession: null,
   currentQuestion: null,
   currentEvaluation: null,
+  followUpQuestion: null,
   sessionDetail: null,
+  profile: null,
+  growthCurve: [],
+  recommendation: null,
   difficulty: 3,
   loading: false,
   submitting: false,
@@ -55,10 +83,15 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       set({ loading: false });
     }
   },
-  createAndStartSession: async (userId, positionId) => {
-    set({ loading: true, currentEvaluation: null, currentQuestion: null });
+  createAndStartSession: async (userId, positionId, options) => {
+    set({ loading: true, currentEvaluation: null, currentQuestion: null, followUpQuestion: null });
     try {
-      const session = await createInterviewSession(userId, positionId);
+      let session: InterviewSession;
+      try {
+        session = await createInterviewSessionWithOptions(userId, positionId, options);
+      } catch {
+        session = await createInterviewSession(userId, positionId);
+      }
       const started = await startInterviewSession(session.id);
       set({ currentSession: started });
       await get().fetchQuestion();
@@ -71,7 +104,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   fetchQuestion: async () => {
     const { currentSession, difficulty } = get();
     if (!currentSession?.id) return;
-    set({ loading: true, currentEvaluation: null });
+    set({ loading: true, currentEvaluation: null, followUpQuestion: null });
     try {
       const question = await getInterviewQuestion(currentSession.id, difficulty);
       set({ currentQuestion: question });
@@ -94,6 +127,18 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       toast.error((error as Error).message || "提交回答失败");
     } finally {
       set({ submitting: false });
+    }
+  },
+  generateFollowUp: async (answer) => {
+    const { currentSession, currentQuestion } = get();
+    if (!currentSession?.id || !currentQuestion?.id) return;
+    try {
+      const followUp = await askFollowUpQuestion(currentSession.id, currentQuestion.id, answer);
+      set({ followUpQuestion: followUp });
+      toast.success("已生成追问");
+    } catch {
+      set({ followUpQuestion: null });
+      toast.info("当前后端分支暂不支持追问接口");
     }
   },
   completeSession: async () => {
@@ -132,6 +177,26 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       set({ loading: false });
     }
   },
+  fetchProfileData: async () => {
+    try {
+      const [profile, curve, recommendation] = await Promise.all([
+        getUserProfile(),
+        getGrowthCurve(10),
+        getUserRecommendation()
+      ]);
+      set({
+        profile,
+        growthCurve: curve,
+        recommendation
+      });
+    } catch {
+      set({
+        profile: null,
+        growthCurve: [],
+        recommendation: null
+      });
+    }
+  },
   setDifficulty: (difficulty) => {
     set({ difficulty });
   },
@@ -140,6 +205,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       currentSession: null,
       currentQuestion: null,
       currentEvaluation: null,
+      followUpQuestion: null,
       sessionDetail: null
     });
   }

@@ -50,7 +50,11 @@ export function InterviewPage() {
     currentSession,
     currentQuestion,
     currentEvaluation,
+    followUpQuestion,
     sessionDetail,
+    profile,
+    growthCurve,
+    recommendation,
     difficulty,
     loading,
     submitting,
@@ -59,8 +63,10 @@ export function InterviewPage() {
     createAndStartSession,
     fetchQuestion,
     submitAnswer,
+    generateFollowUp,
     completeSession,
     fetchSessionDetail,
+    fetchProfileData,
     setDifficulty,
     resetCurrentFlow
   } = useInterviewStore();
@@ -68,6 +74,8 @@ export function InterviewPage() {
   const [answerText, setAnswerText] = React.useState("");
   const [questionIndex, setQuestionIndex] = React.useState(0);
   const [secondsLeft, setSecondsLeft] = React.useState(QUESTION_TIME_LIMIT_SECONDS);
+  const [timeLimitMinutes, setTimeLimitMinutes] = React.useState(20);
+  const [questionLimit, setQuestionLimit] = React.useState(QUESTION_LIMIT);
   const [answerRecords, setAnswerRecords] = React.useState<
     Array<{ questionText: string; score: number; feedback: string; suggestions: string }>
   >([]);
@@ -81,7 +89,8 @@ export function InterviewPage() {
   React.useEffect(() => {
     if (!user?.userId) return;
     fetchHistory(user.userId).catch(() => null);
-  }, [fetchHistory, user?.userId]);
+    fetchProfileData().catch(() => null);
+  }, [fetchHistory, fetchProfileData, user?.userId]);
 
   React.useEffect(() => {
     if (positions.length > 0 && !selectedPositionId) {
@@ -95,8 +104,11 @@ export function InterviewPage() {
     setQuestionIndex(1);
     setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
     setAnswerRecords([]);
-    await createAndStartSession(user.userId, selectedPositionId);
-  }, [createAndStartSession, selectedPositionId, user?.userId]);
+    await createAndStartSession(user.userId, selectedPositionId, {
+      timeLimit: timeLimitMinutes,
+      totalQuestions: questionLimit
+    });
+  }, [createAndStartSession, questionLimit, selectedPositionId, timeLimitMinutes, user?.userId]);
 
   const handleSubmitAnswer = React.useCallback(async () => {
     const next = answerText.trim();
@@ -105,7 +117,7 @@ export function InterviewPage() {
   }, [answerText, submitAnswer]);
 
   const handleNextQuestion = React.useCallback(async () => {
-    if (questionIndex >= QUESTION_LIMIT) {
+    if (questionIndex >= questionLimit) {
       toast.info("已达到题量上限，请结束面试并查看报告");
       return;
     }
@@ -113,7 +125,7 @@ export function InterviewPage() {
     setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
     setQuestionIndex((prev) => prev + 1);
     await fetchQuestion();
-  }, [fetchQuestion, questionIndex]);
+  }, [fetchQuestion, questionIndex, questionLimit]);
 
   React.useEffect(() => {
     if (!currentSession || currentSession.status === "completed") {
@@ -191,18 +203,24 @@ export function InterviewPage() {
     setIsRecording(true);
   }, [isRecording]);
 
-  const progressPercent = Math.min(100, Math.round((Math.max(questionIndex, 1) / QUESTION_LIMIT) * 100));
+  const progressPercent = Math.min(100, Math.round((Math.max(questionIndex, 1) / questionLimit) * 100));
   const minutePart = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secondPart = String(secondsLeft % 60).padStart(2, "0");
   const trendData = React.useMemo(() => {
-    return [...history]
+    const source = growthCurve.length > 0
+      ? growthCurve.map((item) => ({
+        createTime: item.time,
+        totalScore: item.score
+      }))
+      : history;
+    return [...source]
       .filter((item) => typeof item.totalScore === "number")
       .sort((a, b) => new Date(a.createTime || 0).getTime() - new Date(b.createTime || 0).getTime())
       .map((item, index) => ({
         index: index + 1,
         score: item.totalScore as number
       }));
-  }, [history]);
+  }, [growthCurve, history]);
 
   return (
     <MainLayout>
@@ -217,8 +235,8 @@ export function InterviewPage() {
                 </span>
               ) : null}
               {currentSession && currentSession.status !== "completed" ? (
-                <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-semibold text-[#059669]">
-                  进度：{Math.max(questionIndex, 1)}/{QUESTION_LIMIT}
+                  <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-semibold text-[#059669]">
+                  进度：{Math.max(questionIndex, 1)}/{questionLimit}
                 </span>
               ) : null}
             </div>
@@ -261,6 +279,38 @@ export function InterviewPage() {
                   {[1, 2, 3, 4, 5].map((level) => (
                     <option key={level} value={level}>
                       {level}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1.5 text-sm text-[#4B5563]">
+                题量
+                <select
+                  className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
+                  value={questionLimit}
+                  onChange={(event) => setQuestionLimit(Number(event.target.value))}
+                  disabled={Boolean(currentSession)}
+                >
+                  {[3, 5, 8, 10].map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1.5 text-sm text-[#4B5563]">
+                时长（分钟）
+                <select
+                  className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
+                  value={timeLimitMinutes}
+                  onChange={(event) => setTimeLimitMinutes(Number(event.target.value))}
+                  disabled={Boolean(currentSession)}
+                >
+                  {[10, 15, 20, 30, 45].map((minute) => (
+                    <option key={minute} value={minute}>
+                      {minute}
                     </option>
                   ))}
                 </select>
@@ -353,9 +403,20 @@ export function InterviewPage() {
                     onClick={() => {
                       handleNextQuestion().catch(() => null);
                     }}
-                    disabled={loading || questionIndex >= QUESTION_LIMIT}
+                    disabled={loading || questionIndex >= questionLimit}
                   >
                     下一题
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 rounded-xl"
+                    onClick={() => {
+                      generateFollowUp(answerText).catch(() => null);
+                    }}
+                    disabled={!answerText.trim() || currentSession.status === "completed"}
+                  >
+                    生成追问
                   </Button>
                   <Button
                     type="button"
@@ -383,6 +444,15 @@ export function InterviewPage() {
                 </p>
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
                   建议：{currentEvaluation.suggestions}
+                </p>
+              </div>
+            ) : null}
+
+            {followUpQuestion ? (
+              <div className="mt-4 rounded-2xl border border-[#FDE68A] bg-[#FFFBEB] p-4">
+                <p className="text-sm font-semibold text-[#92400E]">追问建议</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#92400E]">
+                  {followUpQuestion.questionText}
                 </p>
               </div>
             ) : null}
@@ -457,6 +527,23 @@ export function InterviewPage() {
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
+              </div>
+            ) : null}
+            {profile ? (
+              <div className="mt-4 rounded-2xl border border-[#E5E7EB] bg-white p-3">
+                <p className="text-sm font-semibold text-[#1F2937]">能力档案</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[#6B7280]">
+                  <p>总会话：{profile.totalSessions}</p>
+                  <p>完成会话：{profile.completedSessions}</p>
+                  <p>平均分：{profile.averageScore?.toFixed?.(1) ?? profile.averageScore}</p>
+                  <p>最近得分：{profile.lastScore ?? "-"}</p>
+                </div>
+                {recommendation ? (
+                  <div className="mt-2 rounded-lg bg-[#F8FAFF] p-2.5 text-xs text-[#1E40AF]">
+                    <p className="font-medium">{recommendation.summary}</p>
+                    <p className="mt-1">下一步：{recommendation.nextStep}</p>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {answerRecords.length > 0 ? (
