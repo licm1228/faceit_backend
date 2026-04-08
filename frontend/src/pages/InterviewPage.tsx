@@ -11,6 +11,37 @@ import { useInterviewStore } from "@/stores/interviewStore";
 const QUESTION_LIMIT = 5;
 const QUESTION_TIME_LIMIT_SECONDS = 180;
 
+type SpeechRecognitionAlternative = {
+  transcript: string;
+};
+
+type SpeechRecognitionResult = {
+  0: SpeechRecognitionAlternative;
+};
+
+type SpeechRecognitionEvent = {
+  resultIndex: number;
+  results: SpeechRecognitionResult[];
+};
+
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+type SpeechWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionCtor;
+  webkitSpeechRecognition?: SpeechRecognitionCtor;
+};
+
 export function InterviewPage() {
   const { user } = useAuthStore();
   const {
@@ -41,7 +72,7 @@ export function InterviewPage() {
     Array<{ questionText: string; score: number; feedback: string; suggestions: string }>
   >([]);
   const [isRecording, setIsRecording] = React.useState(false);
-  const recognitionRef = React.useRef<any>(null);
+  const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null);
 
   React.useEffect(() => {
     fetchPositions().catch(() => null);
@@ -123,7 +154,8 @@ export function InterviewPage() {
   }, []);
 
   const toggleRecording = React.useCallback(() => {
-    const ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const speechWindow = window as SpeechWindow;
+    const ctor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
     if (!ctor) {
       toast.error("当前浏览器不支持语音识别，请使用 Chrome 或 Edge");
       return;
@@ -138,7 +170,7 @@ export function InterviewPage() {
     recognition.lang = "zh-CN";
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let transcript = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         transcript += event.results[i][0].transcript || "";
