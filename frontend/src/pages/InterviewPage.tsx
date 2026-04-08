@@ -1,9 +1,14 @@
 import * as React from "react";
+import { Mic, MicOff, Timer } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useAuthStore } from "@/stores/authStore";
 import { useInterviewStore } from "@/stores/interviewStore";
+
+const QUESTION_LIMIT = 5;
+const QUESTION_TIME_LIMIT_SECONDS = 180;
 
 export function InterviewPage() {
   const { user } = useAuthStore();
@@ -29,6 +34,13 @@ export function InterviewPage() {
   } = useInterviewStore();
   const [selectedPositionId, setSelectedPositionId] = React.useState("");
   const [answerText, setAnswerText] = React.useState("");
+  const [questionIndex, setQuestionIndex] = React.useState(0);
+  const [secondsLeft, setSecondsLeft] = React.useState(QUESTION_TIME_LIMIT_SECONDS);
+  const [answerRecords, setAnswerRecords] = React.useState<
+    Array<{ questionText: string; score: number; feedback: string; suggestions: string }>
+  >([]);
+  const [isRecording, setIsRecording] = React.useState(false);
+  const recognitionRef = React.useRef<any>(null);
 
   React.useEffect(() => {
     fetchPositions().catch(() => null);
@@ -48,6 +60,9 @@ export function InterviewPage() {
   const startInterview = React.useCallback(async () => {
     if (!user?.userId || !selectedPositionId) return;
     setAnswerText("");
+    setQuestionIndex(1);
+    setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
+    setAnswerRecords([]);
     await createAndStartSession(user.userId, selectedPositionId);
   }, [createAndStartSession, selectedPositionId, user?.userId]);
 
@@ -58,9 +73,94 @@ export function InterviewPage() {
   }, [answerText, submitAnswer]);
 
   const handleNextQuestion = React.useCallback(async () => {
+    if (questionIndex >= QUESTION_LIMIT) {
+      toast.info("已达到题量上限，请结束面试并查看报告");
+      return;
+    }
     setAnswerText("");
+    setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
+    setQuestionIndex((prev) => prev + 1);
     await fetchQuestion();
-  }, [fetchQuestion]);
+  }, [fetchQuestion, questionIndex]);
+
+  React.useEffect(() => {
+    if (!currentSession || currentSession.status === "completed") {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(timer);
+          toast.warning("当前题目作答时间已到，请提交或进入下一题");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [currentQuestion?.id, currentSession]);
+
+  React.useEffect(() => {
+    if (!currentEvaluation || !currentQuestion) return;
+    setAnswerRecords((prev) => [
+      ...prev,
+      {
+        questionText: currentQuestion.questionText,
+        score: currentEvaluation.score,
+        feedback: currentEvaluation.feedback,
+        suggestions: currentEvaluation.suggestions
+      }
+    ]);
+  }, [currentEvaluation, currentQuestion]);
+
+  React.useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
+  const toggleRecording = React.useCallback(() => {
+    const ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!ctor) {
+      toast.error("当前浏览器不支持语音识别，请使用 Chrome 或 Edge");
+      return;
+    }
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    const recognition = new ctor();
+    recognition.lang = "zh-CN";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.onresult = (event: any) => {
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        transcript += event.results[i][0].transcript || "";
+      }
+      if (transcript.trim()) {
+        setAnswerText((prev) => `${prev}${prev ? " " : ""}${transcript.trim()}`);
+      }
+    };
+    recognition.onerror = () => {
+      setIsRecording(false);
+      toast.error("语音识别失败，请重试");
+    };
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsRecording(true);
+  }, [isRecording]);
+
+  const progressPercent = Math.min(100, Math.round((Math.max(questionIndex, 1) / QUESTION_LIMIT) * 100));
+  const minutePart = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
+  const secondPart = String(secondsLeft % 60).padStart(2, "0");
 
   return (
     <MainLayout>
@@ -74,7 +174,22 @@ export function InterviewPage() {
                   状态：{currentSession.status || "in_progress"}
                 </span>
               ) : null}
+              {currentSession && currentSession.status !== "completed" ? (
+                <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-semibold text-[#059669]">
+                  进度：{Math.max(questionIndex, 1)}/{QUESTION_LIMIT}
+                </span>
+              ) : null}
             </div>
+            {currentSession && currentSession.status !== "completed" ? (
+              <div className="mt-3">
+                <div className="h-2.5 w-full rounded-full bg-[#E5E7EB]">
+                  <div
+                    className="h-2.5 rounded-full bg-[#3B82F6] transition-all"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <label className="flex flex-col gap-1.5 text-sm text-[#4B5563]">
@@ -109,7 +224,13 @@ export function InterviewPage() {
                 </select>
               </label>
 
-              <div className="flex items-end gap-2">
+              <div className="flex items-end gap-2 md:flex-col md:items-stretch">
+                {currentSession && currentSession.status !== "completed" ? (
+                  <div className="mb-2 flex items-center gap-1 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-2.5 py-2 text-xs text-[#92400E]">
+                    <Timer className="h-3.5 w-3.5" />
+                    本题剩余 {minutePart}:{secondPart}
+                  </div>
+                ) : null}
                 {!currentSession ? (
                   <Button
                     type="button"
@@ -165,6 +286,16 @@ export function InterviewPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     type="button"
+                    variant="outline"
+                    className="h-10 rounded-xl"
+                    onClick={toggleRecording}
+                    disabled={currentSession.status === "completed"}
+                  >
+                    {isRecording ? <MicOff className="mr-1 h-4 w-4" /> : <Mic className="mr-1 h-4 w-4" />}
+                    {isRecording ? "停止语音输入" : "语音输入"}
+                  </Button>
+                  <Button
+                    type="button"
                     className="h-10 rounded-xl"
                     onClick={() => {
                       handleSubmitAnswer().catch(() => null);
@@ -180,7 +311,7 @@ export function InterviewPage() {
                     onClick={() => {
                       handleNextQuestion().catch(() => null);
                     }}
-                    disabled={loading}
+                    disabled={loading || questionIndex >= QUESTION_LIMIT}
                   >
                     下一题
                   </Button>
@@ -191,6 +322,9 @@ export function InterviewPage() {
                     onClick={() => {
                       resetCurrentFlow();
                       setAnswerText("");
+                      setQuestionIndex(0);
+                      setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
+                      setAnswerRecords([]);
                     }}
                   >
                     重置流程
@@ -262,6 +396,20 @@ export function InterviewPage() {
                       <p className="text-xs text-[#374151]">题目ID：{answer.questionId}</p>
                       <p className="mt-1 text-xs text-[#6B7280] line-clamp-3">{answer.userAnswer}</p>
                       <p className="mt-1 text-xs text-[#1D4ED8]">分数：{answer.score ?? "-"}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {answerRecords.length > 0 ? (
+              <div className="mt-4 rounded-2xl border border-[#E5E7EB] bg-white p-3">
+                <p className="text-sm font-semibold text-[#1F2937]">当前会话答题记录</p>
+                <div className="mt-3 max-h-[320px] space-y-2 overflow-y-auto">
+                  {answerRecords.map((item, index) => (
+                    <div key={`${item.questionText}-${index}`} className="rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] p-2.5">
+                      <p className="text-xs font-medium text-[#374151]">第 {index + 1} 题 · 得分 {item.score}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-[#6B7280]">{item.questionText}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-[#2563EB]">反馈：{item.feedback}</p>
                     </div>
                   ))}
                 </div>
