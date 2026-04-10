@@ -5,6 +5,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 
 import { Button } from "@/components/ui/button";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { recognizeSpeechBase64 } from "@/services/interviewService";
 import { useAuthStore } from "@/stores/authStore";
 import { useInterviewStore } from "@/stores/interviewStore";
 
@@ -41,6 +42,10 @@ type SpeechWindow = Window & {
   SpeechRecognition?: SpeechRecognitionCtor;
   webkitSpeechRecognition?: SpeechRecognitionCtor;
 };
+
+type RecordingMode = "backend" | "browser" | null;
+
+const RECORDING_SAMPLE_RATE = 16000;
 
 export function InterviewPage() {
   const { user } = useAuthStore();
@@ -81,6 +86,12 @@ export function InterviewPage() {
   >([]);
   const [isRecording, setIsRecording] = React.useState(false);
   const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null);
+  const recordingModeRef = React.useRef<RecordingMode>(null);
+  const mediaStreamRef = React.useRef<MediaStream | null>(null);
+  const audioContextRef = React.useRef<AudioContext | null>(null);
+  const sourceNodeRef = React.useRef<MediaStreamAudioSourceNode | null>(null);
+  const processorNodeRef = React.useRef<ScriptProcessorNode | null>(null);
+  const pcmChunksRef = React.useRef<Float32Array[]>([]);
 
   React.useEffect(() => {
     fetchPositions().catch(() => null);
@@ -162,22 +173,146 @@ export function InterviewPage() {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
+      stopBackendRecording();
     };
   }, []);
 
-  const toggleRecording = React.useCallback(() => {
-    const speechWindow = window as SpeechWindow;
-    const ctor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
-    if (!ctor) {
-      toast.error("当前浏览器不支持语音识别，请使用 Chrome 或 Edge");
-      return;
+  const stopBackendRecording = React.useCallback(async () => {
+    const sampleRate = audioContextRef.current?.sampleRate ?? RECORDING_SAMPLE_RATE;
+    const chunks = [...pcmChunksRef.current];
+    processorNodeRef.current?.disconnect();
+    sourceNodeRef.current?.disconnect();
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    processorNodeRef.current = null;
+    sourceNodeRef.current = null;
+    mediaStreamRef.current = null;
+    if (audioContextRef.current) {
+      await audioContextRef.current.close();
+      audioContextRef.current = null;
     }
-    if (isRecording) {
-      recognitionRef.current?.stop();
-      setIsRecording(false);
-      return;
+    pcmChunksRef.current = [];
+    return { sampleRate, chunks };
+  }, []);
+
+  const blobToBase64 = React.useCallback((blob: Blob) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("音频编码失败"));
+        return;
+      }
+      const base64 = result.split(",")[1];
+      if (!base64) {
+        reject(new Error("音频编码失败"));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("音频编码失败"));
+    reader.readAsDataURL(blob);
+  }), []);
+
+  const mergePcmChunks = React.useCallback((chunks: Float32Array[]) => {
+    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const merged = new Float32Array(totalLength);
+    let offset = 0;
+    chunks.forEach((chunk) => {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    });
+    return merged;
+  }, []);
+
+  const downsampleBuffer = React.useCallback((buffer: Float32Array, sourceRate: number, targetRate: number) => {
+    if (targetRate >= sourceRate) {
+      return buffer;
+    }
+    const ratio = sourceRate / targetRate;
+    const newLength = Math.round(buffer.length / ratio);
+    const result = new Float32Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+    while (offsetResult < result.length) {
+      const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+      let accum = 0;
+      let count = 0;
+      for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i += 1) {
+        accum += buffer[i];
+        count += 1;
+      }
+      result[offsetResult] = count > 0 ? accum / count : 0;
+      offsetResult += 1;
+      offsetBuffer = nextOffsetBuffer;
+    }
+    return result;
+  }, []);
+
+  const encodeWav = React.useCallback((samples: Float32Array, sampleRate: number) => {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const writeString = (offset: number, value: string) => {
+      for (let i = 0; i < value.length; i += 1) {
+        view.setUint8(offset + i, value.charCodeAt(i));
+      }
+    };
+
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, "data");
+    view.setUint32(40, samples.length * 2, true);
+
+    let offset = 44;
+    for (let i = 0; i < samples.length; i += 1) {
+      const sample = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
     }
 
+    return new Blob([buffer], { type: "audio/wav" });
+  }, []);
+
+  const transcribeBackendAudio = React.useCallback(async (chunks: Float32Array[], sourceSampleRate: number) => {
+    const merged = mergePcmChunks(chunks);
+    if (merged.length === 0) {
+      return;
+    }
+    const downsampled = downsampleBuffer(merged, sourceSampleRate, RECORDING_SAMPLE_RATE);
+    const wavBlob = encodeWav(downsampled, RECORDING_SAMPLE_RATE);
+    const audioBase64 = await blobToBase64(wavBlob);
+    const transcript = await recognizeSpeechBase64(audioBase64, "wav", RECORDING_SAMPLE_RATE, "zh_cn");
+    if (transcript?.trim()) {
+      setAnswerText((prev) => `${prev}${prev ? " " : ""}${transcript.trim()}`);
+      toast.success("语音识别完成");
+      return;
+    }
+    toast.info("未识别到有效语音内容");
+  }, [blobToBase64, downsampleBuffer, encodeWav, mergePcmChunks]);
+
+  const stopCurrentRecording = React.useCallback(async () => {
+    const mode = recordingModeRef.current;
+    recordingModeRef.current = null;
+    setIsRecording(false);
+    if (mode === "browser") {
+      recognitionRef.current?.stop();
+      return;
+    }
+    if (mode === "backend") {
+      const { sampleRate, chunks } = await stopBackendRecording();
+      await transcribeBackendAudio(chunks, sampleRate);
+    }
+  }, [stopBackendRecording, transcribeBackendAudio]);
+
+  const startBrowserSpeechRecognition = React.useCallback((ctor: SpeechRecognitionCtor) => {
     const recognition = new ctor();
     recognition.lang = "zh-CN";
     recognition.continuous = true;
@@ -193,15 +328,71 @@ export function InterviewPage() {
     };
     recognition.onerror = () => {
       setIsRecording(false);
+      recordingModeRef.current = null;
       toast.error("语音识别失败，请重试");
     };
     recognition.onend = () => {
       setIsRecording(false);
+      recordingModeRef.current = null;
     };
     recognitionRef.current = recognition;
     recognition.start();
+    recordingModeRef.current = "browser";
     setIsRecording(true);
-  }, [isRecording]);
+    toast.info("已切换为浏览器语音识别");
+  }, []);
+
+  const startBackendRecording = React.useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    pcmChunksRef.current = [];
+
+    processor.onaudioprocess = (event) => {
+      const channelData = event.inputBuffer.getChannelData(0);
+      pcmChunksRef.current.push(new Float32Array(channelData));
+    };
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    mediaStreamRef.current = stream;
+    audioContextRef.current = audioContext;
+    sourceNodeRef.current = source;
+    processorNodeRef.current = processor;
+    recordingModeRef.current = "backend";
+    setIsRecording(true);
+    toast.info("开始录音，再次点击后将调用后端语音识别");
+  }, []);
+
+  const toggleRecording = React.useCallback(async () => {
+    const speechWindow = window as SpeechWindow;
+    const ctor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (isRecording) {
+      await stopCurrentRecording();
+      return;
+    }
+
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        await startBackendRecording();
+        return;
+      }
+    } catch (error) {
+      if (!ctor) {
+        toast.error((error as Error).message || "无法访问麦克风，请检查权限");
+        return;
+      }
+      toast.warning("后端语音录音不可用，已降级到浏览器语音识别");
+    }
+
+    if (!ctor) {
+      toast.error("当前环境不支持语音识别，请检查麦克风权限或浏览器能力");
+      return;
+    }
+    startBrowserSpeechRecognition(ctor);
+  }, [isRecording, startBackendRecording, startBrowserSpeechRecognition, stopCurrentRecording]);
 
   const sessionQuestionLimit = currentSession?.totalQuestions ?? questionLimit;
   const sessionQuestionIndex = currentSession?.currentQuestionCount ?? Math.max(questionIndex, 1);
