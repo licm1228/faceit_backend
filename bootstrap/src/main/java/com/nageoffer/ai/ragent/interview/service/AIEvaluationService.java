@@ -23,10 +23,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class AIEvaluationService {
+
+    private static final Pattern FIRST_NUMBER_PATTERN = Pattern.compile("\\d+");
 
     private final LLMService llmService;
 
@@ -199,11 +203,7 @@ public class AIEvaluationService {
                 if (scoreEndIndex == -1) scoreEndIndex = result.length();
                 String scoreStr = result.substring(scoreIndex + 3, scoreEndIndex).trim();
                 try {
-                    // 提取数字部分
-                    scoreStr = scoreStr.replaceAll("[^0-9]", "");
-                    if (!scoreStr.isEmpty()) {
-                        evaluation.put("score", Integer.parseInt(scoreStr));
-                    }
+                    evaluation.put("score", clamp(parseFirstNumber(scoreStr), 0, 100));
                 } catch (NumberFormatException e) {
                     evaluation.put("score", 0);
                 }
@@ -250,13 +250,22 @@ public class AIEvaluationService {
             if (endIndex == -1) endIndex = result.length();
             String scoreStr = result.substring(index + prefix.length(), endIndex).trim();
             try {
-                scoreStr = scoreStr.replaceAll("[^0-9]", "");
-                if (!scoreStr.isEmpty()) {
-                    evaluation.put(key, Integer.parseInt(scoreStr));
-                }
+                evaluation.put(key, clamp(parseFirstNumber(scoreStr), 0, 100));
             } catch (NumberFormatException e) {
                 evaluation.put(key, 0);
             }
         }
+    }
+
+    private int parseFirstNumber(String value) {
+        Matcher matcher = FIRST_NUMBER_PATTERN.matcher(value == null ? "" : value);
+        if (!matcher.find()) {
+            return 0;
+        }
+        return Integer.parseInt(matcher.group());
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

@@ -201,11 +201,11 @@ public class InterviewController {
         // 获取所有回答
         List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(sessionId);
 
-        // 计算总分
+        // 计算平均分，报告页和成长曲线按 0-100 分展示。
         int totalScore = 0;
         List<Map<String, Object>> answerEvaluations = new ArrayList<>();
         for (InterviewAnswerEntity answer : answers) {
-            totalScore += answer.getScore();
+            totalScore += answer.getScore() == null ? 0 : answer.getScore();
             Map<String, Object> eval = new HashMap<>();
             eval.put("score", answer.getScore());
             eval.put("technicalScore", answer.getTechnicalScore());
@@ -216,6 +216,7 @@ public class InterviewController {
             eval.put("suggestions", answer.getSuggestions());
             answerEvaluations.add(eval);
         }
+        int averageScore = answers.isEmpty() ? 0 : Math.round((float) totalScore / answers.size());
 
         // 生成评估报告
         String evaluationReport = aiEvaluationService.generateEvaluationReport(
@@ -226,7 +227,7 @@ public class InterviewController {
         // 完成会话
         InterviewSessionEntity session = interviewSessionService.completeSession(
                 sessionId,
-                totalScore,
+                averageScore,
                 evaluationReport
         );
 
