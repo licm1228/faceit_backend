@@ -99,17 +99,23 @@ ai:
         embedding: /api/embed
     bailian:
       url: https://dashscope.aliyuncs.com
-
-      api-key: sk-30d5eaf3dcaa464a930a2ada383414dd
+      api-key: ${BAILIAN_API_KEY}
       endpoints:
         chat: /compatible-mode/v1/chat/completions
         rerank: /api/v1/services/rerank/text-rerank/text-rerank
     siliconflow:
       url: https://api.siliconflow.cn
-      api-key: sk-qkzmitcckbgdsoiurxxhghgwligkplxajdvyqnhtchiqdzag
+      api-key: ${SILICONFLOW_API_KEY}
       endpoints:
         chat: /v1/chat/completions
         embedding: /v1/embeddings
+    iflytek:
+      url: wss://iat.xf-yun.com
+      app-id: ${IFLYTEK_APP_ID}
+      api-key: ${IFLYTEK_API_KEY}
+      api-secret: ${IFLYTEK_API_SECRET}
+      endpoints:
+        iat: /v1
 
   selection:
     failure-threshold: 2
