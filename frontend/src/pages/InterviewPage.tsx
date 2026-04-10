@@ -505,9 +505,17 @@ export function InterviewPage() {
                 <div className="mt-3 max-h-[320px] space-y-2 overflow-y-auto">
                   {sessionDetail.answers.map((answer) => (
                     <div key={answer.id} className="rounded-xl border border-[#E5E7EB] bg-white p-2.5">
-                      <p className="text-xs text-[#374151]">题目ID：{answer.questionId}</p>
-                      <p className="mt-1 text-xs text-[#6B7280] line-clamp-3">{answer.userAnswer}</p>
-                      <p className="mt-1 text-xs text-[#1D4ED8]">分数：{answer.score ?? "-"}</p>
+                      <p className="text-xs font-medium text-[#374151]">
+                        题目：{answer.questionText || `题目ID：${answer.questionId}`}
+                      </p>
+                      <p className="mt-1 text-xs text-[#6B7280] line-clamp-3">回答：{answer.userAnswer}</p>
+                      <p className="mt-1 text-xs text-[#1D4ED8]">总分：{answer.score ?? "-"}</p>
+                      <p className="mt-1 text-[11px] text-[#6B7280]">
+                        技术 {answer.technicalScore ?? "-"} · 表达 {answer.expressionScore ?? "-"} · 逻辑 {answer.logicScore ?? "-"} · 知识 {answer.knowledgeScore ?? "-"}
+                      </p>
+                      {answer.feedback ? (
+                        <p className="mt-1 line-clamp-2 text-[11px] text-[#2563EB]">反馈：{answer.feedback}</p>
+                      ) : null}
                     </div>
                   ))}
                 </div>

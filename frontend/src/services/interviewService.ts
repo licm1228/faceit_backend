@@ -41,8 +41,13 @@ export interface SessionDetail {
     id: string;
     sessionId: string;
     questionId: string;
+    questionText?: string;
     userAnswer: string;
     score?: number;
+    technicalScore?: number;
+    expressionScore?: number;
+    logicScore?: number;
+    knowledgeScore?: number;
     feedback?: string;
     suggestions?: string;
   }>;

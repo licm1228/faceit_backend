@@ -265,12 +265,30 @@ public class InterviewController {
 
         InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
         List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(sessionId);
+        List<Map<String, Object>> answerDetails = new ArrayList<>();
+        for (InterviewAnswerEntity answer : answers) {
+            QuestionEntity question = questionService.getQuestionById(answer.getQuestionId());
+            Map<String, Object> answerDetail = new HashMap<>();
+            answerDetail.put("id", answer.getId());
+            answerDetail.put("sessionId", answer.getSessionId());
+            answerDetail.put("questionId", answer.getQuestionId());
+            answerDetail.put("questionText", question == null ? null : question.getQuestionText());
+            answerDetail.put("userAnswer", answer.getUserAnswer());
+            answerDetail.put("score", answer.getScore());
+            answerDetail.put("technicalScore", answer.getTechnicalScore());
+            answerDetail.put("expressionScore", answer.getExpressionScore());
+            answerDetail.put("logicScore", answer.getLogicScore());
+            answerDetail.put("knowledgeScore", answer.getKnowledgeScore());
+            answerDetail.put("feedback", answer.getFeedback());
+            answerDetail.put("suggestions", answer.getSuggestions());
+            answerDetails.add(answerDetail);
+        }
 
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         Map<String, Object> data = new HashMap<>();
         data.put("session", session);
-        data.put("answers", answers);
+        data.put("answers", answerDetails);
         result.put("data", data);
         return result;
     }
