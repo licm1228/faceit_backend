@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/interview")
@@ -115,6 +116,34 @@ public class InterviewController {
             @RequestParam(required = false) Integer difficulty) {
 
         InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
+        if (session == null) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 404);
+            result.put("message", "面试会话不存在");
+            return result;
+        }
+        if ("completed".equals(session.getStatus())) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", "面试已结束，无法继续获取题目");
+            return result;
+        }
+        if (session.getTotalQuestions() != null
+                && session.getCurrentQuestionCount() != null
+                && session.getCurrentQuestionCount() >= session.getTotalQuestions()) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", "已达到题量上限，请结束面试查看报告");
+            return result;
+        }
+        if (session.getTimeLimit() != null
+                && session.getStartTime() != null
+                && LocalDateTime.now().isAfter(session.getStartTime().plusMinutes(session.getTimeLimit()))) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", "面试已超时，请结束当前会话");
+            return result;
+        }
         QuestionEntity question = questionService.selectRandomQuestion(session.getPositionId(), difficulty);
 
         // 增加题目计数

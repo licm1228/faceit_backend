@@ -24,6 +24,9 @@ export interface InterviewSession {
   status: string;
   totalScore?: number;
   evaluationReport?: string;
+  currentQuestionCount?: number;
+  timeLimit?: number;
+  totalQuestions?: number;
   startTime?: string;
   endTime?: string;
   createTime?: string;

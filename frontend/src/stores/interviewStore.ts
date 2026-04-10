@@ -107,7 +107,15 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     set({ loading: true, currentEvaluation: null, followUpQuestion: null });
     try {
       const question = await getInterviewQuestion(currentSession.id, difficulty);
-      set({ currentQuestion: question });
+      set((state) => ({
+        currentQuestion: question,
+        currentSession: state.currentSession
+          ? {
+            ...state.currentSession,
+            currentQuestionCount: (state.currentSession.currentQuestionCount ?? 0) + 1
+          }
+          : state.currentSession
+      }));
     } catch (error) {
       toast.error((error as Error).message || "获取题目失败");
       set({ currentQuestion: null });

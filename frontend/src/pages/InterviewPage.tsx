@@ -203,7 +203,10 @@ export function InterviewPage() {
     setIsRecording(true);
   }, [isRecording]);
 
-  const progressPercent = Math.min(100, Math.round((Math.max(questionIndex, 1) / questionLimit) * 100));
+  const sessionQuestionLimit = currentSession?.totalQuestions ?? questionLimit;
+  const sessionQuestionIndex = currentSession?.currentQuestionCount ?? Math.max(questionIndex, 1);
+  const progressValue = currentSession && currentSession.status !== "completed" ? sessionQuestionIndex : Math.max(questionIndex, 1);
+  const progressPercent = Math.min(100, Math.round((progressValue / sessionQuestionLimit) * 100));
   const minutePart = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secondPart = String(secondsLeft % 60).padStart(2, "0");
   const trendData = React.useMemo(() => {
@@ -236,7 +239,7 @@ export function InterviewPage() {
               ) : null}
               {currentSession && currentSession.status !== "completed" ? (
                   <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-semibold text-[#059669]">
-                  进度：{Math.max(questionIndex, 1)}/{questionLimit}
+                  进度：{progressValue}/{sessionQuestionLimit}
                 </span>
               ) : null}
             </div>
@@ -403,7 +406,7 @@ export function InterviewPage() {
                     onClick={() => {
                       handleNextQuestion().catch(() => null);
                     }}
-                    disabled={loading || questionIndex >= questionLimit}
+                    disabled={loading || progressValue >= sessionQuestionLimit}
                   >
                     下一题
                   </Button>
