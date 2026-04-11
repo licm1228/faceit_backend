@@ -166,14 +166,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           </div>
         </div>
         <div className="py-3 space-y-4">
-          <div className="relative overflow-hidden rounded-2xl border border-[#E6EEF6] bg-gradient-to-br from-[#F0F9FF] via-white to-[#FEF3C7] p-3 shadow-[0_14px_30px_rgba(15,23,42,0.08)]">
+          <div className="relative overflow-hidden rounded-2xl border border-[#E6EEF6] bg-gradient-to-br from-[#EFF6FF] via-white to-[#DBEAFE] p-3 shadow-[0_14px_30px_rgba(15,23,42,0.08)]">
             <span
               aria-hidden="true"
               className="absolute -right-10 -top-10 h-24 w-24 rounded-full bg-[#BAE6FD]/70 blur-2xl"
             />
             <span
               aria-hidden="true"
-              className="absolute -left-12 -bottom-10 h-28 w-28 rounded-full bg-[#FDE68A]/70 blur-2xl"
+              className="absolute -left-12 -bottom-10 h-28 w-28 rounded-full bg-[#DBEAFE]/75 blur-2xl"
             />
             <div className="relative">
               <div className="flex items-center justify-between px-1">
