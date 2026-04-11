@@ -3,6 +3,7 @@ import { Brain, Lightbulb, Send, Square, Mic, MicOff } from "lucide-react";
 
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { recognizeSpeechBase64 } from "@/services/interviewService";
 import { useChatStore } from "@/stores/chatStore";
 
 // 为MediaRecorder添加类型声明
@@ -226,28 +227,7 @@ export function ChatInput() {
       console.log('音频Base64编码完成，长度:', base64Audio.length);
 
         
-        const response = await fetch('/api/ragent/speech/recognize/base64', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: new URLSearchParams({
-            audio: base64Audio,
-            format: 'pcm',
-            sampleRate: '16000',
-            language: 'zh_cn'
-          })
-        });
-        
-        console.log('语音识别响应状态:', response.status);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('语音识别失败:', response.status, errorText);
-          throw new Error(`语音识别失败: ${response.status}`);
-        }
-        
-        const text = await response.text();
+        const text = await recognizeSpeechBase64(base64Audio, 'pcm', 16000, 'zh_cn');
         console.log('识别结果:', text);
         
         if (text) {
@@ -266,28 +246,7 @@ export function ChatInput() {
     console.log('开始识别PCM语音，Base64长度:', base64Audio.length);
 
     try {
-      const response = await fetch('/api/ragent/speech/recognize/base64', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: new URLSearchParams({
-          audio: base64Audio,
-          format: 'pcm',
-          sampleRate: '16000',
-          language: 'zh_cn'
-        })
-      });
-
-      console.log('语音识别响应状态:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('语音识别失败:', response.status, errorText);
-        throw new Error(`语音识别失败: ${response.status}`);
-      }
-
-      const text = await response.text();
+      const text = await recognizeSpeechBase64(base64Audio, 'pcm', 16000, 'zh_cn');
       console.log('识别结果:', text);
       console.log('识别结果类型:', typeof text);
       console.log('识别结果长度:', text.length);
