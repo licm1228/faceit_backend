@@ -156,8 +156,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       >
         <div className="border-b border-[#F0F0F0] pb-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#3B82F6]">
-              <FaceItMark className="h-5 w-5" light />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#BFDBFE] bg-white shadow-[0_6px_16px_rgba(37,99,235,0.08)]">
+              <FaceItMark className="h-5 w-5" />
             </div>
             <div className="font-poppins">
               <p className="text-base font-semibold text-[#1A1A1A]">Face It Assistant</p>
