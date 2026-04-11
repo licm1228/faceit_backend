@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BookOpen, LogOut, MoreHorizontal, PlayCircle } from "lucide-react";
+import { BookOpen, LogOut, PlayCircle, Settings } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -56,10 +56,17 @@ export function UserMenu({ align = "end", side = "bottom", sideOffset = 8, class
             )}
           </div>
           <span className="flex-1 truncate text-sm font-medium text-[#1A1A1A]">{displayName}</span>
-          <MoreHorizontal className="h-4 w-4 text-[#999999]" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} side={side} sideOffset={sideOffset} className="w-48">
+        {user?.role === "admin" ? (
+          <DropdownMenuItem asChild>
+            <a href="/admin" target="_blank" rel="noreferrer" className="flex items-center">
+              <Settings className="mr-2 h-4 w-4" />
+              管理后台
+            </a>
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem asChild>
           <a
             href="https://nageoffer.com/ragent"

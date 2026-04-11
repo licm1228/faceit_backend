@@ -7,7 +7,6 @@ import {
   Pencil,
   Plus,
   Search,
-  Settings,
   Trash2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -30,7 +29,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Loading } from "@/components/common/Loading";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 
 interface SidebarProps {
@@ -51,7 +49,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     fetchSessions
   } = useChatStore();
   const navigate = useNavigate();
-  const user = useAuthStore((state) => state.user);
   const [query, setQuery] = React.useState("");
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState("");
@@ -218,19 +215,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   <span className="block text-xs text-[#64748B]">Role-based practice & review</span>
                 </span>
               </button>
-              {user?.role === "admin" ? (
-                <button
-                  type="button"
-                  className="mt-2 inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/70 px-3 py-1.5 text-xs font-semibold text-[#1D4ED8] transition-colors hover:bg-white"
-                  onClick={() => {
-                    window.open("/admin", "_blank");
-                    onClose();
-                  }}
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                  管理后台
-                </button>
-              ) : null}
             </div>
           </div>
           <div className="rounded-2xl border border-[#E6EEF6] bg-white p-3 shadow-[0_12px_26px_rgba(15,23,42,0.06)]">
