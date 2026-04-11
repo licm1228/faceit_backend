@@ -1,6 +1,7 @@
 import * as React from "react";
-import { ArrowUpRight, BookOpen, Bot, Brain, Check, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
+import { ArrowUpRight, BookOpen, Brain, Check, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
 
+import { FaceItMark } from "@/components/common/FaceItMark";
 import { cn } from "@/lib/utils";
 import { recognizeSpeechBase64 } from "@/services/interviewService";
 import { listSampleQuestions } from "@/services/sampleQuestionService";
@@ -282,7 +283,7 @@ export function WelcomeScreen() {
           style={{ animationFillMode: "both" }}
         >
           <span className="font-poppins inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-[#2563EB] shadow-sm">
-            <Bot className="h-3.5 w-3.5" />
+            <FaceItMark className="h-3.5 w-3.5" />
             Face It Assistant 智能助手
           </span>
           <h1 className="font-poppins mt-4 text-4xl font-semibold leading-tight tracking-tight text-[#111827] sm:text-5xl md:text-6xl">
