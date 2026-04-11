@@ -301,16 +301,16 @@ export function WelcomeScreen() {
           className="text-center opacity-0 animate-fade-up"
           style={{ animationFillMode: "both" }}
         >
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-[#2563EB] shadow-sm">
+          <span className="font-poppins inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-[#2563EB] shadow-sm">
             <Bot className="h-3.5 w-3.5" />
-            Face It Assistant
+            Face It Assistant 智能助手
           </span>
-          <h1 className="mt-4 font-display text-4xl leading-tight tracking-tight text-[#111827] sm:text-5xl md:text-6xl">
-            Turn your questions into
-            <span className="text-gradient">clear answers</span>
+          <h1 className="font-poppins mt-4 text-4xl font-semibold leading-tight tracking-tight text-[#111827] sm:text-5xl md:text-6xl">
+            把问题变成
+            <span className="text-gradient"> clear answers</span>
           </h1>
           <p className="mt-4 text-base text-[#4B5563] sm:text-lg">
-            Structured prompts, knowledge retrieval, and deeper reasoning in one focused workspace.
+            结构化提问、知识检索与深度思考，在一个更专注的 workspace 里完成。
           </p>
         </div>
 
@@ -331,7 +331,7 @@ export function WelcomeScreen() {
                 ref={textareaRef}
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
-                placeholder={deepThinkingEnabled ? "Ask for a deeper analysis..." : "Ask anything..."}
+                placeholder={deepThinkingEnabled ? "输入更需要深入分析的问题..." : "输入你的问题，Ask anything..."}
                 className="max-h-40 min-h-[52px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 text-[15px] text-[#1F2937] placeholder:text-[#9CA3AF] focus:outline-none sm:text-base"
                 rows={1}
                 onFocus={() => setIsFocused(true)}
@@ -352,7 +352,7 @@ export function WelcomeScreen() {
                     handleSubmit();
                   }
                 }}
-                aria-label="Send message"
+                aria-label="发送消息"
               />
               <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[10px] bg-gradient-to-b from-white/0 via-white/40 to-white/90" />
             </div>

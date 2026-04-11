@@ -162,7 +162,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#3B82F6]">
               <Bot className="h-5 w-5 text-white" />
             </div>
-            <div style={{ fontFamily: sessionTitleFont }}>
+            <div className="font-poppins">
               <p className="text-base font-semibold text-[#1A1A1A]">Face It Assistant</p>
               <p className="text-xs text-[#999999]">Chat · Knowledge · Interview</p>
             </div>
@@ -180,7 +180,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             />
             <div className="relative">
               <div className="flex items-center justify-between px-1">
-                <span className="text-[11px] font-semibold text-[#94A3B8]">Quick Start</span>
+                <span className="font-poppins text-[11px] font-semibold text-[#94A3B8]">Quick Start</span>
                 <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-[#2563EB]">
                   New
                 </span>
@@ -197,8 +197,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#60A5FA] to-[#2563EB] text-white shadow-[0_6px_14px_rgba(37,99,235,0.3)]">
                   <Plus className="h-4 w-4" />
                 </span>
-                <span className="flex-1">
-                  <span className="block text-sm font-semibold text-[#1F2937]">New Chat</span>
+                <span className="font-poppins flex-1">
+                  <span className="block text-sm font-semibold text-[#1F2937]">New Chat 新建对话</span>
                   <span className="block text-xs text-[#94A3B8]">Start from scratch</span>
                 </span>
               </button>
@@ -213,8 +213,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-[0_6px_14px_rgba(37,99,235,0.3)]">
                   <MessageSquare className="h-4 w-4" />
                 </span>
-                <span className="flex-1">
-                  <span className="block text-sm font-semibold text-[#1F2937]">Mock Interview</span>
+                <span className="font-poppins flex-1">
+                  <span className="block text-sm font-semibold text-[#1F2937]">Mock Interview 模拟面试</span>
                   <span className="block text-xs text-[#64748B]">Role-based practice & review</span>
                 </span>
               </button>
