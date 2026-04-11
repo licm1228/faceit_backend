@@ -163,8 +163,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               <Bot className="h-5 w-5 text-white" />
             </div>
             <div style={{ fontFamily: sessionTitleFont }}>
-              <p className="text-base font-semibold text-[#1A1A1A]">Face It 智能助手</p>
-              <p className="text-xs text-[#999999]">对话 · 知识 · 面试</p>
+              <p className="text-base font-semibold text-[#1A1A1A]">Face It Assistant</p>
+              <p className="text-xs text-[#999999]">Chat · Knowledge · Interview</p>
             </div>
           </div>
         </div>
@@ -180,9 +180,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             />
             <div className="relative">
               <div className="flex items-center justify-between px-1">
-                <span className="text-[11px] font-semibold text-[#94A3B8]">快速开始</span>
+                <span className="text-[11px] font-semibold text-[#94A3B8]">Quick Start</span>
                 <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-[#2563EB]">
-                  新内容
+                  New
                 </span>
               </div>
               <button
@@ -198,8 +198,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   <Plus className="h-4 w-4" />
                 </span>
                 <span className="flex-1">
-                  <span className="block text-sm font-semibold text-[#1F2937]">新建对话</span>
-                  <span className="block text-xs text-[#94A3B8]">从空白开始</span>
+                  <span className="block text-sm font-semibold text-[#1F2937]">New Chat</span>
+                  <span className="block text-xs text-[#94A3B8]">Start from scratch</span>
                 </span>
               </button>
               <button
@@ -214,8 +214,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   <MessageSquare className="h-4 w-4" />
                 </span>
                 <span className="flex-1">
-                  <span className="block text-sm font-semibold text-[#1F2937]">模拟面试</span>
-                  <span className="block text-xs text-[#64748B]">岗位选题与评估</span>
+                  <span className="block text-sm font-semibold text-[#1F2937]">Mock Interview</span>
+                  <span className="block text-xs text-[#64748B]">Role-based practice & review</span>
                 </span>
               </button>
               {user?.role === "admin" ? (

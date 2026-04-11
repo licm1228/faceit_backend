@@ -17,7 +17,7 @@ export function LoginPage() {
     event.preventDefault();
     setLoginError(null);
     if (!loginForm.username.trim() || !loginForm.password.trim()) {
-      setLoginError("请输入用户名和密码。");
+      setLoginError("Please enter your username and password.");
       return;
     }
 
@@ -25,7 +25,7 @@ export function LoginPage() {
       await login(loginForm.username.trim(), loginForm.password.trim());
       navigate("/chat");
     } catch (error) {
-      setLoginError((error as Error).message || "登录失败，请稍后重试。");
+      setLoginError((error as Error).message || "Login failed. Please try again.");
     }
   };
 
@@ -33,7 +33,7 @@ export function LoginPage() {
     event.preventDefault();
     setRegisterError(null);
     if (!registerForm.username.trim() || !registerForm.password.trim()) {
-      setRegisterError("请输入用户名和密码。");
+      setRegisterError("Please enter a username and password.");
       return;
     }
 
@@ -41,7 +41,7 @@ export function LoginPage() {
       await register(registerForm.username.trim(), registerForm.password.trim());
       navigate("/chat");
     } catch (error) {
-      setRegisterError((error as Error).message || "注册失败，请稍后重试。");
+      setRegisterError((error as Error).message || "Sign up failed. Please try again.");
     }
   };
 
@@ -50,11 +50,11 @@ export function LoginPage() {
       <div className={`container${active ? " active" : ""}`}>
         <div className="form-box login">
           <form onSubmit={handleLoginSubmit}>
-            <h1>登录</h1>
+            <h1>Login</h1>
             <div className="input-box">
               <input
                 type="text"
-                placeholder="用户名"
+                placeholder="Username"
                 required
                 value={loginForm.username}
                 onChange={(event) => setLoginForm((prev) => ({ ...prev, username: event.target.value }))}
@@ -65,7 +65,7 @@ export function LoginPage() {
             <div className="input-box">
               <input
                 type="password"
-                placeholder="密码"
+                placeholder="Password"
                 required
                 value={loginForm.password}
                 onChange={(event) => setLoginForm((prev) => ({ ...prev, password: event.target.value }))}
@@ -74,13 +74,13 @@ export function LoginPage() {
               <i className="bx bxs-lock-alt" />
             </div>
             <div className="forgot-link">
-              <span>请输入你的账号信息</span>
+              <span>Sign in to continue with Face It</span>
             </div>
             {loginError ? <p className="form-message error">{loginError}</p> : null}
             <button type="submit" className="btn" disabled={isLoading && !active}>
-              {isLoading && !active ? "登录中..." : "登录"}
+              {isLoading && !active ? "Signing in..." : "Login"}
             </button>
-            <p>或使用以下方式继续</p>
+            <p>or continue with</p>
             <div className="social-icons">
               <a href="#" onClick={(event) => event.preventDefault()} aria-label="Google">
                 <i className="bx bxl-google" />
@@ -100,11 +100,11 @@ export function LoginPage() {
 
         <div className="form-box register">
           <form onSubmit={handleRegisterSubmit}>
-            <h1>注册</h1>
+            <h1>Sign Up</h1>
             <div className="input-box">
               <input
                 type="text"
-                placeholder="用户名"
+                placeholder="Username"
                 required
                 value={registerForm.username}
                 onChange={(event) => setRegisterForm((prev) => ({ ...prev, username: event.target.value }))}
@@ -115,7 +115,7 @@ export function LoginPage() {
             <div className="input-box">
               <input
                 type="password"
-                placeholder="密码"
+                placeholder="Password"
                 required
                 value={registerForm.password}
                 onChange={(event) => setRegisterForm((prev) => ({ ...prev, password: event.target.value }))}
@@ -124,13 +124,13 @@ export function LoginPage() {
               <i className="bx bxs-lock-alt" />
             </div>
             <div className="forgot-link">
-              <span>创建账号后即可直接登录</span>
+              <span>Create your account and enter Face It</span>
             </div>
             {registerError ? <p className="form-message error">{registerError}</p> : null}
             <button type="submit" className="btn" disabled={isLoading && active}>
-              {isLoading && active ? "注册中..." : "注册"}
+              {isLoading && active ? "Creating..." : "Register"}
             </button>
-            <p>或使用以下方式继续</p>
+            <p>or continue with</p>
             <div className="social-icons">
               <a href="#" onClick={(event) => event.preventDefault()} aria-label="Google">
                 <i className="bx bxl-google" />
@@ -150,18 +150,18 @@ export function LoginPage() {
 
         <div className="toggle-box">
           <div className="toggle-panel toggle-left">
-            <h1>你好，欢迎进入 Face It</h1>
-            <p>还没有账号？立即注册开始使用</p>
+            <h1>Hello, Welcome!</h1>
+            <p>Don't have an account yet?</p>
             <button type="button" className="btn register-btn" onClick={() => setActive(true)}>
-              注册
+              Register
             </button>
           </div>
 
           <div className="toggle-panel toggle-right">
-            <h1>欢迎回来</h1>
-            <p>已有账号？直接登录继续你的对话与面试训练</p>
+            <h1>Welcome Back!</h1>
+            <p>Already have an account?</p>
             <button type="button" className="btn login-btn" onClick={() => setActive(false)}>
-              登录
+              Login
             </button>
           </div>
         </div>
