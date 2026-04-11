@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Loading } from "@/components/common/Loading";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 
 interface SidebarProps {
@@ -50,6 +51,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     fetchSessions
   } = useChatStore();
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
   const [query, setQuery] = React.useState("");
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState("");
