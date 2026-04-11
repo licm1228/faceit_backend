@@ -151,7 +151,7 @@ const menuGroups: MenuGroup[] = [
       },
       {
         path: "/admin/traces",
-        label: "链路追踪",
+        label: "对话运行",
         icon: Workflow
       },
     ]
@@ -184,7 +184,7 @@ const breadcrumbMap: Record<string, string> = {
   "intent-tree": "意图树配置",
   "intent-list": "意图列表",
   ingestion: "数据通道",
-  traces: "链路追踪",
+  traces: "对话运行",
   "sample-questions": "示例问题",
   mappings: "关键词映射",
   settings: "系统设置",
@@ -478,7 +478,7 @@ export function AdminLayout() {
             {!collapsed && (
               <div className="min-w-0">
                 <h1 className="admin-sidebar__title">Face It 管理后台</h1>
-                <p className="admin-sidebar__subtitle">Knowledge & Interview Console</p>
+                <p className="admin-sidebar__subtitle">知识库与面试管理台</p>
               </div>
             )}
           </div>

@@ -22,7 +22,7 @@ export function FilterBar({ filters, onFiltersChange, onSearch, onRefresh, onRes
             className="trace-list-control"
             value={filters.traceId}
             onChange={(event) => onFiltersChange({ traceId: event.target.value })}
-            placeholder="按 Trace Id 过滤"
+            placeholder="按运行 ID 过滤"
           />
           <Input
             className="trace-list-control"
