@@ -9,7 +9,7 @@ export function LoginPage() {
   const { login, register, isLoading } = useAuthStore();
   const [active, setActive] = React.useState(false);
   const [loginForm, setLoginForm] = React.useState({ username: "admin", password: "admin" });
-  const [registerForm, setRegisterForm] = React.useState({ username: "", email: "", password: "" });
+  const [registerForm, setRegisterForm] = React.useState({ username: "", password: "" });
   const [loginError, setLoginError] = React.useState<string | null>(null);
   const [registerError, setRegisterError] = React.useState<string | null>(null);
 
@@ -74,13 +74,13 @@ export function LoginPage() {
               <i className="bx bxs-lock-alt" />
             </div>
             <div className="forgot-link">
-              <span>演示账号：admin / admin</span>
+              <span>请输入你的账号信息</span>
             </div>
             {loginError ? <p className="form-message error">{loginError}</p> : null}
             <button type="submit" className="btn" disabled={isLoading && !active}>
               {isLoading && !active ? "登录中..." : "登录"}
             </button>
-            <p>或通过以下方式了解系统能力</p>
+            <p>或使用以下方式继续</p>
             <div className="social-icons">
               <a href="#" onClick={(event) => event.preventDefault()} aria-label="Google">
                 <i className="bx bxl-google" />
@@ -114,17 +114,6 @@ export function LoginPage() {
             </div>
             <div className="input-box">
               <input
-                type="email"
-                placeholder="邮箱"
-                required
-                value={registerForm.email}
-                onChange={(event) => setRegisterForm((prev) => ({ ...prev, email: event.target.value }))}
-                autoComplete="email"
-              />
-              <i className="bx bxs-envelope" />
-            </div>
-            <div className="input-box">
-              <input
                 type="password"
                 placeholder="密码"
                 required
@@ -135,13 +124,13 @@ export function LoginPage() {
               <i className="bx bxs-lock-alt" />
             </div>
             <div className="forgot-link">
-              <span>当前接口仅提交用户名与密码</span>
+              <span>创建账号后即可直接登录</span>
             </div>
             {registerError ? <p className="form-message error">{registerError}</p> : null}
             <button type="submit" className="btn" disabled={isLoading && active}>
               {isLoading && active ? "注册中..." : "注册"}
             </button>
-            <p>或使用社交平台入口样式</p>
+            <p>或使用以下方式继续</p>
             <div className="social-icons">
               <a href="#" onClick={(event) => event.preventDefault()} aria-label="Google">
                 <i className="bx bxl-google" />
