@@ -68,7 +68,7 @@ export function UserMenu({ align = "end", side = "bottom", sideOffset = 8, class
             className="flex items-center"
           >
             <BookOpen className="mr-2 h-4 w-4" />
-            官方文档
+            使用文档
           </a>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
@@ -79,7 +79,7 @@ export function UserMenu({ align = "end", side = "bottom", sideOffset = 8, class
             className="flex items-center"
           >
             <PlayCircle className="mr-2 h-4 w-4" />
-            哔哩哔哩
+            视频教程
           </a>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => logout()} className="text-rose-600 focus:text-rose-600">
