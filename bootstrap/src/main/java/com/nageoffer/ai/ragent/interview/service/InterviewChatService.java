@@ -54,10 +54,18 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class InterviewChatService {
 
+    private static final List<String> QUIZ_STYLE_PHRASES = List.of(
+            "请完整列举",
+            "请分别说明",
+            "请详细说明以下",
+            "请从以下几个方面",
+            "请依次回答",
+            "请全面分析"
+    );
     private static final int DEFAULT_DIFFICULTY = 3;
     private static final int DEFAULT_TIME_LIMIT_MINUTES = 20;
     private static final int DEFAULT_QUESTION_LIMIT = 5;
-    private static final int MAX_FOLLOW_UPS = 3;
+    private static final int MAX_FOLLOW_UPS = 2;
     private static final Pattern QUESTION_LIMIT_PATTERN = Pattern.compile("(\\d{1,2})\\s*(题|道)");
     private static final Pattern TIME_LIMIT_PATTERN = Pattern.compile("(\\d{1,3})\\s*(分钟|min|mins)");
 
@@ -118,6 +126,7 @@ public class InterviewChatService {
         runtimeState.setDifficulty(difficulty);
         runtimeState.setQuestionLimit(questionLimit);
         runtimeState.setTimeLimitMinutes(timeLimitMinutes);
+        runtimeState.setCurrentMainQuestionId(question.getId());
         runtimeState.setCurrentQuestionId(question.getId());
         runtimeState.setCurrentQuestionText(question.getQuestionText());
         runtimeState.setQuestionIndex(1);
@@ -144,6 +153,7 @@ public class InterviewChatService {
             throw new ClientException("本场面试已结束");
         }
         RuntimeState runtimeState = readRuntimeState(session);
+        ensureRuntimeStateDefaults(runtimeState);
         if (StrUtil.isBlank(runtimeState.getCurrentQuestionId())) {
             throw new ClientException("当前面试缺少题目状态，请重新开始");
         }
@@ -155,7 +165,14 @@ public class InterviewChatService {
         }
 
         InterviewAnswerEntity answer = interviewAnswerService.saveOrUpdateAnswer(sessionId, question.getId(), content.trim());
-        Map<String, Object> evaluation = aiEvaluationService.evaluateAnswer(question, content.trim(), runtimeState.getFollowUpCount());
+        Map<String, Object> evaluation = aiEvaluationService.evaluateAnswer(
+                question,
+                content.trim(),
+                runtimeState.getFollowUpCount(),
+                runtimeState.getLastFollowUpIntent(),
+                runtimeState.getLastFollowUpFocus(),
+                runtimeState.getFollowUpHistory()
+        );
         interviewAnswerService.evaluateAnswer(
                 answer.getId(),
                 (Integer) evaluation.get("score"),
@@ -172,13 +189,25 @@ public class InterviewChatService {
                 && runtimeState.getFollowUpCount() < MAX_FOLLOW_UPS
                 && shouldAskFollowUp(evaluation);
         if (shouldAskFollowUp) {
-            String followUpQuestionText = StrUtil.blankToDefault((String) evaluation.get("followUpQuestion"), "");
+            String followUpIntent = normalizeIntent((String) evaluation.get("followUpIntent"));
+            String followUpFocus = normalizeFocus((String) evaluation.get("followUpFocus"));
+            String followUpQuestionText = normalizeFollowUpQuestion((String) evaluation.get("followUpQuestion"));
             if (StrUtil.isBlank(followUpQuestionText)) {
-                QuestionEntity followUpQuestion = aiEvaluationService.generateFollowUpQuestion(question, content.trim());
-                followUpQuestionText = followUpQuestion == null ? "" : StrUtil.blankToDefault(followUpQuestion.getQuestionText(), "");
+                QuestionEntity followUpQuestion = aiEvaluationService.generateFollowUpQuestion(
+                        question,
+                        content.trim(),
+                        runtimeState.getFollowUpCount(),
+                        followUpIntent,
+                        followUpFocus,
+                        runtimeState.getFollowUpHistory()
+                );
+                followUpQuestionText = followUpQuestion == null ? "" : normalizeFollowUpQuestion(followUpQuestion.getQuestionText());
             }
-            if (StrUtil.isNotBlank(followUpQuestionText)) {
+            if (shouldUseFollowUp(runtimeState, followUpIntent, followUpFocus, followUpQuestionText)) {
                 runtimeState.setFollowUpCount(runtimeState.getFollowUpCount() + 1);
+                runtimeState.setLastFollowUpIntent(followUpIntent);
+                runtimeState.setLastFollowUpFocus(followUpFocus);
+                runtimeState.getFollowUpHistory().add(buildFollowUpHistoryEntry(followUpIntent, followUpFocus, followUpQuestionText));
                 interviewSessionService.updateEvaluationReport(sessionId, toRuntimePayload(runtimeState));
                 addAssistantMessage(sessionId, userId, followUpQuestionText);
                 return buildTurnResponse(interviewSessionService.getSessionById(sessionId), runtimeState);
@@ -206,10 +235,14 @@ public class InterviewChatService {
 
         interviewSessionService.incrementQuestionCount(sessionId);
         runtimeState.getAskedQuestionIds().add(nextQuestion.getId());
+        runtimeState.setCurrentMainQuestionId(nextQuestion.getId());
         runtimeState.setCurrentQuestionId(nextQuestion.getId());
         runtimeState.setCurrentQuestionText(nextQuestion.getQuestionText());
         runtimeState.setQuestionIndex(runtimeState.getQuestionIndex() + 1);
         runtimeState.setFollowUpCount(0);
+        runtimeState.setLastFollowUpIntent("");
+        runtimeState.setLastFollowUpFocus("");
+        runtimeState.setFollowUpHistory(new ArrayList<>());
         interviewSessionService.updateEvaluationReport(sessionId, toRuntimePayload(runtimeState));
 
         addAssistantMessage(sessionId, userId, "我们继续下一题。");
@@ -505,7 +538,9 @@ public class InterviewChatService {
             if (!"runtime".equals(payload.get("kind"))) {
                 return new RuntimeState();
             }
-            return objectMapper.convertValue(payload.get("data"), RuntimeState.class);
+            RuntimeState runtimeState = objectMapper.convertValue(payload.get("data"), RuntimeState.class);
+            ensureRuntimeStateDefaults(runtimeState);
+            return runtimeState;
         } catch (Exception ex) {
             log.warn("解析面试运行态失败, sessionId={}", session.getId(), ex);
             return new RuntimeState();
@@ -654,6 +689,137 @@ public class InterviewChatService {
         }
         Integer score = evaluation.get("score") instanceof Integer value ? value : null;
         return score == null || score < 78;
+    }
+
+    private void ensureRuntimeStateDefaults(RuntimeState runtimeState) {
+        if (runtimeState == null) {
+            return;
+        }
+        if (runtimeState.getFollowUpHistory() == null) {
+            runtimeState.setFollowUpHistory(new ArrayList<>());
+        }
+        if (runtimeState.getAskedQuestionIds() == null) {
+            runtimeState.setAskedQuestionIds(new ArrayList<>());
+        }
+        if (runtimeState.getLastFollowUpIntent() == null) {
+            runtimeState.setLastFollowUpIntent("");
+        }
+        if (runtimeState.getLastFollowUpFocus() == null) {
+            runtimeState.setLastFollowUpFocus("");
+        }
+        if (runtimeState.getCurrentMainQuestionId() == null) {
+            runtimeState.setCurrentMainQuestionId(runtimeState.getCurrentQuestionId());
+        }
+    }
+
+    private boolean shouldUseFollowUp(
+            RuntimeState runtimeState,
+            String followUpIntent,
+            String followUpFocus,
+            String followUpQuestionText
+    ) {
+        if (runtimeState == null || runtimeState.getFollowUpCount() >= MAX_FOLLOW_UPS) {
+            return false;
+        }
+        if (StrUtil.isBlank(followUpQuestionText)) {
+            return false;
+        }
+        if (isQuizStyleFollowUp(followUpQuestionText)) {
+            return false;
+        }
+        if (isRepeatedFollowUp(runtimeState, followUpIntent, followUpFocus, followUpQuestionText)) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isRepeatedFollowUp(
+            RuntimeState runtimeState,
+            String followUpIntent,
+            String followUpFocus,
+            String followUpQuestionText
+    ) {
+        String normalizedQuestion = normalizeComparisonText(followUpQuestionText);
+        if (StrUtil.isNotBlank(runtimeState.getLastFollowUpIntent())
+                && Objects.equals(runtimeState.getLastFollowUpIntent(), followUpIntent)
+                && StrUtil.isNotBlank(followUpIntent)) {
+            return true;
+        }
+        if (StrUtil.isNotBlank(runtimeState.getLastFollowUpFocus())
+                && Objects.equals(normalizeComparisonText(runtimeState.getLastFollowUpFocus()), normalizeComparisonText(followUpFocus))
+                && StrUtil.isNotBlank(followUpFocus)) {
+            return true;
+        }
+        return runtimeState.getFollowUpHistory().stream()
+                .map(this::normalizeComparisonText)
+                .anyMatch(item -> item.contains(normalizedQuestion) || normalizedQuestion.contains(item));
+    }
+
+    private boolean isQuizStyleFollowUp(String followUpQuestionText) {
+        String normalized = StrUtil.blankToDefault(followUpQuestionText, "").trim();
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        if (QUIZ_STYLE_PHRASES.stream().anyMatch(normalized::contains)) {
+            return true;
+        }
+        return (normalized.contains("并") || normalized.contains("以及"))
+                && (normalized.contains("区别") || normalized.contains("说明") || normalized.contains("列举"));
+    }
+
+    private String normalizeFollowUpQuestion(String followUpQuestionText) {
+        if (StrUtil.isBlank(followUpQuestionText)) {
+            return "";
+        }
+        String normalized = followUpQuestionText
+                .replace("继续追问：", "")
+                .replace("追问：", "")
+                .replace("追问问题：", "")
+                .replace("\n", " ")
+                .trim();
+        normalized = normalized.replaceAll("\\s+", " ");
+        if (normalized.startsWith("问题：")) {
+            normalized = normalized.substring(3).trim();
+        }
+        return normalized;
+    }
+
+    private String normalizeIntent(String followUpIntent) {
+        if (StrUtil.isBlank(followUpIntent)) {
+            return "";
+        }
+        String normalized = followUpIntent.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "missing_fact", "deeper_understanding", "scenario_application", "tradeoff_reasoning", "implementation_detail" -> normalized;
+            default -> "";
+        };
+    }
+
+    private String normalizeFocus(String followUpFocus) {
+        if (StrUtil.isBlank(followUpFocus)) {
+            return "";
+        }
+        return followUpFocus.replace("\n", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    private String buildFollowUpHistoryEntry(String followUpIntent, String followUpFocus, String followUpQuestionText) {
+        List<String> parts = new ArrayList<>();
+        if (StrUtil.isNotBlank(followUpIntent)) {
+            parts.add(followUpIntent);
+        }
+        if (StrUtil.isNotBlank(followUpFocus)) {
+            parts.add(followUpFocus);
+        }
+        if (StrUtil.isNotBlank(followUpQuestionText)) {
+            parts.add(followUpQuestionText);
+        }
+        return String.join(" | ", parts);
+    }
+
+    private String normalizeComparisonText(String value) {
+        return StrUtil.blankToDefault(value, "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[\\p{Punct}\\s]+", "");
     }
 
     private PositionEntity resolvePosition(String normalized) {
@@ -849,10 +1015,14 @@ public class InterviewChatService {
         private Integer difficulty = DEFAULT_DIFFICULTY;
         private Integer timeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES;
         private Integer questionLimit = DEFAULT_QUESTION_LIMIT;
+        private String currentMainQuestionId;
         private String currentQuestionId;
         private String currentQuestionText;
         private Integer questionIndex = 0;
         private Integer followUpCount = 0;
+        private String lastFollowUpIntent = "";
+        private String lastFollowUpFocus = "";
+        private List<String> followUpHistory = new ArrayList<>();
         private List<String> askedQuestionIds = new ArrayList<>();
     }
 }

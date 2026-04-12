@@ -24,9 +24,10 @@ import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Arrays;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,8 +51,19 @@ public class AIEvaluationService {
     }
 
     public Map<String, Object> evaluateAnswer(QuestionEntity question, String userAnswer, int followUpCount) {
+        return evaluateAnswer(question, userAnswer, followUpCount, "", "", List.of());
+    }
+
+    public Map<String, Object> evaluateAnswer(
+            QuestionEntity question,
+            String userAnswer,
+            int followUpCount,
+            String lastFollowUpIntent,
+            String lastFollowUpFocus,
+            List<String> followUpHistory
+    ) {
         // 构建评估提示词
-        String prompt = buildEvaluationPrompt(question, userAnswer, followUpCount);
+        String prompt = buildEvaluationPrompt(question, userAnswer, followUpCount, lastFollowUpIntent, lastFollowUpFocus, followUpHistory);
 
         try {
             // 调用LLM服务进行评估
@@ -73,6 +85,11 @@ public class AIEvaluationService {
             defaultEvaluation.put("suggestions", "请稍后再试");
             defaultEvaluation.put("shouldFollowUp", false);
             defaultEvaluation.put("followUpQuestion", "");
+            defaultEvaluation.put("followUpIntent", "");
+            defaultEvaluation.put("followUpFocus", "");
+            defaultEvaluation.put("answeredPoints", List.of());
+            defaultEvaluation.put("missingPoints", List.of());
+            defaultEvaluation.put("avoidRepeat", List.of());
             return defaultEvaluation;
         }
     }
@@ -120,8 +137,19 @@ public class AIEvaluationService {
      * @return 追问题目
      */
     public QuestionEntity generateFollowUpQuestion(QuestionEntity question, String userAnswer) {
+        return generateFollowUpQuestion(question, userAnswer, 0, "", "", List.of());
+    }
+
+    public QuestionEntity generateFollowUpQuestion(
+            QuestionEntity question,
+            String userAnswer,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory
+    ) {
         // 构建追问提示词
-        String prompt = buildFollowUpPrompt(question, userAnswer);
+        String prompt = buildFollowUpPrompt(question, userAnswer, followUpCount, followUpIntent, followUpFocus, followUpHistory);
 
         try {
             // 调用LLM服务生成追问
@@ -144,12 +172,22 @@ public class AIEvaluationService {
         }
     }
 
-    private String buildEvaluationPrompt(QuestionEntity question, String userAnswer, int followUpCount) {
+    private String buildEvaluationPrompt(
+            QuestionEntity question,
+            String userAnswer,
+            int followUpCount,
+            String lastFollowUpIntent,
+            String lastFollowUpFocus,
+            List<String> followUpHistory
+    ) {
         return "你是一位专业的技术面试官，请评估以下学生的回答：\n" +
                 "题目：" + question.getQuestionText() + "\n" +
                 "参考答案：" + question.getReferenceAnswer() + "\n" +
                 "学生回答：" + userAnswer + "\n" +
                 "当前追问轮次：" + followUpCount + "\n" +
+                "上一轮追问意图：" + blankDefault(lastFollowUpIntent, "无") + "\n" +
+                "上一轮追问聚焦点：" + blankDefault(lastFollowUpFocus, "无") + "\n" +
+                "本题历史追问：" + stringifyList(followUpHistory) + "\n" +
                 "请从以下几个方面进行评估：\n" +
                 "1. 技术准确性（0-30分）\n" +
                 "2. 岗位匹配度（0-25分）\n" +
@@ -157,9 +195,17 @@ public class AIEvaluationService {
                 "4. 知识覆盖度（0-20分）\n" +
                 "总分为各项之和（0-100分）\n" +
                 "同时提供详细的反馈和改进建议，并判断是否应该继续追问。\n" +
-                "如果回答存在关键概念缺失、论证不清、实现细节空泛或只答到表面，可以继续追问；" +
-                "如果回答已经充分、清晰且覆盖关键点，则不要继续追问。\n" +
-                "如果当前追问轮次已经较高，请更谨慎地决定是否继续追问，避免无限追问。\n" +
+                "你必须像真实技术面试官一样追问，而不是像题库老师出补全题。\n" +
+                "追问规则：\n" +
+                "1. 每轮最多只追问一个关键点，只能有一个追问意图和一个追问聚焦点。\n" +
+                "2. 如果候选人已经提到某个点，不得要求其完整复述或重新列举。\n" +
+                "3. 优先顺序：补关键缺口 -> 判断理解是否真实 -> 问场景应用 -> 问取舍原因 -> 问实现细节。\n" +
+                "4. 禁止把原题改写成更细的背诵题，禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”等考试式措辞。\n" +
+                "5. 如果当前追问轮次已达到 2，默认不要继续追问。\n" +
+                "6. 如果上一轮已经围绕某个聚焦点追问，本轮不得重复同一聚焦点，也不得延续同一追问意图。\n" +
+                "7. 追问语气必须像口头面试，短、自然、针对性强。\n" +
+                "8. 如果回答已经足够完整，就直接进入下一题，不要为了互动而强行追问。\n" +
+                "追问意图只能从以下枚举中选择一个：missing_fact, deeper_understanding, scenario_application, tradeoff_reasoning, implementation_detail\n" +
                 "请按照以下格式输出：\n" +
                 "评分：[总分]\n" +
                 "技术准确性：[分数]\n" +
@@ -168,7 +214,12 @@ public class AIEvaluationService {
                 "知识覆盖度：[分数]\n" +
                 "反馈：[详细反馈]\n" +
                 "建议：[改进建议]\n" +
+                "已覆盖要点：[逗号分隔]\n" +
+                "缺失要点：[逗号分隔]\n" +
+                "避免重复：[逗号分隔]\n" +
                 "继续追问：[是/否]\n" +
+                "追问意图：[missing_fact/deeper_understanding/scenario_application/tradeoff_reasoning/implementation_detail，如不追问留空]\n" +
+                "追问聚焦点：[只写一个最关键的缺口或主题，如不追问留空]\n" +
                 "追问问题：[如需追问则输出具体问题，否则留空]";
     }
 
@@ -242,15 +293,28 @@ public class AIEvaluationService {
         return prompt.toString();
     }
 
-    private String buildFollowUpPrompt(QuestionEntity question, String userAnswer) {
+    private String buildFollowUpPrompt(
+            QuestionEntity question,
+            String userAnswer,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory
+    ) {
         return "你是一位专业的技术面试官，根据以下题目和学生回答，生成一个相关的追问：\n" +
                 "题目：" + question.getQuestionText() + "\n" +
                 "学生回答：" + userAnswer + "\n" +
+                "当前追问轮次：" + followUpCount + "\n" +
+                "指定追问意图：" + blankDefault(followUpIntent, "deeper_understanding") + "\n" +
+                "指定追问聚焦点：" + blankDefault(followUpFocus, "回答中最关键的薄弱点") + "\n" +
+                "本题历史追问：" + stringifyList(followUpHistory) + "\n" +
                 "要求：\n" +
-                "1. 追问应该针对学生回答中的薄弱环节或需要进一步澄清的地方\n" +
+                "1. 追问应该针对学生回答中的一个薄弱环节或需要进一步澄清的地方，只追一个点\n" +
                 "2. 追问应该与原题目相关，能够深入了解学生的技术水平\n" +
-                "3. 追问应该简洁明了，直击问题核心\n" +
-                "4. 只输出追问内容，不要添加任何其他说明";
+                "3. 追问应该简洁明了，像真实口头面试，不要像考试题\n" +
+                "4. 禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”等措辞\n" +
+                "5. 禁止重复历史追问中的主题\n" +
+                "6. 只输出一句追问内容，不要添加任何其他说明";
     }
 
     private Map<String, Object> parseStructuredReport(String result) {
@@ -301,6 +365,11 @@ public class AIEvaluationService {
         evaluation.put("suggestions", "");
         evaluation.put("shouldFollowUp", false);
         evaluation.put("followUpQuestion", "");
+        evaluation.put("followUpIntent", "");
+        evaluation.put("followUpFocus", "");
+        evaluation.put("answeredPoints", List.of());
+        evaluation.put("missingPoints", List.of());
+        evaluation.put("avoidRepeat", List.of());
 
         // 检查结果是否为空
         if (result == null || result.isEmpty()) {
@@ -340,13 +409,17 @@ public class AIEvaluationService {
             // 尝试提取建议
             int suggestionsIndex = result.indexOf("建议：");
             if (suggestionsIndex != -1) {
-                int suggestionsEndIndex = result.indexOf("继续追问：", suggestionsIndex);
+                int suggestionsEndIndex = result.indexOf("已覆盖要点：", suggestionsIndex);
                 if (suggestionsEndIndex == -1) {
                     suggestionsEndIndex = result.length();
                 }
                 String suggestions = result.substring(suggestionsIndex + 3, suggestionsEndIndex).trim();
                 evaluation.put("suggestions", suggestions);
             }
+
+            extractList(result, "已覆盖要点：", "answeredPoints", evaluation);
+            extractList(result, "缺失要点：", "missingPoints", evaluation);
+            extractList(result, "避免重复：", "avoidRepeat", evaluation);
 
             int shouldFollowUpIndex = result.indexOf("继续追问：");
             if (shouldFollowUpIndex != -1) {
@@ -357,6 +430,9 @@ public class AIEvaluationService {
                 String shouldFollowUp = result.substring(shouldFollowUpIndex + 5, endIndex).trim();
                 evaluation.put("shouldFollowUp", shouldFollowUp.startsWith("是"));
             }
+
+            extractText(result, "追问意图：", "followUpIntent", evaluation, "追问聚焦点：");
+            extractText(result, "追问聚焦点：", "followUpFocus", evaluation, "追问问题：");
 
             int followUpQuestionIndex = result.indexOf("追问问题：");
             if (followUpQuestionIndex != -1) {
@@ -388,6 +464,35 @@ public class AIEvaluationService {
                 evaluation.put(key, 0);
             }
         }
+    }
+
+    private void extractText(String result, String prefix, String key, Map<String, Object> evaluation, String nextPrefix) {
+        int index = result.indexOf(prefix);
+        if (index == -1) {
+            return;
+        }
+        int endIndex = nextPrefix == null ? -1 : result.indexOf(nextPrefix, index);
+        if (endIndex == -1) {
+            endIndex = result.indexOf("\n", index);
+        }
+        if (endIndex == -1) {
+            endIndex = result.length();
+        }
+        String value = result.substring(index + prefix.length(), endIndex).trim();
+        evaluation.put(key, value);
+    }
+
+    private void extractList(String result, String prefix, String key, Map<String, Object> evaluation) {
+        int index = result.indexOf(prefix);
+        if (index == -1) {
+            return;
+        }
+        int endIndex = result.indexOf("\n", index);
+        if (endIndex == -1) {
+            endIndex = result.length();
+        }
+        String value = result.substring(index + prefix.length(), endIndex).trim();
+        evaluation.put(key, splitToList(value));
     }
 
     private int parseFirstNumber(String value) {
@@ -436,5 +541,34 @@ public class AIEvaluationService {
                 .filter(item -> !item.isBlank())
                 .limit(4)
                 .toList();
+    }
+
+    private List<String> splitToList(String value) {
+        if (value == null || value.isBlank() || "无".equals(value.trim())) {
+            return List.of();
+        }
+        return Arrays.stream(value.split("[,，、/\\n]"))
+                .map(item -> item == null ? "" : item.trim())
+                .filter(item -> !item.isBlank())
+                .limit(4)
+                .toList();
+    }
+
+    private String stringifyList(List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return "无";
+        }
+        return String.join("；", items.stream()
+                .map(item -> item == null ? "" : item.trim())
+                .filter(item -> !item.isBlank())
+                .limit(4)
+                .toList());
+    }
+
+    private String blankDefault(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value.trim();
     }
 }
