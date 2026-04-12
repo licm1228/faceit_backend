@@ -1,5 +1,6 @@
 import * as React from "react";
 import { ArrowUpRight, BookOpen, Brain, Check, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { FaceItMark } from "@/components/common/FaceItMark";
 import { cn } from "@/lib/utils";
@@ -38,7 +39,11 @@ const DEFAULT_PRESETS: PromptPreset[] = [
   }
 ];
 
-export function WelcomeScreen() {
+interface WelcomeScreenProps {
+  disabled?: boolean;
+}
+
+export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   const [value, setValue] = React.useState("");
   const [isFocused, setIsFocused] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
@@ -49,6 +54,10 @@ export function WelcomeScreen() {
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   const { sendMessage, isStreaming, cancelGeneration, deepThinkingEnabled, setDeepThinkingEnabled } =
     useChatStore();
+  const isMediaRecorderSupported = React.useMemo(
+    () => typeof window !== "undefined" && "MediaRecorder" in window,
+    []
+  );
 
   const focusInput = React.useCallback(() => {
     const el = textareaRef.current;
@@ -69,6 +78,9 @@ export function WelcomeScreen() {
   }, [value, adjustHeight]);
 
   React.useEffect(() => {
+    if (disabled) {
+      return;
+    }
     let active = true;
 
     const loadPresets = async () => {
@@ -103,18 +115,19 @@ export function WelcomeScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [disabled]);
 
   const applyPreset = React.useCallback(
     (prompt: string) => {
-      if (isStreaming) return;
+      if (disabled || isStreaming) return;
       setValue(prompt);
       focusInput();
     },
-    [isStreaming, focusInput]
+    [disabled, isStreaming, focusInput]
   );
 
   const handleSubmit = async () => {
+    if (disabled) return;
     if (isStreaming) {
       cancelGeneration();
       focusInput();
@@ -323,7 +336,9 @@ export function WelcomeScreen() {
             <span className="text-gradient"> clear answers</span>
           </h1>
           <p className="mt-4 text-base text-[#4B5563] sm:text-lg">
-            结构化提问、知识检索与深度思考，在一个更专注的 workspace 里完成。
+            {disabled
+              ? "Preview the chat experience first. 登录后即可发送消息、保存会话并使用完整能力。"
+              : "结构化提问、知识检索与深度思考，在一个更专注的 workspace 里完成。"}
           </p>
         </div>
 
@@ -344,9 +359,16 @@ export function WelcomeScreen() {
                 ref={textareaRef}
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
-                placeholder={deepThinkingEnabled ? "输入更需要深入分析的问题..." : "输入你的问题，Ask anything..."}
+                placeholder={
+                  disabled
+                    ? "Guest mode preview only. Please login to start chatting..."
+                    : deepThinkingEnabled
+                      ? "输入更需要深入分析的问题..."
+                      : "输入你的问题，Ask anything..."
+                }
                 className="max-h-40 min-h-[52px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 text-[15px] text-[#1F2937] placeholder:text-[#9CA3AF] focus:outline-none sm:text-base"
                 rows={1}
+                disabled={disabled}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 onCompositionStart={() => {
@@ -373,14 +395,14 @@ export function WelcomeScreen() {
               <button
                 type="button"
                 onClick={() => setDeepThinkingEnabled(!deepThinkingEnabled)}
-                disabled={isStreaming || isRecognizingSpeech}
+                disabled={disabled || isStreaming || isRecognizingSpeech}
                 aria-pressed={deepThinkingEnabled}
                 className={cn(
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
                   deepThinkingEnabled
                     ? "border-[#BFDBFE] bg-[#DBEAFE] text-[#2563EB]"
                     : "border-transparent bg-[#F5F5F5] text-[#6B7280] hover:bg-[#EEEEEE]",
-                  (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
+                  (disabled || isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
                 )}
               >
                 <span className="inline-flex items-center gap-2">
@@ -396,14 +418,14 @@ export function WelcomeScreen() {
                   <button
                     type="button"
                     onClick={isRecording ? stopRecording : startRecording}
-                    disabled={isStreaming || isRecognizingSpeech}
+                    disabled={disabled || isStreaming || isRecognizingSpeech}
                     aria-label={isRecording ? "停止录音" : (isRecognizingSpeech ? "语音识别中" : "开始录音")}
                     className={cn(
                       "rounded-full p-2.5 transition-all duration-200",
                       isRecording
-                        ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
+                        ? "bg-[#DCFCE7] text-[#16A34A] hover:bg-[#BBF7D0]"
                         : "bg-[#F5F5F5] text-[#666666] hover:bg-[#EEEEEE]",
-                      (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
+                      (disabled || isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
                     )}
                   >
                     {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
@@ -412,7 +434,7 @@ export function WelcomeScreen() {
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={(!hasContent && !isStreaming) || isRecognizingSpeech}
+                  disabled={disabled || (!hasContent && !isStreaming) || isRecognizingSpeech}
                   aria-label={isStreaming ? "停止生成" : "发送消息"}
                   className={cn(
                     "ml-auto rounded-full p-2.5 transition-all duration-200",
@@ -421,7 +443,7 @@ export function WelcomeScreen() {
                       : hasContent
                         ? "bg-[#3B82F6] text-white hover:bg-[#2563EB]"
                         : "bg-[#F5F5F5] text-[#CCCCCC]",
-                    ((!hasContent && !isStreaming) || isRecognizingSpeech) && "cursor-not-allowed"
+                    (disabled || (!hasContent && !isStreaming) || isRecognizingSpeech) && "cursor-not-allowed"
                   )}
                 >
                   {isStreaming ? <Square className="h-4 w-4" /> : <Send className="h-4 w-4" />}
@@ -429,6 +451,22 @@ export function WelcomeScreen() {
               </div>
             </div>
           </div>
+          {disabled ? (
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+              <Link
+                to="/login"
+                className="rounded-full bg-[#2563EB] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#1D4ED8]"
+              >
+                Login
+              </Link>
+              <Link
+                to="/login?mode=register"
+                className="rounded-full border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-2 text-sm font-medium text-[#2563EB] transition hover:bg-[#DBEAFE]"
+              >
+                Register
+              </Link>
+            </div>
+          ) : null}
           {deepThinkingEnabled ? (
             <p className="mt-3 text-xs text-[#2563EB]">
               <span className="inline-flex items-center gap-1.5">
@@ -468,10 +506,10 @@ export function WelcomeScreen() {
                   key={preset.id ?? preset.title}
                   type="button"
                   onClick={() => applyPreset(preset.prompt)}
-                  disabled={isStreaming || isRecognizingSpeech}
+                  disabled={disabled || isStreaming || isRecognizingSpeech}
                   className={cn(
                     "group rounded-2xl border border-white/70 bg-white/70 p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-[#BFDBFE] hover:shadow-md",
-                    (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
+                    (disabled || isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
                   )}
                 >
                   <div className="flex items-center gap-3">

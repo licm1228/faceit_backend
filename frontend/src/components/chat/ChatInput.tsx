@@ -21,6 +21,10 @@ export function ChatInput() {
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const isMediaRecorderSupported = React.useMemo(
+    () => typeof window !== "undefined" && "MediaRecorder" in window,
+    []
+  );
   
   const {
     sendMessage,
@@ -302,7 +306,7 @@ export function ChatInput() {
                     className={cn(
                         "rounded-full p-2.5 transition-all duration-200",
                         isRecording
-                            ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
+                            ? "bg-[#DCFCE7] text-[#16A34A] hover:bg-[#BBF7D0]"
                             : "bg-[#F5F5F5] text-[#666666] hover:bg-[#EEEEEE]",
                         (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
                     )}
