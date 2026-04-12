@@ -711,7 +711,7 @@ export function InterviewPage() {
               <div ref={reportRef} className="mt-4 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-[#1D4ED8]">
-                    最终得分：{currentSession.totalScore ?? 0}
+                    面试总分：{currentSession.totalScore ?? 0}
                   </p>
                   <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-[#1D4ED8]">
                     综合报告
