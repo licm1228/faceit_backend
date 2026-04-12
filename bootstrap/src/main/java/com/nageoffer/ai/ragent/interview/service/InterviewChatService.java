@@ -23,16 +23,21 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
+import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.interview.controller.request.InterviewChatStartRequest;
 import com.nageoffer.ai.ragent.interview.entity.InterviewAnswerEntity;
 import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
 import com.nageoffer.ai.ragent.interview.entity.PositionEntity;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
 import com.nageoffer.ai.ragent.interview.mapper.PositionMapper;
+import com.nageoffer.ai.ragent.infra.config.AIModelProperties;
 import com.nageoffer.ai.ragent.rag.dao.entity.ConversationDO;
 import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationMapper;
 import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationMessageMapper;
 import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationSummaryMapper;
+import com.nageoffer.ai.ragent.rag.dto.CompletionPayload;
+import com.nageoffer.ai.ragent.rag.dto.MessageDelta;
+import com.nageoffer.ai.ragent.rag.enums.SSEEventType;
 import com.nageoffer.ai.ragent.rag.service.ConversationMessageService;
 import com.nageoffer.ai.ragent.rag.service.bo.ConversationMessageBO;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +45,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.util.concurrent.CompletableFuture;
@@ -79,8 +86,12 @@ public class InterviewChatService {
     private final ConversationSummaryMapper conversationSummaryMapper;
     private final ConversationMessageService conversationMessageService;
     private final ObjectMapper objectMapper;
+    private final AIModelProperties aiModelProperties;
+    private final TransactionTemplate transactionTemplate;
     @Qualifier("memorySummaryThreadPoolExecutor")
     private final Executor reportExecutor;
+    @Qualifier("modelStreamExecutor")
+    private final Executor modelStreamExecutor;
 
     public Map<String, Object> resolveConfig(String content) {
         String normalized = StrUtil.blankToDefault(content, "").trim().toLowerCase(Locale.ROOT);
@@ -262,6 +273,32 @@ public class InterviewChatService {
         return buildTurnResponse(interviewSessionService.getSessionById(sessionId), runtimeState);
     }
 
+    public void streamTurn(String sessionId, String content, SseEmitter emitter) {
+        CompletableFuture.runAsync(() -> doStreamTurn(sessionId, content, emitter), modelStreamExecutor);
+    }
+
+    private void doStreamTurn(String sessionId, String content, SseEmitter emitter) {
+        SseEmitterSender sender = new SseEmitterSender(emitter);
+        try {
+            String userId = requireUserId();
+            List<Map<String, Object>> beforeMessages = buildMessages(sessionId, userId);
+            Map<String, Object> response = transactionTemplate.execute(status -> submitTurn(sessionId, content));
+            List<String> assistantMessages = extractNewAssistantMessages(beforeMessages, response);
+
+            if (isGptEnabled()) {
+                streamAssistantMessages(sender, assistantMessages);
+            } else {
+                sendAssistantMessagesOnce(sender, assistantMessages);
+            }
+
+            sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(null, null));
+            sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
+            sender.complete();
+        } catch (Exception ex) {
+            sender.fail(ex);
+        }
+    }
+
     public Map<String, Object> getSessionState(String sessionId) {
         String userId = requireUserId();
         InterviewSessionEntity session = requireOwnedSession(sessionId, userId);
@@ -361,6 +398,67 @@ public class InterviewChatService {
             result.put("report", readReportPayload(session));
         }
         return result;
+    }
+
+    private List<String> extractNewAssistantMessages(List<Map<String, Object>> beforeMessages, Map<String, Object> response) {
+        Set<String> existingIds = beforeMessages.stream()
+                .map(item -> Objects.toString(item.get("id"), ""))
+                .collect(Collectors.toSet());
+        Object messagesObj = response == null ? null : response.get("messages");
+        if (!(messagesObj instanceof List<?> messages)) {
+            return List.of();
+        }
+        return messages.stream()
+                .filter(Map.class::isInstance)
+                .map(Map.class::cast)
+                .filter(item -> "assistant".equals(Objects.toString(item.get("role"), "")))
+                .filter(item -> !existingIds.contains(Objects.toString(item.get("id"), "")))
+                .map(item -> Objects.toString(item.get("content"), ""))
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toList());
+    }
+
+    private void sendAssistantMessagesOnce(SseEmitterSender sender, List<String> assistantMessages) {
+        if (assistantMessages == null || assistantMessages.isEmpty()) {
+            return;
+        }
+        sender.sendEvent(
+                SSEEventType.MESSAGE.value(),
+                new MessageDelta("response", String.join("\n\n", assistantMessages))
+        );
+    }
+
+    private void streamAssistantMessages(SseEmitterSender sender, List<String> assistantMessages) {
+        if (assistantMessages == null || assistantMessages.isEmpty()) {
+            return;
+        }
+        int chunkSize = Math.max(1, Optional.ofNullable(aiModelProperties.getStream())
+                .map(AIModelProperties.Stream::getMessageChunkSize)
+                .orElse(5));
+        String content = String.join("\n\n", assistantMessages);
+        int idx = 0;
+        int count = 0;
+        StringBuilder buffer = new StringBuilder();
+        while (idx < content.length()) {
+            int codePoint = content.codePointAt(idx);
+            buffer.appendCodePoint(codePoint);
+            idx += Character.charCount(codePoint);
+            count++;
+            if (count >= chunkSize) {
+                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", buffer.toString()));
+                buffer.setLength(0);
+                count = 0;
+            }
+        }
+        if (!buffer.isEmpty()) {
+            sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", buffer.toString()));
+        }
+    }
+
+    private boolean isGptEnabled() {
+        return Optional.ofNullable(aiModelProperties.getFeatures())
+                .map(AIModelProperties.Features::getUseGpt)
+                .orElse(false);
     }
 
     private List<Map<String, Object>> buildMessages(String conversationId, String userId) {

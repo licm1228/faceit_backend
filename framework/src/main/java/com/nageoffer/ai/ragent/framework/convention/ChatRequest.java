@@ -100,6 +100,14 @@ public class ChatRequest {
     private Integer maxTokens;
 
     /**
+     * 首选模型 ID
+     * <p>
+     * 仅用于提示路由层优先尝试指定模型，失败后仍按正常候选链路降级。
+     * </p>
+     */
+    private String preferredModelId;
+
+    /**
      * 可选：是否启用「思考模式」开关
      * <p>
      * 占坑字段，用于兼容支持思考过程 / reasoning 扩展能力的模型，

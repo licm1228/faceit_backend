@@ -23,7 +23,6 @@ import {
   getInterviewChatSession,
   renameInterviewChatSession,
   resolveInterviewConfig,
-  sendInterviewChatTurn,
   startInterviewChat
 } from "@/services/interviewChatService";
 import { buildQuery } from "@/utils/helpers";
@@ -379,6 +378,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (get().isStreaming) return;
 
     if (get().currentSessionType === "interview" && get().currentSessionId && get().currentInterviewState?.status !== "completed") {
+      const sessionId = get().currentSessionId as string;
       const optimisticUserMessage: Message = {
         id: `interview-user-${Date.now()}`,
         role: "user",
@@ -398,45 +398,115 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
       set((state) => ({
         isStreaming: true,
+        streamingMessageId: optimisticAssistantId,
+        streamTaskId: null,
+        cancelRequested: false,
         inputFocusKey: Date.now(),
         messages: [...state.messages, optimisticUserMessage, optimisticAssistantMessage]
       }));
-      try {
-        const response = await sendInterviewChatTurn(get().currentSessionId as string, trimmed);
+      const token = storage.getToken();
+      const syncInterviewState = async () => {
+        const [data, interviewState] = await Promise.all([
+          listMessages(sessionId),
+          getInterviewChatSession(sessionId)
+        ]);
         set((state) => ({
-          messages: response.messages.map(mapConversationMessage),
+          messages: data.map(mapConversationMessage),
           currentInterviewState: {
-            ...response.session,
-            runtime: response.runtime,
-            reportAvailable: response.reportAvailable
+            ...interviewState.session,
+            runtime: interviewState.runtime,
+            reportAvailable: interviewState.reportAvailable
           },
           sessions: upsertSession(state.sessions, {
-            id: response.session.id,
+            id: interviewState.session.id,
             title:
-              state.sessions.find((item) => item.id === response.session.id)?.title ||
-              `面试 · ${response.session.positionName || "岗位"}`,
+              state.sessions.find((item) => item.id === interviewState.session.id)?.title ||
+              `面试 · ${interviewState.session.positionName || "岗位"}`,
             lastTime: new Date().toISOString(),
             type: "interview",
-            status: response.session.status,
-            positionName: response.session.positionName
+            status: interviewState.session.status,
+            positionName: interviewState.session.positionName
           }),
           inputFocusKey: Date.now()
         }));
+      };
+
+      const handlers = {
+        onMessage: (payload: MessageDeltaPayload) => {
+          if (!payload || payload.type !== "response") return;
+          get().appendStreamContent(payload.delta);
+        },
+        onFinish: () => {
+          if (get().streamingMessageId !== optimisticAssistantId) return;
+          set((state) => ({
+            messages: state.messages.map((message) =>
+              message.id === optimisticAssistantId
+                ? {
+                    ...message,
+                    status: "done"
+                  }
+                : message
+            )
+          }));
+        },
+        onDone: () => {
+          if (get().streamingMessageId !== optimisticAssistantId) return;
+          set({
+            isStreaming: false,
+            streamAbort: null,
+            streamTaskId: null,
+            streamingMessageId: null,
+            cancelRequested: false
+          });
+          void syncInterviewState().catch((error) => {
+            feedbackStore.error((error as Error).message || "刷新面试状态失败");
+          });
+        },
+        onError: (error: Error) => {
+          if (get().streamingMessageId !== optimisticAssistantId) return;
+          set((state) => ({
+            isStreaming: false,
+            streamAbort: null,
+            streamTaskId: null,
+            streamingMessageId: null,
+            cancelRequested: false,
+            messages: state.messages.map((message) =>
+              message.id === optimisticAssistantId
+                ? {
+                    ...message,
+                    status: "error",
+                    content: message.content || "生成失败，请重试。"
+                  }
+                : message
+            )
+          }));
+          feedbackStore.error(error.message || "提交面试回答失败");
+        }
+      };
+
+      const { start, cancel } = createStreamResponse(
+        {
+          url: `${API_BASE_URL}/interview/chat/sessions/${encodeURIComponent(sessionId)}/turn/stream`,
+          method: "POST",
+          body: JSON.stringify({ content: trimmed }),
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: token } : {})
+          },
+          retryCount: 0
+        },
+        handlers
+      );
+
+      set({ streamAbort: cancel });
+
+      try {
+        await start();
       } catch (error) {
-        set((state) => ({
-          messages: state.messages.map((message) =>
-            message.id === optimisticAssistantId
-              ? {
-                  ...message,
-                  status: "error",
-                  content: "生成失败，请重试。"
-                }
-              : message
-          )
-        }));
-        feedbackStore.error((error as Error).message || "提交面试回答失败");
-      } finally {
-        set({ isStreaming: false });
+        if ((error as Error).name === "AbortError") {
+          return;
+        }
+        handlers.onError?.(error as Error);
       }
       return;
     }
@@ -691,12 +761,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
   cancelGeneration: () => {
-    const { isStreaming, streamTaskId } = get();
+    const { isStreaming, streamTaskId, streamAbort } = get();
     if (!isStreaming) return;
     set({ cancelRequested: true });
     if (streamTaskId) {
       stopTask(streamTaskId).catch(() => null);
+      return;
     }
+    streamAbort?.();
   },
   appendStreamContent: (delta) => {
     if (!delta) return;

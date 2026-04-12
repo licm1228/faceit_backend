@@ -26,6 +26,7 @@ import com.nageoffer.ai.ragent.interview.service.InterviewChatService;
 import com.nageoffer.ai.ragent.rag.controller.request.ConversationUpdateRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 
@@ -49,6 +50,13 @@ public class InterviewChatController {
     @PostMapping("/sessions/{sessionId}/turn")
     public Result<Map<String, Object>> turn(@PathVariable String sessionId, @RequestBody InterviewChatTurnRequest request) {
         return Results.success(interviewChatService.submitTurn(sessionId, request.getContent()));
+    }
+
+    @PostMapping(value = "/sessions/{sessionId}/turn/stream", produces = "text/event-stream;charset=UTF-8")
+    public SseEmitter streamTurn(@PathVariable String sessionId, @RequestBody InterviewChatTurnRequest request) {
+        SseEmitter emitter = new SseEmitter(0L);
+        interviewChatService.streamTurn(sessionId, request.getContent(), emitter);
+        return emitter;
     }
 
     @GetMapping("/sessions/{sessionId}")

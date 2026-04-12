@@ -16,6 +16,11 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
+if [ "${USE_GPT:-false}" = "true" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
+  echo "Warning: OPENAI_API_KEY is empty. gpt-5.4 chat priority model will be unavailable until it is set."
+  echo "Hint: create $ENV_FILE and add OPENAI_API_KEY=your_key"
+fi
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing required command: $1" >&2

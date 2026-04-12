@@ -97,6 +97,11 @@ ai:
       endpoints:
         chat: /api/chat
         embedding: /api/embed
+    openai:
+      url: http://new.xem8k5.top:3000
+      api-key: ${OPENAI_API_KEY:}
+      endpoints:
+        chat: /v1/chat/completions
     bailian:
       url: https://dashscope.aliyuncs.com
       api-key: ${BAILIAN_API_KEY:}
@@ -124,10 +129,19 @@ ai:
   stream:
     message-chunk-size: 1
 
+  features:
+    use-gpt: ${USE_GPT:false}
+    gpt-model-id: gpt-5.4
+
   chat:
     default-model: qwen3-max
     deep-thinking-model: qwen3-max
     candidates:
+      - id: gpt-5.4
+        provider: openai
+        model: gpt-5.4
+        supports-thinking: true
+        priority: 0
       - id: qwen-plus
         provider: bailian
         model: qwen-plus-latest
@@ -141,7 +155,7 @@ ai:
         provider: siliconflow
         model: Pro/zai-org/GLM-4.7
         supports-thinking: true
-        priority: 0
+        priority: 4
       - id: qwen3-local
         provider: ollama
         model: qwen3:8b-fp16
