@@ -203,12 +203,34 @@ export async function getUserRecommendation() {
   return api.get<Recommendation>("/user/recommendation");
 }
 
+function normalizeSpeechRecognitionText(payload: unknown) {
+  if (typeof payload === "string") {
+    return payload.trim();
+  }
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+
+  const candidate = payload as Record<string, unknown>;
+  const nestedValue = candidate.data ?? candidate.text ?? candidate.result;
+  if (typeof nestedValue === "string") {
+    return nestedValue.trim();
+  }
+
+  return "";
+}
+
 export async function recognizeSpeechBase64(audioBase64: string, format = "pcm", sampleRate = 16000, language = "zh_cn") {
-  const query = new URLSearchParams({
+  const payload = new URLSearchParams({
     audio: audioBase64,
     format,
     sampleRate: String(sampleRate),
     language
   });
-  return api.post<string>(`/speech/recognize/base64?${query.toString()}`);
+  const response = await api.post<unknown>("/speech/recognize/base64", payload, {
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+    }
+  });
+  return normalizeSpeechRecognitionText(response);
 }

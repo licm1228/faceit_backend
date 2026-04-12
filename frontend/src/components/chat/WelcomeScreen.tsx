@@ -42,6 +42,7 @@ export function WelcomeScreen() {
   const [value, setValue] = React.useState("");
   const [isFocused, setIsFocused] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
+  const [isRecognizingSpeech, setIsRecognizingSpeech] = React.useState(false);
   const [promptPresets, setPromptPresets] = React.useState<PromptPreset[]>(DEFAULT_PRESETS);
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
@@ -127,6 +128,7 @@ export function WelcomeScreen() {
       focusInput();
       return;
     }
+    if (isRecognizingSpeech) return;
     if (!value.trim()) return;
     const next = value;
     setValue("");
@@ -242,12 +244,16 @@ export function WelcomeScreen() {
   const recognizeSpeechPCM = async (base64Audio: string) => {
     console.log('开始识别PCM语音，Base64长度:', base64Audio.length);
 
+    setIsRecognizingSpeech(true);
     try {
       const text = await recognizeSpeechBase64(base64Audio, 'pcm', 16000, 'zh_cn');
       console.log('识别结果:', text);
 
       if (text) {
-        setValue(text);
+        setValue((prev) => {
+          const current = prev.trim();
+          return current ? `${current} ${text}` : text;
+        });
         focusInput();
       } else {
         alert('未识别到语音内容，请重试');
@@ -255,6 +261,8 @@ export function WelcomeScreen() {
     } catch (error) {
       console.error('语音识别错误:', error);
       alert('语音识别失败，请重试');
+    } finally {
+      setIsRecognizingSpeech(false);
     }
   };
 
@@ -341,14 +349,14 @@ export function WelcomeScreen() {
               <button
                 type="button"
                 onClick={() => setDeepThinkingEnabled(!deepThinkingEnabled)}
-                disabled={isStreaming}
+                disabled={isStreaming || isRecognizingSpeech}
                 aria-pressed={deepThinkingEnabled}
                 className={cn(
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
                   deepThinkingEnabled
                     ? "border-[#BFDBFE] bg-[#DBEAFE] text-[#2563EB]"
                     : "border-transparent bg-[#F5F5F5] text-[#6B7280] hover:bg-[#EEEEEE]",
-                  isStreaming && "cursor-not-allowed opacity-60"
+                  (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
                 )}
               >
                 <span className="inline-flex items-center gap-2">
@@ -364,13 +372,14 @@ export function WelcomeScreen() {
                   <button
                     type="button"
                     onClick={isRecording ? stopRecording : startRecording}
-                    disabled={isStreaming}
-                    aria-label={isRecording ? "停止录音" : "开始录音"}
+                    disabled={isStreaming || isRecognizingSpeech}
+                    aria-label={isRecording ? "停止录音" : (isRecognizingSpeech ? "语音识别中" : "开始录音")}
                     className={cn(
                       "rounded-full p-2.5 transition-all duration-200",
                       isRecording
                         ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
-                        : "bg-[#F5F5F5] text-[#666666] hover:bg-[#EEEEEE]"
+                        : "bg-[#F5F5F5] text-[#666666] hover:bg-[#EEEEEE]",
+                      (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
                     )}
                   >
                     {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
@@ -379,7 +388,7 @@ export function WelcomeScreen() {
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={!hasContent && !isStreaming}
+                  disabled={(!hasContent && !isStreaming) || isRecognizingSpeech}
                   aria-label={isStreaming ? "停止生成" : "发送消息"}
                   className={cn(
                     "ml-auto rounded-full p-2.5 transition-all duration-200",
@@ -387,7 +396,8 @@ export function WelcomeScreen() {
                       ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
                       : hasContent
                         ? "bg-[#3B82F6] text-white hover:bg-[#2563EB]"
-                        : "cursor-not-allowed bg-[#F5F5F5] text-[#CCCCCC]"
+                        : "bg-[#F5F5F5] text-[#CCCCCC]",
+                    ((!hasContent && !isStreaming) || isRecognizingSpeech) && "cursor-not-allowed"
                   )}
                 >
                   {isStreaming ? <Square className="h-4 w-4" /> : <Send className="h-4 w-4" />}
@@ -434,10 +444,10 @@ export function WelcomeScreen() {
                   key={preset.id ?? preset.title}
                   type="button"
                   onClick={() => applyPreset(preset.prompt)}
-                  disabled={isStreaming}
+                  disabled={isStreaming || isRecognizingSpeech}
                   className={cn(
                     "group rounded-2xl border border-white/70 bg-white/70 p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-[#BFDBFE] hover:shadow-md",
-                    isStreaming && "cursor-not-allowed opacity-60"
+                    (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
                   )}
                 >
                   <div className="flex items-center gap-3">
