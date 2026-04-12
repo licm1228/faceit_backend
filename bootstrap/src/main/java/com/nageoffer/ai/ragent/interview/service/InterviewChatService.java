@@ -203,6 +203,18 @@ public class InterviewChatService {
                 );
                 followUpQuestionText = followUpQuestion == null ? "" : normalizeFollowUpQuestion(followUpQuestion.getQuestionText());
             }
+            if (shouldRewriteFollowUp(runtimeState, followUpIntent, followUpFocus, followUpQuestionText)) {
+                String rewrittenFollowUp = aiEvaluationService.rewriteFollowUpQuestion(
+                        question,
+                        content.trim(),
+                        followUpQuestionText,
+                        runtimeState.getFollowUpCount(),
+                        followUpIntent,
+                        followUpFocus,
+                        runtimeState.getFollowUpHistory()
+                );
+                followUpQuestionText = normalizeFollowUpQuestion(rewrittenFollowUp);
+            }
             if (shouldUseFollowUp(runtimeState, followUpIntent, followUpFocus, followUpQuestionText)) {
                 runtimeState.setFollowUpCount(runtimeState.getFollowUpCount() + 1);
                 runtimeState.setLastFollowUpIntent(followUpIntent);
@@ -731,6 +743,19 @@ public class InterviewChatService {
             return false;
         }
         return true;
+    }
+
+    private boolean shouldRewriteFollowUp(
+            RuntimeState runtimeState,
+            String followUpIntent,
+            String followUpFocus,
+            String followUpQuestionText
+    ) {
+        if (StrUtil.isBlank(followUpQuestionText)) {
+            return false;
+        }
+        return isQuizStyleFollowUp(followUpQuestionText)
+                || isRepeatedFollowUp(runtimeState, followUpIntent, followUpFocus, followUpQuestionText);
     }
 
     private boolean isRepeatedFollowUp(

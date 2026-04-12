@@ -172,6 +172,32 @@ public class AIEvaluationService {
         }
     }
 
+    public String rewriteFollowUpQuestion(
+            QuestionEntity question,
+            String userAnswer,
+            String followUpQuestion,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory
+    ) {
+        String prompt = buildFollowUpRewritePrompt(
+                question,
+                userAnswer,
+                followUpQuestion,
+                followUpCount,
+                followUpIntent,
+                followUpFocus,
+                followUpHistory
+        );
+        try {
+            return llmService.chat(prompt);
+        } catch (Exception e) {
+            System.err.println("Follow-up rewrite error: " + e.getMessage());
+            return "";
+        }
+    }
+
     private String buildEvaluationPrompt(
             QuestionEntity question,
             String userAnswer,
@@ -315,6 +341,32 @@ public class AIEvaluationService {
                 "4. 禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”等措辞\n" +
                 "5. 禁止重复历史追问中的主题\n" +
                 "6. 只输出一句追问内容，不要添加任何其他说明";
+    }
+
+    private String buildFollowUpRewritePrompt(
+            QuestionEntity question,
+            String userAnswer,
+            String followUpQuestion,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory
+    ) {
+        return "你是一位真实技术面试官，请把下面这句不自然的追问改写成更像口头面试的追问。\n" +
+                "题目：" + question.getQuestionText() + "\n" +
+                "学生回答：" + userAnswer + "\n" +
+                "当前追问轮次：" + followUpCount + "\n" +
+                "追问意图：" + blankDefault(followUpIntent, "deeper_understanding") + "\n" +
+                "追问聚焦点：" + blankDefault(followUpFocus, "回答中的关键薄弱点") + "\n" +
+                "历史追问：" + stringifyList(followUpHistory) + "\n" +
+                "原始追问：" + blankDefault(followUpQuestion, "无") + "\n" +
+                "改写要求：\n" +
+                "1. 只追问一个点，语气像真实面试官口头追问。\n" +
+                "2. 禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”“请从以下几个方面分析”。\n" +
+                "3. 不要把原题改写成更细的背诵题。\n" +
+                "4. 不要重复历史追问主题。\n" +
+                "5. 尽量短，自然，像接着上一句聊天继续问。\n" +
+                "6. 只输出改写后的追问，不要解释。";
     }
 
     private Map<String, Object> parseStructuredReport(String result) {
