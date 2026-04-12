@@ -9,7 +9,7 @@ service_pattern() {
   case "$1" in
     frontend) echo "node_modules/.bin/vite --host 0.0.0.0|vite --host 0.0.0.0" ;;
     mcp-server) echo "mvn -pl mcp-server spring-boot:run|MCPServerApplication" ;;
-    backend) echo "mvn -pl bootstrap spring-boot:run|FaceItApplication" ;;
+    backend) echo "mvn -pl bootstrap spring-boot:run|RagentApplication" ;;
     *) return 1 ;;
   esac
 }
