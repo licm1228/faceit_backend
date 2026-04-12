@@ -34,6 +34,7 @@ export function ChatInput() {
     setDeepThinkingEnabled,
     inputFocusKey
   } = useChatStore();
+  const isVoiceBusy = isRecording || isRecognizingSpeech;
 
   const focusInput = React.useCallback(() => {
     const el = textareaRef.current;
@@ -150,6 +151,7 @@ export function ChatInput() {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      setIsRecognizingSpeech(true);
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -249,9 +251,16 @@ export function ChatInput() {
                 ref={textareaRef}
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
-                placeholder={deepThinkingEnabled ? "输入需要深度分析的问题..." : "输入你的问题..."}
+                placeholder={
+                  isRecognizingSpeech
+                    ? "语音识别中，请稍候..."
+                    : deepThinkingEnabled
+                      ? "输入需要深度分析的问题..."
+                      : "输入你的问题..."
+                }
                 className="max-h-40 min-h-[44px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 pr-2 text-[15px] text-[#333333] shadow-none placeholder:text-[#999999] focus-visible:ring-0"
                 rows={1}
+                disabled={isRecognizingSpeech}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 onCompositionStart={() => {
@@ -272,6 +281,9 @@ export function ChatInput() {
                 }}
                 aria-label="聊天输入框"
             />
+            {isRecognizingSpeech ? (
+              <div className="pointer-events-none absolute inset-0 rounded-2xl bg-white/55" />
+            ) : null}
             <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[10px] bg-gradient-to-b from-white/0 via-white/40 to-white/90" />
           </div>
           <div className="relative mt-2 flex items-center justify-between">
@@ -305,13 +317,23 @@ export function ChatInput() {
                     aria-label={isRecording ? "停止录音" : (isRecognizingSpeech ? "语音识别中" : "开始录音")}
                     className={cn(
                         "rounded-full p-2.5 transition-all duration-200",
-                        isRecording
+                        isVoiceBusy
                             ? "bg-[#DCFCE7] text-[#16A34A] hover:bg-[#BBF7D0]"
                             : "bg-[#F5F5F5] text-[#666666] hover:bg-[#EEEEEE]",
                         (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
                     )}
                 >
-                  {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  {isRecognizingSpeech ? (
+                    <span className="inline-flex h-4 items-end gap-0.5" aria-hidden="true">
+                      {[0, 1, 2].map((index) => (
+                        <span
+                          key={index}
+                          className="w-1 rounded-full bg-current animate-pulse"
+                          style={{ height: `${10 + index * 2}px`, animationDelay: `${index * 140}ms` }}
+                        />
+                      ))}
+                    </span>
+                  ) : isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                 </button>
               )}
             <button
@@ -341,6 +363,22 @@ export function ChatInput() {
             深度思考模式已开启，AI将进行更深入的分析推理
           </span>
             </p>
+        ) : null}
+        {isRecognizingSpeech ? (
+          <p className="text-xs text-[#16A34A]">
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-flex items-end gap-0.5" aria-hidden="true">
+                {[0, 1, 2].map((index) => (
+                  <span
+                    key={index}
+                    className="w-1 rounded-full bg-current animate-pulse"
+                    style={{ height: `${10 + index * 2}px`, animationDelay: `${index * 140}ms` }}
+                  />
+                ))}
+              </span>
+              语音识别中，请稍候...
+            </span>
+          </p>
         ) : null}
         <p className="text-center text-xs text-[#999999]">
           <kbd className="rounded bg-[#F5F5F5] px-1.5 py-0.5 text-[#666666]">Enter</kbd> 发送

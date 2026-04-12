@@ -58,6 +58,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     () => typeof window !== "undefined" && "MediaRecorder" in window,
     []
   );
+  const isVoiceBusy = isRecording || isRecognizingSpeech;
 
   const focusInput = React.useCallback(() => {
     const el = textareaRef.current;
@@ -221,6 +222,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      setIsRecognizingSpeech(true);
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -362,13 +364,15 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                 placeholder={
                   disabled
                     ? "Guest mode preview only. Please login to start chatting..."
+                    : isRecognizingSpeech
+                      ? "语音识别中，请稍候..."
                     : deepThinkingEnabled
                       ? "输入更需要深入分析的问题..."
                       : "输入你的问题，Ask anything..."
                 }
                 className="max-h-40 min-h-[52px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 text-[15px] text-[#1F2937] placeholder:text-[#9CA3AF] focus:outline-none sm:text-base"
                 rows={1}
-                disabled={disabled}
+                disabled={disabled || isRecognizingSpeech}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 onCompositionStart={() => {
@@ -389,6 +393,9 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                 }}
                 aria-label="发送消息"
               />
+              {isRecognizingSpeech ? (
+                <div className="pointer-events-none absolute inset-0 rounded-3xl bg-white/55" />
+              ) : null}
               <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[10px] bg-gradient-to-b from-white/0 via-white/40 to-white/90" />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -422,13 +429,23 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                     aria-label={isRecording ? "停止录音" : (isRecognizingSpeech ? "语音识别中" : "开始录音")}
                     className={cn(
                       "rounded-full p-2.5 transition-all duration-200",
-                      isRecording
+                      isVoiceBusy
                         ? "bg-[#DCFCE7] text-[#16A34A] hover:bg-[#BBF7D0]"
                         : "bg-[#F5F5F5] text-[#666666] hover:bg-[#EEEEEE]",
                       (disabled || isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
                     )}
                   >
-                    {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    {isRecognizingSpeech ? (
+                      <span className="inline-flex h-4 items-end gap-0.5" aria-hidden="true">
+                        {[0, 1, 2].map((index) => (
+                          <span
+                            key={index}
+                            className="w-1 rounded-full bg-current animate-pulse"
+                            style={{ height: `${10 + index * 2}px`, animationDelay: `${index * 140}ms` }}
+                          />
+                        ))}
+                      </span>
+                    ) : isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                   </button>
                 )}
                 <button
@@ -466,6 +483,22 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                 Register
               </Link>
             </div>
+          ) : null}
+          {isRecognizingSpeech ? (
+            <p className="mt-4 text-center text-sm text-[#16A34A]">
+              <span className="inline-flex items-center gap-2">
+                <span className="inline-flex items-end gap-0.5" aria-hidden="true">
+                  {[0, 1, 2].map((index) => (
+                    <span
+                      key={index}
+                      className="w-1 rounded-full bg-current animate-pulse"
+                      style={{ height: `${10 + index * 2}px`, animationDelay: `${index * 140}ms` }}
+                    />
+                  ))}
+                </span>
+                语音识别中，请稍候...
+              </span>
+            </p>
           ) : null}
           {deepThinkingEnabled ? (
             <p className="mt-3 text-xs text-[#2563EB]">
