@@ -30,8 +30,6 @@ public class PositionEntity {
     private String id;
     private String name;
     private String description;
-    private String requiredSkills;
-    private String interviewFocus;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private Integer deleted;

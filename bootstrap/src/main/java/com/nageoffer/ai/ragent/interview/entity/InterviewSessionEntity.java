@@ -22,7 +22,6 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Data
 @TableName("t_interview_session")
@@ -39,4 +38,7 @@ public class InterviewSessionEntity {
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private Integer deleted;
+    private Integer currentQuestionCount; // 新增
+    private Integer timeLimit; // 新增
+    private Integer totalQuestions; // 新增
 }

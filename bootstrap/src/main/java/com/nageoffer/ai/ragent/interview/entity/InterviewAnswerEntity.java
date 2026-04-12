@@ -37,4 +37,9 @@ public class InterviewAnswerEntity {
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private Integer deleted;
+    private Integer technicalScore; // 新增
+    private Integer expressionScore; // 新增
+    private Integer logicScore; // 新增
+    private Integer knowledgeScore; // 新增
+    private Boolean isCorrect; // 新增
 }
