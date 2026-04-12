@@ -5,8 +5,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$ROOT_DIR/scripts/logs"
 PID_DIR="$ROOT_DIR/scripts/pids"
+ENV_FILE="$ROOT_DIR/.env.local"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -24,7 +32,7 @@ service_pattern() {
   case "$1" in
     frontend) echo "node_modules/.bin/vite --host 0.0.0.0|vite --host 0.0.0.0" ;;
     mcp-server) echo "mvn -pl mcp-server spring-boot:run|MCPServerApplication" ;;
-    backend) echo "mvn -pl bootstrap spring-boot:run|FaceItApplication" ;;
+    backend) echo "mvn -pl bootstrap spring-boot:run|RagentApplication" ;;
     *) return 1 ;;
   esac
 }
@@ -79,8 +87,8 @@ require_cmd psql
 require_cmd redis-cli
 require_cmd curl
 
-if ! psql "postgresql://postgres:furina@127.0.0.1:5432/faceit" -c "select 1;" >/dev/null 2>&1; then
-  echo "PostgreSQL is not ready at 127.0.0.1:5432/faceit" >&2
+if ! psql "postgresql://postgres:furina@127.0.0.1:5432/ragent" -c "select 1;" >/dev/null 2>&1; then
+  echo "PostgreSQL is not ready at 127.0.0.1:5432/ragent" >&2
   exit 1
 fi
 
@@ -89,7 +97,7 @@ if ! redis-cli -a furina ping >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! psql "postgresql://postgres:furina@127.0.0.1:5432/faceit" -tAc "select 1 from pg_extension where extname = 'vector';" | grep -q 1; then
+if ! psql "postgresql://postgres:furina@127.0.0.1:5432/ragent" -tAc "select 1 from pg_extension where extname = 'vector';" | grep -q 1; then
   echo "Warning: pgvector extension is not installed. Vector retrieval features may be incomplete."
 fi
 
@@ -99,16 +107,16 @@ fi
 
 start_process "frontend" "$ROOT_DIR/frontend" "./node_modules/.bin/vite --host 0.0.0.0"
 start_process "mcp-server" "$ROOT_DIR" "mvn -pl mcp-server spring-boot:run"
-start_process "backend" "$ROOT_DIR" "BAILIAN_API_KEY='' SILICONFLOW_API_KEY='' IFLYTEK_APP_ID='' IFLYTEK_API_KEY='' IFLYTEK_API_SECRET='' mvn -pl bootstrap spring-boot:run"
+start_process "backend" "$ROOT_DIR" "mvn -pl bootstrap spring-boot:run"
 
 wait_for_http "frontend" "http://127.0.0.1:5173" 30
 wait_for_http "mcp-server" "http://127.0.0.1:9099" 60
-wait_for_http "backend" "http://127.0.0.1:9090/api/faceit" 60
+wait_for_http "backend" "http://127.0.0.1:9090/api/ragent" 60
 
 echo
 echo "Started services:"
 echo "  frontend : http://localhost:5173"
-echo "  backend  : http://localhost:9090/api/faceit"
+echo "  backend  : http://localhost:9090/api/ragent"
 echo "  mcp      : http://localhost:9099"
 echo "  login    : admin / admin"
 echo
