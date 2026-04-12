@@ -48,6 +48,24 @@ type RecordingMode = "backend" | "browser" | null;
 
 const RECORDING_SAMPLE_RATE = 16000;
 
+function getSessionStatusLabel(status?: string) {
+  switch ((status || "").toLowerCase()) {
+    case "completed":
+      return "已结束";
+    case "in_progress":
+      return "进行中";
+    case "pending":
+      return "未开始";
+    default:
+      return status || "未开始";
+  }
+}
+
+function getSessionTitle(sessionId: string) {
+  const suffix = sessionId?.slice(-6) || sessionId;
+  return `面试 #${suffix}`;
+}
+
 export function InterviewPage() {
   const { user } = useAuthStore();
   const {
@@ -440,7 +458,7 @@ export function InterviewPage() {
               <h1 className="text-lg font-semibold text-[#1F2937]">面试模式</h1>
               {currentSession ? (
                 <span className="rounded-full bg-[#EEF6FF] px-3 py-1 text-xs font-semibold text-[#2563EB]">
-                  状态：{currentSession.status || "in_progress"}
+                  状态：{getSessionStatusLabel(currentSession.status)}
                 </span>
               ) : null}
               {hasActiveSession ? (
@@ -693,7 +711,7 @@ export function InterviewPage() {
               <div ref={reportRef} className="mt-4 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-[#1D4ED8]">
-                    面试总分：{currentSession.totalScore ?? 0}
+                    最终得分：{currentSession.totalScore ?? 0}
                   </p>
                   <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-[#1D4ED8]">
                     综合报告
@@ -728,11 +746,11 @@ export function InterviewPage() {
                     }}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-[#111827]">会话 {item.id}</span>
-                      <span className="text-xs text-[#6B7280]">{item.status}</span>
+                      <span className="text-sm font-medium text-[#111827]">{getSessionTitle(item.id)}</span>
+                      <span className="text-xs text-[#6B7280]">{getSessionStatusLabel(item.status)}</span>
                     </div>
                     <p className="mt-1 text-xs text-[#6B7280]">
-                      分数：{item.totalScore ?? "-"} · 创建时间：{item.createTime || "-"}
+                      得分：{item.totalScore ?? "-"} · 创建时间：{item.createTime || "-"}
                     </p>
                   </button>
                 ))}
@@ -743,7 +761,7 @@ export function InterviewPage() {
               <div className="mt-4 rounded-2xl border border-[#E5E7EB] bg-[#FAFAFA] p-3">
                 <p className="text-sm font-semibold text-[#1F2937]">会话详情</p>
                 <p className="mt-1 text-xs text-[#6B7280]">
-                  总分：{sessionDetail.session.totalScore ?? "-"} · 状态：{sessionDetail.session.status}
+                  得分：{sessionDetail.session.totalScore ?? "-"} · 状态：{getSessionStatusLabel(sessionDetail.session.status)}
                 </p>
                 <div className="mt-3 max-h-[320px] space-y-2 overflow-y-auto">
                   {sessionDetail.answers.map((answer) => (
