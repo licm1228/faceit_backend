@@ -23,6 +23,7 @@ import okio.ByteString;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -46,6 +47,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Component
+@ConditionalOnProperty(prefix = "ai.providers.iflytek", name = {"app-id", "api-key", "api-secret"})
 public class IflytekSpeechRecognitionService implements SpeechRecognitionService {
 
     private static final Logger logger = LoggerFactory.getLogger(IflytekSpeechRecognitionService.class);
