@@ -3,8 +3,20 @@
 
 import * as React from "react";
 import { Check, Copy } from "lucide-react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
+import css from "react-syntax-highlighter/dist/esm/languages/prism/css";
+import java from "react-syntax-highlighter/dist/esm/languages/prism/java";
+import javascript from "react-syntax-highlighter/dist/esm/languages/prism/javascript";
+import json from "react-syntax-highlighter/dist/esm/languages/prism/json";
+import jsx from "react-syntax-highlighter/dist/esm/languages/prism/jsx";
+import markup from "react-syntax-highlighter/dist/esm/languages/prism/markup";
+import python from "react-syntax-highlighter/dist/esm/languages/prism/python";
+import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
+import tsx from "react-syntax-highlighter/dist/esm/languages/prism/tsx";
+import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
+import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
 
 import { Button } from "@/components/ui/button";
 import { useThemeStore } from "@/stores/themeStore";
@@ -14,8 +26,40 @@ interface CodeBlockProps {
   value: string;
 }
 
+const registeredLanguages = new Set<string>();
+
+function registerLanguage(name: string, grammar: unknown) {
+  if (registeredLanguages.has(name)) {
+    return;
+  }
+  SyntaxHighlighter.registerLanguage(name, grammar);
+  registeredLanguages.add(name);
+}
+
+registerLanguage("bash", bash);
+registerLanguage("sh", bash);
+registerLanguage("shell", bash);
+registerLanguage("css", css);
+registerLanguage("html", markup);
+registerLanguage("xml", markup);
+registerLanguage("markup", markup);
+registerLanguage("java", java);
+registerLanguage("javascript", javascript);
+registerLanguage("js", javascript);
+registerLanguage("json", json);
+registerLanguage("jsx", jsx);
+registerLanguage("python", python);
+registerLanguage("py", python);
+registerLanguage("sql", sql);
+registerLanguage("tsx", tsx);
+registerLanguage("typescript", typescript);
+registerLanguage("ts", typescript);
+registerLanguage("yaml", yaml);
+registerLanguage("yml", yaml);
+
 export function CodeBlock({ language, value }: CodeBlockProps) {
   const theme = useThemeStore((state) => state.theme);
+  const normalizedLanguage = registeredLanguages.has(language) ? language : "text";
 
   return (
     <div className="my-3 overflow-hidden rounded-md border border-[#d0d7de] bg-[#f6f8fa] dark:border-[#30363d] dark:bg-[#161b22]">
@@ -27,7 +71,7 @@ export function CodeBlock({ language, value }: CodeBlockProps) {
       </div>
       <div className="overflow-x-auto">
         <SyntaxHighlighter
-          language={language}
+          language={normalizedLanguage}
           style={theme === "dark" ? oneDark : oneLight}
           PreTag="div"
           customStyle={{
