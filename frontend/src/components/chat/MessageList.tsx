@@ -11,9 +11,10 @@ interface MessageListProps {
   isLoading: boolean;
   isStreaming: boolean;
   sessionKey?: string | null;
+  welcomeDisabled?: boolean;
 }
 
-export function MessageList({ messages, isLoading, isStreaming, sessionKey }: MessageListProps) {
+export function MessageList({ messages, isLoading, isStreaming, sessionKey, welcomeDisabled = false }: MessageListProps) {
   const virtuosoRef = React.useRef<VirtuosoHandle | null>(null);
   const scrollerRef = React.useRef<HTMLElement | null>(null);
   const lastSessionRef = React.useRef<string | null>(null);
@@ -182,7 +183,7 @@ export function MessageList({ messages, isLoading, isStreaming, sessionKey }: Me
     if (isLoading) {
       return <div className="h-full" />;
     }
-    return <WelcomeScreen />;
+    return <WelcomeScreen disabled={welcomeDisabled} />;
   }
 
   return (

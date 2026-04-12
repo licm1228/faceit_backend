@@ -3,6 +3,7 @@ import { Brain, ChevronRight, Lightbulb, Mic, MicOff, Send, Square } from "lucid
 import { Link, useNavigate } from "react-router-dom";
 
 import { FaceItMark } from "@/components/common/FaceItMark";
+import { VoiceEqualizerIcon } from "@/components/common/VoiceInputVisual";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { listPositions, recognizeSpeechBase64, type Position } from "@/services/interviewService";
@@ -226,7 +227,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
       setIsRecording(true);
     } catch (error) {
       console.error("无法访问麦克风:", error);
-      alert("无法访问麦克风，请检查权限设置");
+      feedback.error("无法访问麦克风，请检查权限设置");
       setIsRecording(false);
     }
   };
@@ -310,11 +311,11 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
         });
         focusInput();
       } else {
-        alert("未识别到语音内容，请重试");
+        feedback.error("未识别到语音内容，请重试");
       }
     } catch (error) {
       console.error("语音识别错误:", error);
-      alert("语音识别失败，请重试");
+      feedback.error("语音识别失败，请重试");
     } finally {
       setIsRecognizingSpeech(false);
     }
@@ -480,7 +481,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                     disabled={disabled || isStreaming || isRecognizingSpeech}
                     aria-label={isRecording ? "停止录音" : isRecognizingSpeech ? "语音识别中" : "开始录音"}
                     className={cn(
-                      "rounded-full p-2.5 transition-all duration-200",
+                      "inline-flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
                       isVoiceBusy
                         ? "bg-[#DCFCE7] text-[#16A34A] hover:bg-[#BBF7D0]"
                         : "bg-[#F5F5F5] text-[#666666] hover:bg-[#EEEEEE]",
@@ -488,15 +489,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                     )}
                   >
                     {isRecognizingSpeech ? (
-                      <span className="inline-flex h-4 items-end gap-0.5" aria-hidden="true">
-                        {[0, 1, 2].map((index) => (
-                          <span
-                            key={index}
-                            className="w-1 rounded-full bg-current animate-pulse"
-                            style={{ height: `${10 + index * 2}px`, animationDelay: `${index * 140}ms` }}
-                          />
-                        ))}
-                      </span>
+                      <VoiceEqualizerIcon className="text-current" />
                     ) : isRecording ? (
                       <MicOff className="h-4 w-4" />
                     ) : (
@@ -510,7 +503,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                   disabled={disabled || (!hasContent && !isStreaming) || isRecognizingSpeech}
                   aria-label={isStreaming ? "停止生成" : "发送消息"}
                   className={cn(
-                    "rounded-full p-2.5 transition-all duration-200",
+                    "inline-flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
                     isStreaming
                       ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
                       : hasContent
@@ -543,15 +536,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           {isRecognizingSpeech ? (
             <p className="mt-4 text-center text-sm text-[#16A34A]">
               <span className="inline-flex items-center gap-2">
-                <span className="inline-flex items-end gap-0.5" aria-hidden="true">
-                  {[0, 1, 2].map((index) => (
-                    <span
-                      key={index}
-                      className="w-1 rounded-full bg-current animate-pulse"
-                      style={{ height: `${10 + index * 2}px`, animationDelay: `${index * 140}ms` }}
-                    />
-                  ))}
-                </span>
+                <VoiceEqualizerIcon className="text-current" />
                 语音识别中，请稍候...
               </span>
             </p>

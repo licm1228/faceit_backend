@@ -6,6 +6,7 @@ import { FaceItMark } from "@/components/common/FaceItMark";
 import { GuestPrompt } from "@/components/chat/GuestPrompt";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { MessageList } from "@/components/chat/MessageList";
+import { WelcomeScreen } from "@/components/chat/WelcomeScreen";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
@@ -148,6 +149,7 @@ export function ChatPage() {
   }, [sessionId, sessions]);
   const hasMessages = messages.length > 0;
   const isSelectingSession = Boolean(currentSessionId) && isLoading && !hasMessages;
+  const showWelcome = !sessionId && !currentSessionId && !hasMessages;
   const showInput = !isSelectingSession;
 
   React.useEffect(() => {
@@ -217,12 +219,18 @@ export function ChatPage() {
     <MainLayout>
       <div className="flex h-full flex-col bg-white">
         <div className="flex-1 min-h-0">
-          <MessageList
-            messages={messages}
-            isLoading={isSelectingSession}
-            isStreaming={isStreaming}
-            sessionKey={currentSessionId}
-          />
+          {showWelcome ? (
+            <div className="h-full overflow-y-auto">
+              <WelcomeScreen />
+            </div>
+          ) : (
+            <MessageList
+              messages={messages}
+              isLoading={isSelectingSession}
+              isStreaming={isStreaming}
+              sessionKey={currentSessionId}
+            />
+          )}
         </div>
         {showInput ? (
           <div className="relative z-20 bg-white">

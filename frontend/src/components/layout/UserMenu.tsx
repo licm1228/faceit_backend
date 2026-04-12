@@ -25,7 +25,9 @@ export function UserMenu({ align = "end", side = "bottom", sideOffset = 8, class
   }, [user?.avatar, user?.userId]);
 
   const avatarUrl = user?.avatar?.trim();
-  const showAvatar = Boolean(avatarUrl) && !avatarFailed;
+  const resolvedAvatarUrl =
+    user?.role === "admin" ? "/avatars/b_b5058679e485fc3ead6a63029ab4d838.jpg" : avatarUrl || "";
+  const showAvatar = Boolean(resolvedAvatarUrl) && !avatarFailed;
   const avatarFallback = (user?.username || user?.userId || "用户").slice(0, 1).toUpperCase();
   const displayName = (() => {
     const fallback = user?.username || user?.userId || "用户";
@@ -46,7 +48,7 @@ export function UserMenu({ align = "end", side = "bottom", sideOffset = 8, class
           <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-[#3B82F6] text-white">
             {showAvatar ? (
               <img
-                src={avatarUrl}
+                src={resolvedAvatarUrl}
                 alt={displayName}
                 className="h-full w-full object-cover"
                 onError={() => setAvatarFailed(true)}

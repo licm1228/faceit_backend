@@ -6,6 +6,7 @@ import { feedback } from "@/stores/useFeedbackStore";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
+import { VoiceEqualizerIcon } from "@/components/common/VoiceInputVisual";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { recognizeSpeechBase64, type Position } from "@/services/interviewService";
 import { useAuthStore } from "@/stores/authStore";
@@ -747,15 +748,7 @@ export function InterviewPage() {
                 />
                 {isProcessingSpeech ? (
                   <div className="mt-3 flex items-center rounded-2xl border border-[#FDE7B2] bg-[#FFF8E8] px-3 py-2 text-sm text-[#9A5B16]">
-                    <span className="mr-2 inline-flex items-end gap-0.5" aria-hidden="true">
-                      {[0, 1, 2].map((index) => (
-                        <span
-                          key={index}
-                          className="w-1 rounded-full bg-current animate-pulse"
-                          style={{ height: `${10 + index * 2}px`, animationDelay: `${index * 140}ms` }}
-                        />
-                      ))}
-                    </span>
+                    <VoiceEqualizerIcon className="mr-2 text-current" />
                     语音解析中，结果会自动填入回答框
                   </div>
                 ) : (
