@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, createBrowserRouter, useLocation } from "react-router-dom";
 
+import Loader from "@/components/layout/Loader";
 import { useAuthStore } from "@/stores/authStore";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((mod) => ({ default: mod.LoginPage })));
@@ -65,8 +66,8 @@ function withSuspense(children: JSX.Element) {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-[#FAFAFA] text-sm text-slate-500">
-          页面加载中...
+        <div className="flex min-h-screen items-center justify-center bg-[#FAFAFA] px-6">
+          <Loader label="页面加载中..." />
         </div>
       }
     >
