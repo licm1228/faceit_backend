@@ -167,7 +167,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               <FaceItMark className="h-5 w-5" />
             </div>
             <div className="font-poppins">
-              <p className="text-base font-semibold text-[#1A1A1A]">FastGPT 面试官</p>
+              <p className="text-base font-semibold text-[#1A1A1A]">Face It 面试官</p>
               <p className="text-xs text-[#999999]">Chat · Knowledge · Interview</p>
             </div>
           </button>

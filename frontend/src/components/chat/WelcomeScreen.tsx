@@ -384,7 +384,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
         <div className="text-center opacity-0 animate-fade-up" style={{ animationFillMode: "both" }}>
           <span className="font-poppins inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-[#2563EB] shadow-sm">
             <FaceItMark className="h-3.5 w-3.5" />
-            FastGPT 面试官
+            Face It 面试官
           </span>
           <h1 className="font-poppins mt-4 text-4xl font-semibold leading-tight tracking-tight text-[#111827] sm:text-5xl md:text-6xl">
             把面试问题变成

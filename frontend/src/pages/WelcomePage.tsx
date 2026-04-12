@@ -58,13 +58,13 @@ function WelcomeHeader() {
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <div className="relative flex h-14 items-center justify-between gap-3 rounded-2xl bg-white/90 px-3 shadow-lg shadow-black/[0.03] backdrop-blur before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:border before:border-transparent before:[background:linear-gradient(#F3F4F6,#E5E7EB)_border-box] before:[mask-composite:exclude_!important] before:[mask:linear-gradient(white_0_0)_padding-box,_linear-gradient(white_0_0)]">
           <div className="flex flex-1 items-center">
-            <Link to="/" className="inline-flex items-center gap-3" aria-label="FastGPT Home">
+            <Link to="/" className="inline-flex items-center gap-3" aria-label="Face It Home">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-300 text-white shadow-sm">
                 <span className="flex h-full w-full items-center justify-center rounded-xl bg-white text-[#2563EB]">
                   <FaceItMark className="h-5 w-5" />
                 </span>
               </span>
-              <span className="text-sm font-semibold text-gray-900">FastGPT</span>
+              <span className="text-sm font-semibold text-gray-900">Face It</span>
             </Link>
           </div>
           <div className="flex flex-1 items-center justify-end gap-3">
@@ -150,7 +150,7 @@ function HeroSection() {
               </div>
             </div>
             <h1 className="mb-6 text-5xl font-bold md:text-6xl">
-              <span className="text-blue-600">FastGPT</span>, your AI partner
+              <span className="text-blue-600">Face It</span>, your AI partner
               <br className="max-lg:hidden" />
               for better interview practice
             </h1>
@@ -377,13 +377,13 @@ function WelcomeFooter() {
         <div className="grid gap-10 border-t py-8 [border-image:linear-gradient(to_right,transparent,#E2E8F0,transparent)1] sm:grid-cols-12 md:py-12">
           <div className="space-y-2 sm:col-span-12 lg:col-span-4">
             <div>
-            <Link to="/" className="inline-flex items-center gap-3" aria-label="FastGPT">
+            <Link to="/" className="inline-flex items-center gap-3" aria-label="Face It">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-300 text-white shadow-sm">
                   <span className="flex h-full w-full items-center justify-center rounded-xl bg-white text-[#2563EB]">
                     <FaceItMark className="h-5 w-5" />
                   </span>
                 </span>
-                <span className="text-sm font-semibold text-gray-900">FastGPT</span>
+                <span className="text-sm font-semibold text-gray-900">Face It</span>
               </Link>
             </div>
             <div className="text-sm text-gray-600">&copy; Face It - Chat, Knowledge QA and Interview.</div>

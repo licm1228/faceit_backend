@@ -480,7 +480,7 @@ export function AdminLayout() {
             </div>
             {!collapsed && (
               <div className="min-w-0">
-                <h1 className="admin-sidebar__title">FastGPT 管理后台</h1>
+                <h1 className="admin-sidebar__title">Face It 管理后台</h1>
                 <p className="admin-sidebar__subtitle">知识库与面试管理台</p>
               </div>
             )}

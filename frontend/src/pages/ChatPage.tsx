@@ -28,7 +28,7 @@ function GuestChatShell() {
               <FaceItMark className="h-5 w-5" />
             </div>
             <div className="font-poppins">
-              <p className="text-base font-semibold text-[#1A1A1A]">FastGPT 面试官</p>
+              <p className="text-base font-semibold text-[#1A1A1A]">Face It 面试官</p>
               <p className="text-xs text-[#999999]">Guest Preview</p>
             </div>
           </div>
@@ -75,7 +75,7 @@ function GuestChatShell() {
                   </span>
                   <span className="font-poppins flex-1">
                     <span className="block text-sm font-semibold text-[#1F2937]">注册账号</span>
-                    <span className="block text-xs text-[#64748B]">创建账号后继续使用 FastGPT</span>
+                    <span className="block text-xs text-[#64748B]">创建账号后继续使用 Face It</span>
                   </span>
                 </Link>
               </div>
@@ -98,7 +98,7 @@ function GuestChatShell() {
               >
                 <Menu className="h-5 w-5" />
               </button>
-              <p className="text-base font-medium text-gray-900">FastGPT Chat</p>
+              <p className="text-base font-medium text-gray-900">Face It Chat</p>
             </div>
             <div className="flex items-center gap-2">
               <Link
