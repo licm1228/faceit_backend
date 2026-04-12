@@ -47,7 +47,6 @@ export function WelcomeScreen() {
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
-  const audioChunksRef = React.useRef<Blob[]>([]);
   const { sendMessage, isStreaming, cancelGeneration, deepThinkingEnabled, setDeepThinkingEnabled } =
     useChatStore();
 
@@ -179,13 +178,8 @@ export function WelcomeScreen() {
 
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
+      mediaRecorder.ondataavailable = () => {};
 
       mediaRecorder.onstop = async () => {
         // 停止处理音频
@@ -201,24 +195,9 @@ export function WelcomeScreen() {
           offset += data.length;
         }
 
-        // 将Float32转换为Int16
-        const int16Data = new Int16Array(mergedData.length);
-        for (let i = 0; i < mergedData.length; i++) {
-          let s = Math.max(-1, Math.min(1, mergedData[i]));
-          int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-
-        // 将Int16数据转换为Base64
-        const uint8Data = new Uint8Array(int16Data.buffer);
-        let binary = '';
-        const len = uint8Data.byteLength;
-        for (let i = 0; i < len; i++) {
-          binary += String.fromCharCode(uint8Data[i]);
-        }
-        const base64Audio = btoa(binary);
-
-        // 直接发送PCM数据
-        await recognizeSpeechPCM(base64Audio);
+        const wavBlob = encodeWav(mergedData, audioContext.sampleRate);
+        const base64Audio = await blobToBase64(wavBlob);
+        await recognizeSpeech(base64Audio);
 
         // 关闭媒体流
         stream.getTracks().forEach(track => track.stop());
@@ -241,12 +220,64 @@ export function WelcomeScreen() {
     }
   };
 
-  const recognizeSpeechPCM = async (base64Audio: string) => {
-    console.log('开始识别PCM语音，Base64长度:', base64Audio.length);
+  const blobToBase64 = React.useCallback((blob: Blob) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("音频编码失败"));
+        return;
+      }
+      const base64 = result.split(",")[1];
+      if (!base64) {
+        reject(new Error("音频编码失败"));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("音频编码失败"));
+    reader.readAsDataURL(blob);
+  }), []);
+
+  const encodeWav = React.useCallback((samples: Float32Array, sampleRate: number) => {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const writeString = (offset: number, value: string) => {
+      for (let i = 0; i < value.length; i += 1) {
+        view.setUint8(offset + i, value.charCodeAt(i));
+      }
+    };
+
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, "data");
+    view.setUint32(40, samples.length * 2, true);
+
+    let offset = 44;
+    for (let i = 0; i < samples.length; i += 1) {
+      const sample = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
+
+    return new Blob([buffer], { type: "audio/wav" });
+  }, []);
+
+  const recognizeSpeech = async (base64Audio: string) => {
+    console.log('开始识别WAV语音，Base64长度:', base64Audio.length);
 
     setIsRecognizingSpeech(true);
     try {
-      const text = await recognizeSpeechBase64(base64Audio, 'pcm', 16000, 'zh_cn');
+      const text = await recognizeSpeechBase64(base64Audio, 'wav', 16000, 'zh_cn');
       console.log('识别结果:', text);
 
       if (text) {
