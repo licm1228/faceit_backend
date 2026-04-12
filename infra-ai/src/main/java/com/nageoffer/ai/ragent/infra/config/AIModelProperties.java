@@ -142,7 +142,6 @@ public class AIModelProperties {
      */
     @Data
     public static class ProviderConfig {
-
         /**
          * 提供商基础 URL
          */
@@ -154,12 +153,21 @@ public class AIModelProperties {
         private String apiKey;
 
         /**
+         * 应用 ID（用于讯飞等需要的提供商）
+         */
+        private String appId;
+
+        /**
+         * API 密钥（用于讯飞等需要的提供商）
+         */
+        private String apiSecret;
+
+        /**
          * 端点映射配置
          * key: 端点类型，value: 端点路径
          */
         private Map<String, String> endpoints = new HashMap<>();
     }
-
     /**
      * 模型选择策略配置类
      * 用于配置模型故障转移和熔断策略
