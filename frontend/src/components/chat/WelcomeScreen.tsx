@@ -1,41 +1,57 @@
 import * as React from "react";
-import { ArrowUpRight, BookOpen, Brain, Check, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
-import { Link } from "react-router-dom";
+import { ArrowUpRight, Brain, Braces, Code2, Cpu, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 
 import { FaceItMark } from "@/components/common/FaceItMark";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { recognizeSpeechBase64 } from "@/services/interviewService";
-import { listSampleQuestions } from "@/services/sampleQuestionService";
 import { useChatStore } from "@/stores/chatStore";
 
-type PromptPreset = {
-  id?: string;
+type JobPreset = {
+  id: string;
   title: string;
   description: string;
-  prompt: string;
+  accent: string;
+  highlight: string;
   icon: React.ComponentType<{ className?: string }>;
+  positionKeywords: string[];
 };
 
-const PRESET_ICONS = [BookOpen, Check, Lightbulb];
+type InterviewPresetState = {
+  positionKeywords: string[];
+  difficulty: number;
+  timeLimitMinutes: number;
+  questionLimit: number;
+};
 
-const DEFAULT_PRESETS: PromptPreset[] = [
+const JOB_PRESETS: JobPreset[] = [
   {
-    title: "内容总结",
-    description: "提炼 3-5 条关键信息与行动点",
-    prompt: "请帮我总结以下内容，并列出3-5条要点：",
-    icon: BookOpen
+    id: "web-frontend",
+    title: "Web前端开发",
+    description: "偏重 React、工程化、性能优化与浏览器基础",
+    accent: "from-[#2563EB] via-[#3B82F6] to-[#60A5FA]",
+    highlight: "bg-[#DBEAFE] text-[#1D4ED8]",
+    icon: Braces,
+    positionKeywords: ["web前端", "前端", "react", "vue", "javascript", "typescript"]
   },
   {
-    title: "任务拆解",
-    description: "把目标拆成可执行步骤与优先级",
-    prompt: "请把下面需求拆解为步骤，并给出优先级和里程碑：",
-    icon: Check
+    id: "java-backend",
+    title: "Java后端开发",
+    description: "覆盖 Java、Spring、数据库、并发与系统设计",
+    accent: "from-[#0F766E] via-[#14B8A6] to-[#5EEAD4]",
+    highlight: "bg-[#CCFBF1] text-[#0F766E]",
+    icon: Code2,
+    positionKeywords: ["java后端", "java", "后端", "spring", "spring boot"]
   },
   {
-    title: "灵感扩展",
-    description: "给出多个方案并比较优缺点",
-    prompt: "围绕以下主题给出5-8个方案，并注明优缺点：",
-    icon: Lightbulb
+    id: "python-algorithm",
+    title: "Python算法开发",
+    description: "聚焦 Python、数据结构、算法思维与编码实现",
+    accent: "from-[#F59E0B] via-[#FBBF24] to-[#FDE68A]",
+    highlight: "bg-[#FEF3C7] text-[#B45309]",
+    icon: Cpu,
+    positionKeywords: ["python算法", "python", "算法", "机器学习", "数据"]
   }
 ];
 
@@ -44,11 +60,17 @@ interface WelcomeScreenProps {
 }
 
 export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
+  const navigate = useNavigate();
   const [value, setValue] = React.useState("");
   const [isFocused, setIsFocused] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
   const [isRecognizingSpeech, setIsRecognizingSpeech] = React.useState(false);
-  const [promptPresets, setPromptPresets] = React.useState<PromptPreset[]>(DEFAULT_PRESETS);
+  const [selectedJob, setSelectedJob] = React.useState<JobPreset | null>(null);
+  const [interviewOptions, setInterviewOptions] = React.useState({
+    difficulty: 3,
+    timeLimitMinutes: 20,
+    questionLimit: 5
+  });
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
@@ -78,55 +100,6 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     adjustHeight();
   }, [value, adjustHeight]);
 
-  React.useEffect(() => {
-    if (disabled) {
-      return;
-    }
-    let active = true;
-
-    const loadPresets = async () => {
-      const data = await listSampleQuestions().catch(() => null);
-      if (!active || !data || data.length === 0) {
-        return;
-      }
-      const mapped = data
-        .filter((item) => item.question && item.question.trim())
-        .slice(0, 3)
-        .map((item, index) => {
-          const question = item.question.trim();
-          const title =
-            item.title?.trim() ||
-            (question.length > 12 ? `${question.slice(0, 12)}...` : question) ||
-            `推荐问法 ${index + 1}`;
-          const description = item.description?.trim() || "直接点选即可开始对话";
-          return {
-            id: item.id,
-            title,
-            description,
-            prompt: question,
-            icon: PRESET_ICONS[index % PRESET_ICONS.length]
-          };
-        });
-      if (mapped.length > 0) {
-        setPromptPresets(mapped);
-      }
-    };
-
-    loadPresets();
-    return () => {
-      active = false;
-    };
-  }, [disabled]);
-
-  const applyPreset = React.useCallback(
-    (prompt: string) => {
-      if (disabled || isStreaming) return;
-      setValue(prompt);
-      focusInput();
-    },
-    [disabled, isStreaming, focusInput]
-  );
-
   const handleSubmit = async () => {
     if (disabled) return;
     if (isStreaming) {
@@ -149,14 +122,13 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // 尝试使用支持的音频格式
-      let mimeType = 'audio/webm';
+      let mimeType = "audio/webm";
       const types = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/ogg;codecs=opus',
-        'audio/ogg',
-        'audio/wav'
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/ogg",
+        "audio/wav"
       ];
 
       for (const type of types) {
@@ -166,7 +138,6 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
         }
       }
 
-      // 创建AudioContext和ScriptProcessorNode来直接获取PCM数据
       const audioContext = new AudioContext({ sampleRate: 16000 });
       const source = audioContext.createMediaStreamSource(stream);
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
@@ -174,7 +145,6 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
 
       processor.onaudioprocess = (event) => {
         const inputData = event.inputBuffer.getChannelData(0);
-        // 复制数据以避免被覆盖
         const copyData = new Float32Array(inputData.length);
         copyData.set(inputData);
         pcmDataRef.push(copyData);
@@ -189,11 +159,9 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
       mediaRecorder.ondataavailable = () => {};
 
       mediaRecorder.onstop = async () => {
-        // 停止处理音频
         source.disconnect();
         processor.disconnect();
 
-        // 合并所有PCM数据
         const totalLength = pcmDataRef.reduce((sum, data) => sum + data.length, 0);
         const mergedData = new Float32Array(totalLength);
         let offset = 0;
@@ -206,53 +174,56 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
         const base64Audio = await blobToBase64(wavBlob);
         await recognizeSpeech(base64Audio);
 
-        // 关闭媒体流
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
         audioContext.close();
       };
 
       mediaRecorder.start();
       setIsRecording(true);
     } catch (error) {
-      console.error('无法访问麦克风:', error);
-      alert('无法访问麦克风，请检查权限设置');
+      console.error("无法访问麦克风:", error);
+      alert("无法访问麦克风，请检查权限设置");
       setIsRecording(false);
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       setIsRecognizingSpeech(true);
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
   };
 
-  const blobToBase64 = React.useCallback((blob: Blob) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result;
-      if (typeof result !== "string") {
-        reject(new Error("音频编码失败"));
-        return;
-      }
-      const base64 = result.split(",")[1];
-      if (!base64) {
-        reject(new Error("音频编码失败"));
-        return;
-      }
-      resolve(base64);
-    };
-    reader.onerror = () => reject(new Error("音频编码失败"));
-    reader.readAsDataURL(blob);
-  }), []);
+  const blobToBase64 = React.useCallback(
+    (blob: Blob) =>
+      new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result;
+          if (typeof result !== "string") {
+            reject(new Error("音频编码失败"));
+            return;
+          }
+          const base64 = result.split(",")[1];
+          if (!base64) {
+            reject(new Error("音频编码失败"));
+            return;
+          }
+          resolve(base64);
+        };
+        reader.onerror = () => reject(new Error("音频编码失败"));
+        reader.readAsDataURL(blob);
+      }),
+    []
+  );
 
   const encodeWav = React.useCallback((samples: Float32Array, sampleRate: number) => {
     const buffer = new ArrayBuffer(44 + samples.length * 2);
     const view = new DataView(buffer);
-    const writeString = (offset: number, value: string) => {
-      for (let i = 0; i < value.length; i += 1) {
-        view.setUint8(offset + i, value.charCodeAt(i));
+    const writeString = (offset: number, chunk: string) => {
+      for (let i = 0; i < chunk.length; i += 1) {
+        view.setUint8(offset + i, chunk.charCodeAt(i));
       }
     };
 
@@ -281,12 +252,12 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   }, []);
 
   const recognizeSpeech = async (base64Audio: string) => {
-    console.log('开始识别WAV语音，Base64长度:', base64Audio.length);
+    console.log("开始识别WAV语音，Base64长度:", base64Audio.length);
 
     setIsRecognizingSpeech(true);
     try {
-      const text = await recognizeSpeechBase64(base64Audio, 'wav', 16000, 'zh_cn');
-      console.log('识别结果:', text);
+      const text = await recognizeSpeechBase64(base64Audio, "wav", 16000, "zh_cn");
+      console.log("识别结果:", text);
 
       if (text) {
         setValue((prev) => {
@@ -295,18 +266,38 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
         });
         focusInput();
       } else {
-        alert('未识别到语音内容，请重试');
+        alert("未识别到语音内容，请重试");
       }
     } catch (error) {
-      console.error('语音识别错误:', error);
-      alert('语音识别失败，请重试');
+      console.error("语音识别错误:", error);
+      alert("语音识别失败，请重试");
     } finally {
       setIsRecognizingSpeech(false);
     }
   };
 
+  const openInterviewDialog = React.useCallback(
+    (job: JobPreset) => {
+      if (disabled) return;
+      setSelectedJob(job);
+    },
+    [disabled]
+  );
+
+  const startPresetInterview = React.useCallback(() => {
+    if (!selectedJob) return;
+    const state: InterviewPresetState = {
+      positionKeywords: selectedJob.positionKeywords,
+      difficulty: interviewOptions.difficulty,
+      timeLimitMinutes: interviewOptions.timeLimitMinutes,
+      questionLimit: interviewOptions.questionLimit
+    };
+    setSelectedJob(null);
+    navigate("/interview", { state });
+  }, [interviewOptions.difficulty, interviewOptions.questionLimit, interviewOptions.timeLimitMinutes, navigate, selectedJob]);
+
   return (
-    <div className="relative flex min-h-full items-center justify-center overflow-hidden px-4 py-16 sm:px-6">
+    <div className="relative flex min-h-full items-start justify-center overflow-hidden px-4 py-10 sm:px-6 sm:py-12">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#F8FAFC] via-white to-[#EFF6FF]"
@@ -324,11 +315,8 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
         className="pointer-events-none absolute -bottom-36 left-[-80px] h-80 w-80 rounded-full bg-gradient-radial from-[#FDE68A]/40 via-transparent to-transparent blur-3xl animate-float"
       />
 
-      <div className="relative w-full max-w-[860px]">
-        <div
-          className="text-center opacity-0 animate-fade-up"
-          style={{ animationFillMode: "both" }}
-        >
+      <div className="relative w-full max-w-[920px]">
+        <div className="text-center opacity-0 animate-fade-up" style={{ animationFillMode: "both" }}>
           <span className="font-poppins inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-[#2563EB] shadow-sm">
             <FaceItMark className="h-3.5 w-3.5" />
             Face It Assistant 智能助手
@@ -344,16 +332,11 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           </p>
         </div>
 
-        <div
-          className="mt-10 opacity-0 animate-fade-up"
-          style={{ animationDelay: "80ms", animationFillMode: "both" }}
-        >
+        <div className="mt-8 opacity-0 animate-fade-up" style={{ animationDelay: "80ms", animationFillMode: "both" }}>
           <div
             className={cn(
               "relative flex flex-col rounded-3xl border border-white/70 bg-white/80 px-5 pt-4 pb-3 shadow-soft backdrop-blur-xl transition-all duration-200",
-              isFocused
-                ? "border-[#BFDBFE] shadow-glow"
-                : "hover:border-[#D4D4D4]"
+              isFocused ? "border-[#BFDBFE] shadow-glow" : "hover:border-[#D4D4D4]"
             )}
           >
             <div className="relative">
@@ -366,9 +349,9 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                     ? "Guest mode preview only. Please login to start chatting..."
                     : isRecognizingSpeech
                       ? "语音识别中，请稍候..."
-                    : deepThinkingEnabled
-                      ? "输入更需要深入分析的问题..."
-                      : "输入你的问题，Ask anything..."
+                      : deepThinkingEnabled
+                        ? "输入更需要深入分析的问题..."
+                        : "输入你的问题，Ask anything..."
                 }
                 className="max-h-40 min-h-[52px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 text-[15px] text-[#1F2937] placeholder:text-[#9CA3AF] focus:outline-none sm:text-base"
                 rows={1}
@@ -393,9 +376,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                 }}
                 aria-label="发送消息"
               />
-              {isRecognizingSpeech ? (
-                <div className="pointer-events-none absolute inset-0 rounded-3xl bg-white/55" />
-              ) : null}
+              {isRecognizingSpeech ? <div className="pointer-events-none absolute inset-0 rounded-3xl bg-white/55" /> : null}
               <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[10px] bg-gradient-to-b from-white/0 via-white/40 to-white/90" />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -415,18 +396,16 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                 <span className="inline-flex items-center gap-2">
                   <Brain className={cn("h-3.5 w-3.5", deepThinkingEnabled && "text-[#3B82F6]")} />
                   深度思考
-                  {deepThinkingEnabled ? (
-                    <span className="h-2 w-2 rounded-full bg-[#3B82F6] animate-pulse" />
-                  ) : null}
+                  {deepThinkingEnabled ? <span className="h-2 w-2 rounded-full bg-[#3B82F6] animate-pulse" /> : null}
                 </span>
               </button>
-              <div className="flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-2">
                 {isMediaRecorderSupported && (
                   <button
                     type="button"
                     onClick={isRecording ? stopRecording : startRecording}
                     disabled={disabled || isStreaming || isRecognizingSpeech}
-                    aria-label={isRecording ? "停止录音" : (isRecognizingSpeech ? "语音识别中" : "开始录音")}
+                    aria-label={isRecording ? "停止录音" : isRecognizingSpeech ? "语音识别中" : "开始录音"}
                     className={cn(
                       "rounded-full p-2.5 transition-all duration-200",
                       isVoiceBusy
@@ -445,7 +424,11 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                           />
                         ))}
                       </span>
-                    ) : isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    ) : isRecording ? (
+                      <MicOff className="h-4 w-4" />
+                    ) : (
+                      <Mic className="h-4 w-4" />
+                    )}
                   </button>
                 )}
                 <button
@@ -454,7 +437,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                   disabled={disabled || (!hasContent && !isStreaming) || isRecognizingSpeech}
                   aria-label={isStreaming ? "停止生成" : "发送消息"}
                   className={cn(
-                    "ml-auto rounded-full p-2.5 transition-all duration-200",
+                    "rounded-full p-2.5 transition-all duration-200",
                     isStreaming
                       ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
                       : hasContent
@@ -509,54 +492,50 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
             </p>
           ) : null}
           <p className="mt-3 text-center text-xs text-[#94A3B8]">
-            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">
-              Enter
-            </kbd>{" "}
-            发送
+            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">Enter</kbd> 发送
             <span className="px-1.5">·</span>
-            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">
-              Shift + Enter
-            </kbd>{" "}
-            换行
+            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">Shift + Enter</kbd> 换行
             {isStreaming ? <span className="ml-2 animate-pulse-soft">生成中...</span> : null}
           </p>
         </div>
 
-        <div
-          className="mt-10 opacity-0 animate-fade-up"
-          style={{ animationDelay: "160ms", animationFillMode: "both" }}
-        >
+        <div className="mt-8 opacity-0 animate-fade-up" style={{ animationDelay: "160ms", animationFillMode: "both" }}>
           <div className="flex items-center justify-center gap-2 text-xs uppercase tracking-[0.24em] text-[#94A3B8]">
             <span className="h-px w-8 bg-[#E5E7EB]" />
-            试试这些开场
+            面试这些岗位
             <span className="h-px w-8 bg-[#E5E7EB]" />
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {promptPresets.map((preset) => {
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {JOB_PRESETS.map((preset) => {
               const Icon = preset.icon;
               return (
                 <button
-                  key={preset.id ?? preset.title}
+                  key={preset.id}
                   type="button"
-                  onClick={() => applyPreset(preset.prompt)}
-                  disabled={disabled || isStreaming || isRecognizingSpeech}
+                  onClick={() => openInterviewDialog(preset)}
+                  disabled={disabled}
                   className={cn(
-                    "group rounded-2xl border border-white/70 bg-white/70 p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-[#BFDBFE] hover:shadow-md",
-                    (disabled || isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
+                    "group relative overflow-hidden rounded-[28px] border p-5 text-left shadow-[0_18px_40px_rgba(15,23,42,0.10)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_24px_50px_rgba(15,23,42,0.14)]",
+                    disabled
+                      ? "cursor-not-allowed border-white/70 bg-white/70 opacity-60"
+                      : "border-white/80 bg-white/88 backdrop-blur-xl"
                   )}
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EFF6FF] text-[#2563EB]">
-                      <Icon className="h-4 w-4" />
+                  <span aria-hidden="true" className={cn("absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r", preset.accent)} />
+                  <div className="flex items-start gap-3">
+                    <span className={cn("flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm", preset.highlight)}>
+                      <Icon className="h-5 w-5" />
                     </span>
-                    <div>
-                      <p className="text-sm font-semibold text-[#1F2937]">{preset.title}</p>
-                      <p className="text-xs text-[#6B7280]">{preset.description}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-base font-semibold text-[#0F172A]">{preset.title}</p>
+                      <p className="mt-1 text-sm leading-6 text-[#475569]">{preset.description}</p>
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center gap-2 text-xs text-[#94A3B8]">
-                    <span className="min-w-0 flex-1 truncate">推荐问法：{preset.prompt}</span>
-                    <ArrowUpRight className="h-3.5 w-3.5 text-[#CBD5F5] transition-colors group-hover:text-[#3B82F6]" />
+                  <div className="mt-5 flex items-center justify-between">
+                    <span className="rounded-full bg-[#F8FAFC] px-3 py-1 text-xs font-medium text-[#64748B]">
+                      选择参数后进入面试
+                    </span>
+                    <ArrowUpRight className="h-4 w-4 text-[#94A3B8] transition-colors group-hover:text-[#2563EB]" />
                   </div>
                 </button>
               );
@@ -564,6 +543,114 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           </div>
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(selectedJob)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedJob(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl border border-[#E2E8F0] bg-white/95 p-0 backdrop-blur-xl">
+          {selectedJob ? (
+            <>
+              <div className={cn("h-2 rounded-t-[24px] bg-gradient-to-r", selectedJob.accent)} />
+              <div className="p-6 sm:p-7">
+                <DialogHeader>
+                  <DialogTitle className="text-xl text-[#0F172A]">{selectedJob.title}</DialogTitle>
+                  <DialogDescription className="text-sm leading-6 text-[#64748B]">
+                    选择本次模拟面试参数，进入后会自动带入岗位、难度、时长和题量。
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="mt-5 grid gap-4 sm:grid-cols-3">
+                  <label className="flex flex-col gap-2 text-sm text-[#475569]">
+                    难度
+                    <select
+                      value={interviewOptions.difficulty}
+                      onChange={(event) =>
+                        setInterviewOptions((prev) => ({
+                          ...prev,
+                          difficulty: Number(event.target.value)
+                        }))
+                      }
+                      className="h-11 rounded-2xl border border-[#D9E3EF] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA]"
+                    >
+                      {[1, 2, 3, 4, 5].map((level) => (
+                        <option key={level} value={level}>
+                          {level}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-2 text-sm text-[#475569]">
+                    时长
+                    <select
+                      value={interviewOptions.timeLimitMinutes}
+                      onChange={(event) =>
+                        setInterviewOptions((prev) => ({
+                          ...prev,
+                          timeLimitMinutes: Number(event.target.value)
+                        }))
+                      }
+                      className="h-11 rounded-2xl border border-[#D9E3EF] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA]"
+                    >
+                      {[10, 15, 20, 30, 45].map((minute) => (
+                        <option key={minute} value={minute}>
+                          {minute} 分钟
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-2 text-sm text-[#475569]">
+                    题量
+                    <select
+                      value={interviewOptions.questionLimit}
+                      onChange={(event) =>
+                        setInterviewOptions((prev) => ({
+                          ...prev,
+                          questionLimit: Number(event.target.value)
+                        }))
+                      }
+                      className="h-11 rounded-2xl border border-[#D9E3EF] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA]"
+                    >
+                      {[3, 5, 8, 10].map((count) => (
+                        <option key={count} value={count}>
+                          {count} 题
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="mt-5 rounded-2xl bg-[#F8FAFC] px-4 py-3 text-sm text-[#64748B]">
+                  当前配置：难度 {interviewOptions.difficulty}，时长 {interviewOptions.timeLimitMinutes} 分钟，题量 {interviewOptions.questionLimit} 题。
+                </div>
+
+                <DialogFooter className="mt-6 flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    className="h-11 rounded-2xl border border-[#D9E3EF] px-4 text-sm font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC]"
+                    onClick={() => setSelectedJob(null)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="h-11 rounded-2xl bg-[#2563EB] px-5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                    onClick={startPresetInterview}
+                  >
+                    去模拟面试
+                  </button>
+                </DialogFooter>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

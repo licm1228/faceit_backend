@@ -1,12 +1,13 @@
 import * as React from "react";
 import { Mic, MicOff, Timer } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { recognizeSpeechBase64 } from "@/services/interviewService";
+import { recognizeSpeechBase64, type Position } from "@/services/interviewService";
 import { useAuthStore } from "@/stores/authStore";
 import { useInterviewStore } from "@/stores/interviewStore";
 
@@ -46,6 +47,13 @@ type SpeechWindow = Window & {
 
 type RecordingMode = "backend" | "browser" | null;
 
+type InterviewPresetState = {
+  positionKeywords?: string[];
+  difficulty?: number;
+  timeLimitMinutes?: number;
+  questionLimit?: number;
+};
+
 const RECORDING_SAMPLE_RATE = 16000;
 
 function getSessionStatusLabel(status?: string) {
@@ -66,7 +74,26 @@ function getSessionTitle(sessionId: string) {
   return `面试 #${suffix}`;
 }
 
+function matchPositionKeywords(position: Position, keywords: string[]) {
+  if (keywords.length === 0) {
+    return false;
+  }
+  const searchText = [
+    position.name,
+    position.description,
+    position.requiredSkills,
+    position.interviewFocus
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return keywords.some((keyword) => searchText.includes(keyword));
+}
+
 export function InterviewPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const {
     positions,
@@ -112,6 +139,7 @@ export function InterviewPage() {
   const sourceNodeRef = React.useRef<MediaStreamAudioSourceNode | null>(null);
   const processorNodeRef = React.useRef<ScriptProcessorNode | null>(null);
   const pcmChunksRef = React.useRef<Float32Array[]>([]);
+  const appliedPresetRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     fetchPositions().catch(() => null);
@@ -124,10 +152,39 @@ export function InterviewPage() {
   }, [fetchHistory, fetchProfileData, user?.userId]);
 
   React.useEffect(() => {
-    if (positions.length > 0 && !selectedPositionId) {
+    if (positions.length === 0) {
+      return;
+    }
+
+    const preset = location.state as InterviewPresetState | null;
+    const presetKey = JSON.stringify(preset ?? {});
+    const hasPreset = Boolean(preset && Object.keys(preset).length > 0);
+
+    if (hasPreset && appliedPresetRef.current !== presetKey) {
+      const keywords = (preset?.positionKeywords ?? []).map((keyword) => keyword.trim().toLowerCase());
+      const matchedPosition = positions.find((position) => matchPositionKeywords(position, keywords));
+
+      setSelectedPositionId(matchedPosition?.id ?? positions[0].id);
+
+      if (typeof preset?.difficulty === "number") {
+        setDifficulty(preset.difficulty);
+      }
+      if (typeof preset?.timeLimitMinutes === "number") {
+        setTimeLimitMinutes(preset.timeLimitMinutes);
+      }
+      if (typeof preset?.questionLimit === "number") {
+        setQuestionLimit(preset.questionLimit);
+      }
+
+      appliedPresetRef.current = presetKey;
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+
+    if (!selectedPositionId) {
       setSelectedPositionId(positions[0].id);
     }
-  }, [positions, selectedPositionId]);
+  }, [location.pathname, location.state, navigate, positions, selectedPositionId, setDifficulty]);
 
   const startInterview = React.useCallback(async () => {
     if (!user?.userId || !selectedPositionId) return;
