@@ -12,8 +12,6 @@ type JobPreset = {
   id: string;
   title: string;
   description: string;
-  accent: string;
-  highlight: string;
   icon: React.ComponentType<{ className?: string }>;
   positionKeywords: string[];
 };
@@ -30,8 +28,6 @@ const JOB_PRESETS: JobPreset[] = [
     id: "web-frontend",
     title: "Web前端开发",
     description: "偏重 React、工程化、性能优化与浏览器基础",
-    accent: "from-[#2563EB] via-[#3B82F6] to-[#60A5FA]",
-    highlight: "bg-[#DBEAFE] text-[#1D4ED8]",
     icon: Braces,
     positionKeywords: ["web前端", "前端", "react", "vue", "javascript", "typescript"]
   },
@@ -39,8 +35,6 @@ const JOB_PRESETS: JobPreset[] = [
     id: "java-backend",
     title: "Java后端开发",
     description: "覆盖 Java、Spring、数据库、并发与系统设计",
-    accent: "from-[#0F766E] via-[#14B8A6] to-[#5EEAD4]",
-    highlight: "bg-[#CCFBF1] text-[#0F766E]",
     icon: Code2,
     positionKeywords: ["java后端", "java", "后端", "spring", "spring boot"]
   },
@@ -48,8 +42,6 @@ const JOB_PRESETS: JobPreset[] = [
     id: "python-algorithm",
     title: "Python算法开发",
     description: "聚焦 Python、数据结构、算法思维与编码实现",
-    accent: "from-[#F59E0B] via-[#FBBF24] to-[#FDE68A]",
-    highlight: "bg-[#FEF3C7] text-[#B45309]",
     icon: Cpu,
     positionKeywords: ["python算法", "python", "算法", "机器学习", "数据"]
   }
@@ -297,7 +289,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   }, [interviewOptions.difficulty, interviewOptions.questionLimit, interviewOptions.timeLimitMinutes, navigate, selectedJob]);
 
   return (
-    <div className="relative flex min-h-full items-start justify-center overflow-hidden px-4 py-10 sm:px-6 sm:py-12">
+    <div className="relative flex min-h-full items-center justify-center overflow-hidden px-4 py-16 sm:px-6">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#F8FAFC] via-white to-[#EFF6FF]"
@@ -332,7 +324,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           </p>
         </div>
 
-        <div className="mt-8 opacity-0 animate-fade-up" style={{ animationDelay: "80ms", animationFillMode: "both" }}>
+        <div className="mt-10 opacity-0 animate-fade-up" style={{ animationDelay: "80ms", animationFillMode: "both" }}>
           <div
             className={cn(
               "relative flex flex-col rounded-3xl border border-white/70 bg-white/80 px-5 pt-4 pb-3 shadow-soft backdrop-blur-xl transition-all duration-200",
@@ -499,7 +491,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           </p>
         </div>
 
-        <div className="mt-8 opacity-0 animate-fade-up" style={{ animationDelay: "160ms", animationFillMode: "both" }}>
+        <div className="mt-10 opacity-0 animate-fade-up" style={{ animationDelay: "160ms", animationFillMode: "both" }}>
           <div className="flex items-center justify-center gap-2 text-xs uppercase tracking-[0.24em] text-[#94A3B8]">
             <span className="h-px w-8 bg-[#E5E7EB]" />
             面试这些岗位
@@ -508,22 +500,25 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {JOB_PRESETS.map((preset) => {
               const Icon = preset.icon;
+              const isActive = selectedJob?.id === preset.id;
               return (
                 <button
                   key={preset.id}
                   type="button"
                   onClick={() => openInterviewDialog(preset)}
                   disabled={disabled}
+                  aria-pressed={isActive}
                   className={cn(
-                    "group relative overflow-hidden rounded-[28px] border p-5 text-left shadow-[0_18px_40px_rgba(15,23,42,0.10)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_24px_50px_rgba(15,23,42,0.14)]",
+                    "group rounded-[26px] border p-5 text-left transition-all duration-200",
                     disabled
-                      ? "cursor-not-allowed border-white/70 bg-white/70 opacity-60"
-                      : "border-white/80 bg-white/88 backdrop-blur-xl"
+                      ? "cursor-not-allowed border-[#DBEAFE] bg-[#F8FBFF] opacity-60"
+                      : isActive
+                        ? "border-[#93C5FD] bg-[#EFF6FF] shadow-[0_18px_40px_rgba(59,130,246,0.16)]"
+                        : "border-[#DBEAFE] bg-[#F8FBFF] shadow-[0_12px_28px_rgba(37,99,235,0.08)] hover:-translate-y-1 hover:border-[#93C5FD] hover:bg-[#F0F7FF] hover:shadow-[0_20px_42px_rgba(37,99,235,0.14)]"
                   )}
                 >
-                  <span aria-hidden="true" className={cn("absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r", preset.accent)} />
                   <div className="flex items-start gap-3">
-                    <span className={cn("flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm", preset.highlight)}>
+                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#DBEAFE] text-[#2563EB] shadow-[inset_0_0_0_1px_rgba(147,197,253,0.35)]">
                       <Icon className="h-5 w-5" />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -532,10 +527,15 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                     </div>
                   </div>
                   <div className="mt-5 flex items-center justify-between">
-                    <span className="rounded-full bg-[#F8FAFC] px-3 py-1 text-xs font-medium text-[#64748B]">
-                      选择参数后进入面试
+                    <span className="rounded-full border border-[#BFDBFE] bg-white px-3 py-1 text-xs font-medium text-[#2563EB]">
+                      点击配置面试参数
                     </span>
-                    <ArrowUpRight className="h-4 w-4 text-[#94A3B8] transition-colors group-hover:text-[#2563EB]" />
+                    <ArrowUpRight
+                      className={cn(
+                        "h-4 w-4 transition-colors",
+                        isActive ? "text-[#2563EB]" : "text-[#94A3B8] group-hover:text-[#2563EB]"
+                      )}
+                    />
                   </div>
                 </button>
               );
@@ -552,11 +552,9 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           }
         }}
       >
-        <DialogContent className="max-w-xl border border-[#E2E8F0] bg-white/95 p-0 backdrop-blur-xl">
+        <DialogContent className="max-w-xl border border-[#DBEAFE] bg-[#F8FBFF] p-0 shadow-[0_24px_60px_rgba(37,99,235,0.16)]">
           {selectedJob ? (
-            <>
-              <div className={cn("h-2 rounded-t-[24px] bg-gradient-to-r", selectedJob.accent)} />
-              <div className="p-6 sm:p-7">
+            <div className="p-6 sm:p-7">
                 <DialogHeader>
                   <DialogTitle className="text-xl text-[#0F172A]">{selectedJob.title}</DialogTitle>
                   <DialogDescription className="text-sm leading-6 text-[#64748B]">
@@ -575,7 +573,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                           difficulty: Number(event.target.value)
                         }))
                       }
-                      className="h-11 rounded-2xl border border-[#D9E3EF] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA]"
+                      className="h-11 rounded-2xl border border-[#BFDBFE] bg-white px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA] focus:bg-[#F8FBFF]"
                     >
                       {[1, 2, 3, 4, 5].map((level) => (
                         <option key={level} value={level}>
@@ -595,7 +593,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                           timeLimitMinutes: Number(event.target.value)
                         }))
                       }
-                      className="h-11 rounded-2xl border border-[#D9E3EF] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA]"
+                      className="h-11 rounded-2xl border border-[#BFDBFE] bg-white px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA] focus:bg-[#F8FBFF]"
                     >
                       {[10, 15, 20, 30, 45].map((minute) => (
                         <option key={minute} value={minute}>
@@ -615,7 +613,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                           questionLimit: Number(event.target.value)
                         }))
                       }
-                      className="h-11 rounded-2xl border border-[#D9E3EF] bg-[#F8FAFC] px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA]"
+                      className="h-11 rounded-2xl border border-[#BFDBFE] bg-white px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA] focus:bg-[#F8FBFF]"
                     >
                       {[3, 5, 8, 10].map((count) => (
                         <option key={count} value={count}>
@@ -626,28 +624,27 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                   </label>
                 </div>
 
-                <div className="mt-5 rounded-2xl bg-[#F8FAFC] px-4 py-3 text-sm text-[#64748B]">
+                <div className="mt-5 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-sm text-[#475569]">
                   当前配置：难度 {interviewOptions.difficulty}，时长 {interviewOptions.timeLimitMinutes} 分钟，题量 {interviewOptions.questionLimit} 题。
                 </div>
 
                 <DialogFooter className="mt-6 flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                   <button
                     type="button"
-                    className="h-11 rounded-2xl border border-[#D9E3EF] px-4 text-sm font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC]"
+                    className="h-11 rounded-2xl border border-[#BFDBFE] bg-white px-4 text-sm font-medium text-[#475569] transition-colors hover:bg-[#EFF6FF]"
                     onClick={() => setSelectedJob(null)}
                   >
                     取消
                   </button>
                   <button
                     type="button"
-                    className="h-11 rounded-2xl bg-[#2563EB] px-5 text-sm font-medium text-white transition-colors hover:bg-[#1D4ED8]"
+                    className="h-11 rounded-2xl bg-[#60A5FA] px-5 text-sm font-medium text-white transition-colors hover:bg-[#3B82F6]"
                     onClick={startPresetInterview}
                   >
                     去模拟面试
                   </button>
                 </DialogFooter>
-              </div>
-            </>
+            </div>
           ) : null}
         </DialogContent>
       </Dialog>
