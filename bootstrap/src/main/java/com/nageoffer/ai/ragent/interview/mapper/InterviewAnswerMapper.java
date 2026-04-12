@@ -30,4 +30,14 @@ public interface InterviewAnswerMapper extends BaseMapper<InterviewAnswerEntity>
                 .orderByAsc(InterviewAnswerEntity::getCreateTime);
         return selectList(wrapper);
     }
+
+    default InterviewAnswerEntity getLatestAnswer(String sessionId, String questionId) {
+        LambdaQueryWrapper<InterviewAnswerEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(InterviewAnswerEntity::getSessionId, sessionId)
+                .eq(InterviewAnswerEntity::getQuestionId, questionId)
+                .eq(InterviewAnswerEntity::getDeleted, 0)
+                .orderByDesc(InterviewAnswerEntity::getUpdateTime)
+                .last("LIMIT 1");
+        return selectOne(wrapper);
+    }
 }

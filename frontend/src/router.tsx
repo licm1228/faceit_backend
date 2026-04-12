@@ -7,7 +7,9 @@ import { useAuthStore } from "@/stores/authStore";
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((mod) => ({ default: mod.LoginPage })));
 const WelcomePage = lazy(() => import("@/pages/WelcomePage").then((mod) => ({ default: mod.WelcomePage })));
 const ChatPage = lazy(() => import("@/pages/ChatPage").then((mod) => ({ default: mod.ChatPage })));
-const InterviewPage = lazy(() => import("@/pages/InterviewPage").then((mod) => ({ default: mod.InterviewPage })));
+const InterviewReportPage = lazy(() =>
+  import("@/pages/InterviewReportPage").then((mod) => ({ default: mod.InterviewReportPage }))
+);
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((mod) => ({ default: mod.NotFoundPage })));
 const AdminLayout = lazy(() => import("@/pages/admin/AdminLayout").then((mod) => ({ default: mod.AdminLayout })));
 const DashboardPage = lazy(() =>
@@ -140,9 +142,13 @@ export const router = createBrowserRouter([
   },
   {
     path: "/interview",
+    element: <Navigate to="/chat" replace />
+  },
+  {
+    path: "/interview-report/:sessionId",
     element: (
       <RequireAuth>
-        {withSuspense(<InterviewPage />)}
+        {withSuspense(<InterviewReportPage />)}
       </RequireAuth>
     )
   },

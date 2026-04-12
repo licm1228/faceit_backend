@@ -300,9 +300,21 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                             className="h-6 flex-1 rounded-md border border-[#E5E5E5] bg-white px-2 text-[14px] leading-[22px] text-[#333333] focus:border-[#2563EB] focus:outline-none"
                           />
                         ) : (
-                          <span className="min-w-0 flex-1 truncate font-normal">
-                            {session.title || "新对话"}
-                          </span>
+                          <div className="min-w-0 flex-1">
+                            {session.type === "interview" ? (
+                              <div className="mb-1 flex items-center gap-2">
+                                <span className="rounded-full bg-[#EFF6FF] px-2 py-0.5 text-[10px] font-semibold text-[#2563EB]">
+                                  {session.status === "completed" ? "面试完成" : "模拟面试"}
+                                </span>
+                                {session.positionName ? (
+                                  <span className="truncate text-[10px] text-[#94A3B8]">{session.positionName}</span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            <span className="block min-w-0 truncate font-normal">
+                              {session.title || "新对话"}
+                            </span>
+                          </div>
                         )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

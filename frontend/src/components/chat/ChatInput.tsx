@@ -1,14 +1,14 @@
 import * as React from "react";
-import { Brain, Lightbulb, Send, Square, Mic, MicOff } from "lucide-react";
+import { Brain, Lightbulb, Send, Square, Mic, MicOff, FileText, PlayCircle } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 
 import { VoiceEqualizerIcon } from "@/components/common/VoiceInputVisual";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { recognizeSpeechBase64 } from "@/services/interviewService";
+import { listPositions, recognizeSpeechBase64, type Position } from "@/services/interviewService";
 import { useChatStore } from "@/stores/chatStore";
 import { feedback } from "@/stores/useFeedbackStore";
 
-// 为MediaRecorder添加类型声明
 declare global {
   interface Window {
     MediaRecorder: typeof MediaRecorder;
@@ -16,10 +16,12 @@ declare global {
 }
 
 export function ChatInput() {
+  const navigate = useNavigate();
   const [value, setValue] = React.useState("");
   const [isFocused, setIsFocused] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
   const [isRecognizingSpeech, setIsRecognizingSpeech] = React.useState(false);
+  const [positions, setPositions] = React.useState<Position[]>([]);
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
@@ -27,15 +29,32 @@ export function ChatInput() {
     () => typeof window !== "undefined" && "MediaRecorder" in window,
     []
   );
-  
+
   const {
     sendMessage,
     isStreaming,
     cancelGeneration,
     deepThinkingEnabled,
     setDeepThinkingEnabled,
-    inputFocusKey
+    inputFocusKey,
+    currentSessionType,
+    currentInterviewState,
+    interviewDraftConfig,
+    setInterviewDraftConfig,
+    startInterviewSession
   } = useChatStore();
+
+  React.useEffect(() => {
+    listPositions()
+      .then((items) => setPositions(items))
+      .catch(() => setPositions([]));
+  }, []);
+
+  React.useEffect(() => {
+    if (!interviewDraftConfig.positionId && positions.length > 0) {
+      setInterviewDraftConfig({ positionId: positions[0].id });
+    }
+  }, [interviewDraftConfig.positionId, positions, setInterviewDraftConfig]);
 
   const focusInput = React.useCallback(() => {
     const el = textareaRef.current;
@@ -75,28 +94,39 @@ export function ChatInput() {
     focusInput();
   };
 
+  const handleStartInterview = async () => {
+    if (!interviewDraftConfig.positionId) {
+      feedback.error("请先选择岗位");
+      return;
+    }
+    try {
+      const sessionId = await startInterviewSession(interviewDraftConfig);
+      navigate(`/chat/${sessionId}`);
+    } catch {
+      return;
+    }
+  };
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // 尝试使用支持的音频格式
-      let mimeType = 'audio/webm';
+
+      let mimeType = "audio/webm";
       const types = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/ogg;codecs=opus',
-        'audio/ogg',
-        'audio/wav'
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/ogg",
+        "audio/wav"
       ];
-      
+
       for (const type of types) {
         if (MediaRecorder.isTypeSupported(type)) {
           mimeType = type;
           break;
         }
       }
-      
-      // 创建AudioContext和ScriptProcessorNode来直接获取PCM数据
+
       const audioContext = new AudioContext({ sampleRate: 16000 });
       const source = audioContext.createMediaStreamSource(stream);
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
@@ -104,7 +134,6 @@ export function ChatInput() {
 
       processor.onaudioprocess = (event) => {
         const inputData = event.inputBuffer.getChannelData(0);
-        // 复制数据以避免被覆盖
         const copyData = new Float32Array(inputData.length);
         copyData.set(inputData);
         pcmDataRef.push(copyData);
@@ -119,11 +148,9 @@ export function ChatInput() {
       mediaRecorder.ondataavailable = () => {};
 
       mediaRecorder.onstop = async () => {
-        // 停止处理音频
         source.disconnect();
         processor.disconnect();
 
-        // 合并所有PCM数据
         const totalLength = pcmDataRef.reduce((sum, data) => sum + data.length, 0);
         const mergedData = new Float32Array(totalLength);
         let offset = 0;
@@ -136,22 +163,21 @@ export function ChatInput() {
         const base64Audio = await blobToBase64(wavBlob);
         await recognizeSpeech(base64Audio);
 
-        // 关闭媒体流
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
         audioContext.close();
       };
 
       mediaRecorder.start();
       setIsRecording(true);
     } catch (error) {
-      console.error('无法访问麦克风:', error);
+      console.error("无法访问麦克风:", error);
       feedback.error("无法访问麦克风，请检查权限设置");
       setIsRecording(false);
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       setIsRecognizingSpeech(true);
       mediaRecorderRef.current.stop();
       setIsRecording(false);
@@ -211,13 +237,9 @@ export function ChatInput() {
   }, []);
 
   const recognizeSpeech = async (base64Audio: string) => {
-    console.log('开始识别WAV语音，Base64长度:', base64Audio.length);
-
     setIsRecognizingSpeech(true);
     try {
-      const text = await recognizeSpeechBase64(base64Audio, 'wav', 16000, 'zh_cn');
-      console.log('识别结果:', text);
-
+      const text = await recognizeSpeechBase64(base64Audio, "wav", 16000, "zh_cn");
       if (text) {
         setValue((prev) => {
           const current = prev.trim();
@@ -228,7 +250,7 @@ export function ChatInput() {
         feedback.error("未识别到语音内容，请重试");
       }
     } catch (error) {
-      console.error('语音识别错误:', error);
+      console.error("语音识别错误:", error);
       feedback.error("语音识别失败，请重试");
     } finally {
       setIsRecognizingSpeech(false);
@@ -236,16 +258,118 @@ export function ChatInput() {
   };
 
   const hasContent = value.trim().length > 0;
+  const showInterviewLauncher = currentSessionType !== "interview" || currentInterviewState?.status === "completed";
+  const showActiveInterviewBanner =
+    currentSessionType === "interview" &&
+    currentInterviewState !== null &&
+    currentInterviewState.status !== "completed";
+  const showReportLink = currentSessionType === "interview" && currentInterviewState?.status === "completed";
 
   return (
     <div className="space-y-4">
+      {showInterviewLauncher ? (
+        <div className="rounded-2xl border border-[#DBEAFE] bg-[#F8FBFF] p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-[#0F172A]">聊天式模拟面试</p>
+              <p className="text-xs text-[#64748B]">在聊天区直接开始面试，AI 会继续追问，不按对话轮数限制。</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleStartInterview}
+              disabled={isStreaming || !interviewDraftConfig.positionId}
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#2563EB] px-4 text-sm font-medium text-white transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <PlayCircle className="h-4 w-4" />
+              开始面试
+            </button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <select
+              value={interviewDraftConfig.positionId}
+              onChange={(event) => setInterviewDraftConfig({ positionId: event.target.value })}
+              className="h-10 rounded-xl border border-[#D6E4FF] bg-white px-3 text-sm text-[#0F172A] outline-none"
+            >
+              <option value="">选择岗位</option>
+              {positions.map((position) => (
+                <option key={position.id} value={position.id}>
+                  {position.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={interviewDraftConfig.difficulty}
+              onChange={(event) => setInterviewDraftConfig({ difficulty: Number(event.target.value) })}
+              className="h-10 rounded-xl border border-[#D6E4FF] bg-white px-3 text-sm text-[#0F172A] outline-none"
+            >
+              {[1, 2, 3, 4, 5].map((level) => (
+                <option key={level} value={level}>
+                  难度 {level}
+                </option>
+              ))}
+            </select>
+            <select
+              value={interviewDraftConfig.questionLimit}
+              onChange={(event) => setInterviewDraftConfig({ questionLimit: Number(event.target.value) })}
+              className="h-10 rounded-xl border border-[#D6E4FF] bg-white px-3 text-sm text-[#0F172A] outline-none"
+            >
+              {[3, 5, 8, 10].map((count) => (
+                <option key={count} value={count}>
+                  {count} 题
+                </option>
+              ))}
+            </select>
+            <select
+              value={interviewDraftConfig.timeLimitMinutes}
+              onChange={(event) => setInterviewDraftConfig({ timeLimitMinutes: Number(event.target.value) })}
+              className="h-10 rounded-xl border border-[#D6E4FF] bg-white px-3 text-sm text-[#0F172A] outline-none"
+            >
+              {[10, 15, 20, 30, 45].map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {minutes} 分钟
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      ) : null}
+
+      {showActiveInterviewBanner ? (
+        <div className="flex items-center justify-between rounded-2xl border border-[#E5E7EB] bg-[#FAFAFA] px-4 py-3 text-sm">
+          <div>
+            <p className="font-semibold text-[#111827]">
+              正在进行 {currentInterviewState.positionName || "模拟面试"}
+            </p>
+            <p className="text-[#6B7280]">
+              难度 {currentInterviewState.difficulty} · {currentInterviewState.questionLimit} 题 · {currentInterviewState.timeLimitMinutes} 分钟
+            </p>
+          </div>
+          <span className="rounded-full bg-[#DBEAFE] px-3 py-1 text-xs font-medium text-[#2563EB]">
+            第 {currentInterviewState.runtime?.questionIndex || currentInterviewState.currentQuestionCount || 1} 题进行中
+          </span>
+        </div>
+      ) : null}
+
+      {showReportLink && currentInterviewState?.id ? (
+        <div className="flex items-center justify-between rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-[#0F172A]">本场面试已结束</p>
+            <p className="text-xs text-[#64748B]">查看结构化评估报告与推荐练习。</p>
+          </div>
+          <Link
+            to={`/interview-report/${currentInterviewState.id}`}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-medium text-[#2563EB] shadow-sm transition hover:bg-[#F8FAFC]"
+          >
+            <FileText className="h-4 w-4" />
+            查看报告
+          </Link>
+        </div>
+      ) : null}
+
       <p className="text-center text-xs text-[#999999]">
         <kbd className="rounded bg-[#F5F5F5] px-1.5 py-0.5 text-[#666666]">Enter</kbd> 发送
         <span className="px-1.5">·</span>
-        <kbd className="rounded bg-[#F5F5F5] px-1.5 py-0.5 text-[#666666]">
-          Shift + Enter
-        </kbd>{" "}
-        换行
+        <kbd className="rounded bg-[#F5F5F5] px-1.5 py-0.5 text-[#666666]">Shift + Enter</kbd> 换行
         {isStreaming ? <span className="ml-2 animate-pulse">生成中...</span> : null}
       </p>
       <div
@@ -264,11 +388,13 @@ export function ChatInput() {
             placeholder={
               isRecognizingSpeech
                 ? "语音识别中，请稍候..."
-                : deepThinkingEnabled
-                  ? "输入需要深度分析的问题..."
-                  : "输入你的问题..."
+                : currentSessionType === "interview" && currentInterviewState?.status !== "completed"
+                  ? "直接回答当前问题，AI 会根据你的回答继续追问..."
+                  : deepThinkingEnabled
+                    ? "输入更需要深入分析的问题，或直接说出你的面试要求..."
+                    : "输入你的问题，或者直接说“来一场 Java 后端 30 分钟 5 题的面试”..."
             }
-            className="max-h-40 min-h-[44px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 pr-2 text-[15px] text-[#333333] shadow-none placeholder:text-[#999999] focus-visible:ring-0"
+            className="max-h-40 min-h-[52px] w-full resize-none border-0 bg-transparent px-0 pt-2 pb-2 text-[15px] text-[#1F2937] placeholder:text-[#9CA3AF] focus:outline-none sm:text-base"
             rows={1}
             disabled={isRecognizingSpeech}
             onFocus={() => setIsFocused(true)}
@@ -289,43 +415,38 @@ export function ChatInput() {
                 handleSubmit();
               }
             }}
-            aria-label="聊天输入框"
+            aria-label="发送消息"
           />
-          {isRecognizingSpeech ? (
-            <div className="pointer-events-none absolute inset-0 rounded-2xl bg-white/55" />
-          ) : null}
-          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[10px] bg-gradient-to-b from-white/0 via-white/40 to-white/90" />
         </div>
-        <div className="relative mt-2 flex items-center justify-between">
+        <div className="mt-3 flex items-center gap-2">
           <button
             type="button"
             onClick={() => setDeepThinkingEnabled(!deepThinkingEnabled)}
-            disabled={isStreaming || isRecognizingSpeech}
+            disabled={isStreaming || isRecognizingSpeech || currentSessionType === "interview"}
             aria-pressed={deepThinkingEnabled}
             className={cn(
-              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
+              "rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
               deepThinkingEnabled
                 ? "border-[#BFDBFE] bg-[#DBEAFE] text-[#2563EB]"
-                : "border-transparent bg-[#F5F5F5] text-[#999999] hover:bg-[#EEEEEE]",
-              (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
+                : "border-transparent bg-[#F5F5F5] text-[#6B7280] hover:bg-[#EEEEEE]",
+              (isStreaming || isRecognizingSpeech || currentSessionType === "interview") && "cursor-not-allowed opacity-60"
             )}
           >
             <span className="inline-flex items-center gap-2">
               <Brain className={cn("h-3.5 w-3.5", deepThinkingEnabled && "text-[#3B82F6]")} />
               深度思考
-              {deepThinkingEnabled ? <span className="h-2 w-2 rounded-full bg-[#3B82F6] animate-pulse" /> : null}
             </span>
           </button>
-          <div className="flex items-center gap-2">
-            {isMediaRecorderSupported && (
+          <div className="ml-auto flex items-center gap-2">
+            {isMediaRecorderSupported ? (
               <button
                 type="button"
                 onClick={isRecording ? stopRecording : startRecording}
                 disabled={isStreaming || isRecognizingSpeech}
-                aria-label={isRecording ? "停止录音" : isRecognizingSpeech ? "语音识别中" : "开始录音"}
+                aria-label={isRecording ? "停止录音" : "开始录音"}
                 className={cn(
                   "inline-flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
-                  isRecording
+                  isRecording || isRecognizingSpeech
                     ? "bg-[#DCFCE7] text-[#16A34A] hover:bg-[#BBF7D0]"
                     : "bg-[#F5F5F5] text-[#666666] hover:bg-[#EEEEEE]",
                   (isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
@@ -339,20 +460,19 @@ export function ChatInput() {
                   <Mic className="h-4 w-4" />
                 )}
               </button>
-            )}
+            ) : null}
             <button
               type="button"
               onClick={handleSubmit}
               disabled={(!hasContent && !isStreaming) || isRecognizingSpeech}
               aria-label={isStreaming ? "停止生成" : "发送消息"}
               className={cn(
-                "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
+                "inline-flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
                 isStreaming
                   ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
                   : hasContent
                     ? "bg-[#3B82F6] text-white hover:bg-[#2563EB]"
-                    : "bg-[#F5F5F5] text-[#CCCCCC]",
-                ((!hasContent && !isStreaming) || isRecognizingSpeech) && "cursor-not-allowed"
+                    : "bg-[#F5F5F5] text-[#CCCCCC]"
               )}
             >
               {isStreaming ? <Square className="h-4 w-4" /> : <Send className="h-4 w-4" />}
@@ -360,19 +480,12 @@ export function ChatInput() {
           </div>
         </div>
       </div>
-      {deepThinkingEnabled ? (
+
+      {deepThinkingEnabled && currentSessionType !== "interview" ? (
         <p className="text-xs text-[#2563EB]">
           <span className="inline-flex items-center gap-1.5">
             <Lightbulb className="h-3.5 w-3.5" />
-            深度思考模式已开启，AI将进行更深入的分析推理
-          </span>
-        </p>
-      ) : null}
-      {isRecognizingSpeech ? (
-        <p className="text-xs text-[#16A34A]">
-          <span className="inline-flex items-center gap-2">
-            <VoiceEqualizerIcon className="text-current" />
-            语音识别中，请稍候...
+            深度思考模式已开启，普通问答会使用更深入的分析推理。
           </span>
         </p>
       ) : null}

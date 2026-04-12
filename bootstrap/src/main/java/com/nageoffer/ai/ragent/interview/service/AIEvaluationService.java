@@ -17,10 +17,14 @@
 
 package com.nageoffer.ai.ragent.interview.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -33,6 +37,7 @@ public class AIEvaluationService {
     private static final Pattern FIRST_NUMBER_PATTERN = Pattern.compile("\\d+");
 
     private final LLMService llmService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 评估学生回答
@@ -41,8 +46,12 @@ public class AIEvaluationService {
      * @return 评估结果
      */
     public Map<String, Object> evaluateAnswer(QuestionEntity question, String userAnswer) {
+        return evaluateAnswer(question, userAnswer, 0);
+    }
+
+    public Map<String, Object> evaluateAnswer(QuestionEntity question, String userAnswer, int followUpCount) {
         // 构建评估提示词
-        String prompt = buildEvaluationPrompt(question, userAnswer);
+        String prompt = buildEvaluationPrompt(question, userAnswer, followUpCount);
 
         try {
             // 调用LLM服务进行评估
@@ -62,6 +71,8 @@ public class AIEvaluationService {
             defaultEvaluation.put("knowledgeScore", 0);
             defaultEvaluation.put("feedback", "评估服务暂时不可用");
             defaultEvaluation.put("suggestions", "请稍后再试");
+            defaultEvaluation.put("shouldFollowUp", false);
+            defaultEvaluation.put("followUpQuestion", "");
             return defaultEvaluation;
         }
     }
@@ -83,6 +94,22 @@ public class AIEvaluationService {
             System.err.println("Report generation error: " + e.getMessage());
             // 返回默认报告
             return "## 面试评估报告\n\n### 总体表现概述\n评估服务暂时不可用，请稍后再试。\n\n### 优势分析\n-\n\n### 不足与改进方向\n-\n\n### 技术能力评估\n-\n\n### 综合建议\n-\n";
+        }
+    }
+
+    public Map<String, Object> generateStructuredEvaluationReport(
+            String positionName,
+            Integer questionLimit,
+            Integer timeLimitMinutes,
+            Map<String, Object>[] answers
+    ) {
+        String prompt = buildStructuredReportPrompt(positionName, questionLimit, timeLimitMinutes, answers);
+        try {
+            String result = llmService.chat(prompt);
+            return parseStructuredReport(result);
+        } catch (Exception e) {
+            System.err.println("Structured report generation error: " + e.getMessage());
+            return Map.of();
         }
     }
 
@@ -117,26 +144,32 @@ public class AIEvaluationService {
         }
     }
 
-    private String buildEvaluationPrompt(QuestionEntity question, String userAnswer) {
+    private String buildEvaluationPrompt(QuestionEntity question, String userAnswer, int followUpCount) {
         return "你是一位专业的技术面试官，请评估以下学生的回答：\n" +
                 "题目：" + question.getQuestionText() + "\n" +
                 "参考答案：" + question.getReferenceAnswer() + "\n" +
                 "学生回答：" + userAnswer + "\n" +
+                "当前追问轮次：" + followUpCount + "\n" +
                 "请从以下几个方面进行评估：\n" +
                 "1. 技术准确性（0-30分）\n" +
-                "2. 表达能力（0-25分）\n" +
+                "2. 岗位匹配度（0-25分）\n" +
                 "3. 逻辑清晰度（0-25分）\n" +
                 "4. 知识覆盖度（0-20分）\n" +
                 "总分为各项之和（0-100分）\n" +
-                "同时提供详细的反馈和改进建议。\n" +
+                "同时提供详细的反馈和改进建议，并判断是否应该继续追问。\n" +
+                "如果回答存在关键概念缺失、论证不清、实现细节空泛或只答到表面，可以继续追问；" +
+                "如果回答已经充分、清晰且覆盖关键点，则不要继续追问。\n" +
+                "如果当前追问轮次已经较高，请更谨慎地决定是否继续追问，避免无限追问。\n" +
                 "请按照以下格式输出：\n" +
                 "评分：[总分]\n" +
                 "技术准确性：[分数]\n" +
-                "表达能力：[分数]\n" +
+                "岗位匹配度：[分数]\n" +
                 "逻辑清晰度：[分数]\n" +
                 "知识覆盖度：[分数]\n" +
                 "反馈：[详细反馈]\n" +
-                "建议：[改进建议]";
+                "建议：[改进建议]\n" +
+                "继续追问：[是/否]\n" +
+                "追问问题：[如需追问则输出具体问题，否则留空]";
     }
 
     private String buildReportPrompt(Map<String, Object>[] answers) {
@@ -166,6 +199,49 @@ public class AIEvaluationService {
         return prompt.toString();
     }
 
+    private String buildStructuredReportPrompt(
+            String positionName,
+            Integer questionLimit,
+            Integer timeLimitMinutes,
+            Map<String, Object>[] answers
+    ) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("你是一位严格但专业的技术面试官，需要为一场模拟面试输出结构化 JSON 报告。");
+        prompt.append("岗位：").append(positionName).append("\n");
+        prompt.append("题量：").append(questionLimit).append("\n");
+        prompt.append("时长：").append(timeLimitMinutes).append("分钟\n\n");
+
+        for (int i = 0; i < answers.length; i++) {
+            Map<String, Object> answer = answers[i];
+            prompt.append("问题").append(i + 1).append("：\n");
+            prompt.append("评分：").append(answer.get("score")).append("\n");
+            prompt.append("技术正确性：").append(answer.get("technicalScore")).append("\n");
+            prompt.append("岗位匹配度：").append(answer.get("expressionScore")).append("\n");
+            prompt.append("逻辑清晰度：").append(answer.get("logicScore")).append("\n");
+            prompt.append("知识覆盖度：").append(answer.get("knowledgeScore")).append("\n");
+            prompt.append("反馈：").append(answer.get("feedback")).append("\n");
+            prompt.append("建议：").append(answer.get("suggestions")).append("\n\n");
+        }
+
+        prompt.append("请仅返回合法 JSON，不要输出 Markdown，不要添加解释。");
+        prompt.append("字段结构必须为：");
+        prompt.append("{");
+        prompt.append("\"overallScore\": number,");
+        prompt.append("\"summary\": string,");
+        prompt.append("\"dimensionScores\": {");
+        prompt.append("\"technicalCorrectness\": number,");
+        prompt.append("\"knowledgeDepth\": number,");
+        prompt.append("\"logicRigor\": number,");
+        prompt.append("\"positionMatch\": number");
+        prompt.append("},");
+        prompt.append("\"highlights\": string[],");
+        prompt.append("\"weaknesses\": string[],");
+        prompt.append("\"improvementSuggestions\": string[]");
+        prompt.append("}");
+        prompt.append("所有分数范围为 0 到 100，数组各输出 2 到 4 条，内容具体、像真实面试官。");
+        return prompt.toString();
+    }
+
     private String buildFollowUpPrompt(QuestionEntity question, String userAnswer) {
         return "你是一位专业的技术面试官，根据以下题目和学生回答，生成一个相关的追问：\n" +
                 "题目：" + question.getQuestionText() + "\n" +
@@ -175,6 +251,41 @@ public class AIEvaluationService {
                 "2. 追问应该与原题目相关，能够深入了解学生的技术水平\n" +
                 "3. 追问应该简洁明了，直击问题核心\n" +
                 "4. 只输出追问内容，不要添加任何其他说明";
+    }
+
+    private Map<String, Object> parseStructuredReport(String result) {
+        if (result == null || result.isBlank()) {
+            return Map.of();
+        }
+        String normalized = result.trim();
+        int start = normalized.indexOf("{");
+        int end = normalized.lastIndexOf("}");
+        if (start < 0 || end <= start) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> payload = objectMapper.readValue(
+                    normalized.substring(start, end + 1),
+                    new TypeReference<>() {}
+            );
+            Map<String, Object> dimensionScores = castMap(payload.get("dimensionScores"));
+            return Map.of(
+                    "overallScore", clampNumber(payload.get("overallScore")),
+                    "summary", toSafeText(payload.get("summary"), "本场面试已完成，整体表现具备一定基础，但仍有可优化空间。"),
+                    "dimensionScores", Map.of(
+                            "technicalCorrectness", clampNumber(dimensionScores.get("technicalCorrectness")),
+                            "knowledgeDepth", clampNumber(dimensionScores.get("knowledgeDepth")),
+                            "logicRigor", clampNumber(dimensionScores.get("logicRigor")),
+                            "positionMatch", clampNumber(dimensionScores.get("positionMatch"))
+                    ),
+                    "highlights", toStringList(payload.get("highlights")),
+                    "weaknesses", toStringList(payload.get("weaknesses")),
+                    "improvementSuggestions", toStringList(payload.get("improvementSuggestions"))
+            );
+        } catch (Exception ex) {
+            System.err.println("Structured report parse error: " + ex.getMessage());
+            return Map.of();
+        }
     }
 
     private Map<String, Object> parseEvaluationResult(String result) {
@@ -188,6 +299,8 @@ public class AIEvaluationService {
         evaluation.put("knowledgeScore", 0);
         evaluation.put("feedback", "");
         evaluation.put("suggestions", "");
+        evaluation.put("shouldFollowUp", false);
+        evaluation.put("followUpQuestion", "");
 
         // 检查结果是否为空
         if (result == null || result.isEmpty()) {
@@ -211,7 +324,7 @@ public class AIEvaluationService {
 
             // 提取各维度评分
             extractScore(result, "技术准确性：", "technicalScore", evaluation);
-            extractScore(result, "表达能力：", "expressionScore", evaluation);
+            extractScore(result, "岗位匹配度：", "expressionScore", evaluation);
             extractScore(result, "逻辑清晰度：", "logicScore", evaluation);
             extractScore(result, "知识覆盖度：", "knowledgeScore", evaluation);
 
@@ -227,8 +340,28 @@ public class AIEvaluationService {
             // 尝试提取建议
             int suggestionsIndex = result.indexOf("建议：");
             if (suggestionsIndex != -1) {
-                String suggestions = result.substring(suggestionsIndex + 3).trim();
+                int suggestionsEndIndex = result.indexOf("继续追问：", suggestionsIndex);
+                if (suggestionsEndIndex == -1) {
+                    suggestionsEndIndex = result.length();
+                }
+                String suggestions = result.substring(suggestionsIndex + 3, suggestionsEndIndex).trim();
                 evaluation.put("suggestions", suggestions);
+            }
+
+            int shouldFollowUpIndex = result.indexOf("继续追问：");
+            if (shouldFollowUpIndex != -1) {
+                int endIndex = result.indexOf("\n", shouldFollowUpIndex);
+                if (endIndex == -1) {
+                    endIndex = result.length();
+                }
+                String shouldFollowUp = result.substring(shouldFollowUpIndex + 5, endIndex).trim();
+                evaluation.put("shouldFollowUp", shouldFollowUp.startsWith("是"));
+            }
+
+            int followUpQuestionIndex = result.indexOf("追问问题：");
+            if (followUpQuestionIndex != -1) {
+                String followUpQuestion = result.substring(followUpQuestionIndex + 5).trim();
+                evaluation.put("followUpQuestion", followUpQuestion);
             }
 
             // 如果没有找到任何信息，使用默认值
@@ -267,5 +400,41 @@ public class AIEvaluationService {
 
     private int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> castMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return Map.of();
+    }
+
+    private int clampNumber(Object value) {
+        if (value instanceof Number number) {
+            return clamp(number.intValue(), 0, 100);
+        }
+        if (value instanceof String text) {
+            return clamp(parseFirstNumber(text), 0, 100);
+        }
+        return 0;
+    }
+
+    private String toSafeText(Object value, String fallback) {
+        if (value instanceof String text && !text.isBlank()) {
+            return text.trim();
+        }
+        return fallback;
+    }
+
+    private List<String> toStringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+                .map(item -> item == null ? "" : String.valueOf(item).trim())
+                .filter(item -> !item.isBlank())
+                .limit(4)
+                .toList();
     }
 }

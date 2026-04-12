@@ -34,6 +34,10 @@ import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
+import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
+import com.nageoffer.ai.ragent.interview.entity.PositionEntity;
+import com.nageoffer.ai.ragent.interview.mapper.InterviewSessionMapper;
+import com.nageoffer.ai.ragent.interview.mapper.PositionMapper;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptTemplateLoader;
 import com.nageoffer.ai.ragent.rag.service.ConversationService;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +47,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.CONVERSATION_TITLE_PROMPT_PATH;
@@ -62,6 +67,8 @@ public class ConversationServiceImpl implements ConversationService {
     private final MemoryProperties memoryProperties;
     private final PromptTemplateLoader promptTemplateLoader;
     private final LLMService llmService;
+    private final InterviewSessionMapper interviewSessionMapper;
+    private final PositionMapper positionMapper;
 
     @Override
     public List<ConversationVO> listByUserId(String userId) {
@@ -79,12 +86,37 @@ public class ConversationServiceImpl implements ConversationService {
             return List.of();
         }
 
+        List<String> conversationIds = records.stream().map(ConversationDO::getConversationId).toList();
+        Map<String, InterviewSessionEntity> interviewSessions = interviewSessionMapper.selectList(
+                        Wrappers.lambdaQuery(InterviewSessionEntity.class)
+                                .in(InterviewSessionEntity::getId, conversationIds)
+                                .eq(InterviewSessionEntity::getDeleted, 0)
+                ).stream()
+                .collect(Collectors.toMap(InterviewSessionEntity::getId, item -> item));
+        List<String> positionIds = interviewSessions.values().stream()
+                .map(InterviewSessionEntity::getPositionId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<String, String> positionNames = positionIds.isEmpty() ? Map.of() : positionMapper.selectList(
+                        Wrappers.lambdaQuery(PositionEntity.class)
+                                .in(PositionEntity::getId, positionIds)
+                                .eq(PositionEntity::getDeleted, 0)
+                ).stream()
+                .collect(Collectors.toMap(PositionEntity::getId, PositionEntity::getName));
+
         return records.stream()
-                .map(item -> ConversationVO.builder()
-                        .conversationId(item.getConversationId())
-                        .title(item.getTitle())
-                        .lastTime(item.getLastTime())
-                        .build())
+                .map(item -> {
+                    InterviewSessionEntity interviewSession = interviewSessions.get(item.getConversationId());
+                    return ConversationVO.builder()
+                            .conversationId(item.getConversationId())
+                            .title(item.getTitle())
+                            .lastTime(item.getLastTime())
+                            .sessionType(interviewSession == null ? "chat" : "interview")
+                            .interviewStatus(interviewSession == null ? null : interviewSession.getStatus())
+                            .positionName(interviewSession == null ? null : positionNames.get(interviewSession.getPositionId()))
+                            .build();
+                })
                 .collect(Collectors.toList());
     }
 

@@ -18,6 +18,9 @@ export interface Session {
   id: string;
   title: string;
   lastTime?: string;
+  type?: "chat" | "interview";
+  status?: "pending" | "in_progress" | "completed";
+  positionName?: string;
 }
 
 export interface Message {
@@ -31,6 +34,7 @@ export interface Message {
   createdAt?: string;
   feedback?: FeedbackValue;
   status?: MessageStatus;
+  sessionType?: "chat" | "interview";
 }
 
 export interface StreamMetaPayload {
@@ -61,4 +65,59 @@ export interface InterviewQuestion {
   difficulty?: number;
   questionText: string;
   referenceAnswer?: string;
+}
+
+export interface InterviewDraftConfig {
+  positionId: string;
+  difficulty: number;
+  timeLimitMinutes: number;
+  questionLimit: number;
+}
+
+export interface InterviewRuntimeState extends InterviewDraftConfig {
+  positionName?: string;
+  currentQuestionId?: string;
+  currentQuestionText?: string;
+  questionIndex?: number;
+  followUpCount?: number;
+  askedQuestionIds?: string[];
+}
+
+export interface InterviewSessionState {
+  id: string;
+  status: "pending" | "in_progress" | "completed";
+  positionId: string;
+  positionName?: string;
+  reportStatus?: "pending" | "ready";
+  totalScore?: number;
+  currentQuestionCount?: number;
+  startTime?: string;
+  endTime?: string;
+  difficulty: number;
+  timeLimitMinutes: number;
+  questionLimit: number;
+}
+
+export interface InterviewReport {
+  reportStatus?: "pending" | "ready";
+  overallScore: number;
+  positionName?: string;
+  questionLimit?: number;
+  timeLimitMinutes?: number;
+  summary?: string;
+  dimensionScores: {
+    technicalCorrectness: number;
+    knowledgeDepth: number;
+    logicRigor: number;
+    positionMatch: number;
+  };
+  highlights: string[];
+  weaknesses: string[];
+  improvementSuggestions: string[];
+  recommendedPractices: Array<{
+    id: string;
+    questionText: string;
+    difficulty?: number;
+    questionType?: string;
+  }>;
 }

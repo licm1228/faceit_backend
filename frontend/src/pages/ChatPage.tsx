@@ -137,6 +137,8 @@ export function ChatPage() {
     isLoading,
     isStreaming,
     currentSessionId,
+    currentSessionType,
+    currentInterviewState,
     sessions,
     isCreatingNew,
     fetchSessions,
@@ -150,7 +152,7 @@ export function ChatPage() {
   const hasMessages = messages.length > 0;
   const isSelectingSession = Boolean(currentSessionId) && isLoading && !hasMessages;
   const showWelcome = !sessionId && !currentSessionId && !hasMessages;
-  const showInput = !isSelectingSession;
+  const showInput = !isSelectingSession && !(currentSessionType === "interview" && currentInterviewState?.status === "completed");
 
   React.useEffect(() => {
     if (!isAuthenticated) {

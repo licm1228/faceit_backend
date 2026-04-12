@@ -89,7 +89,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
-  const { sendMessage, isStreaming, cancelGeneration, deepThinkingEnabled, setDeepThinkingEnabled } =
+  const { sendMessage, isStreaming, cancelGeneration, deepThinkingEnabled, setDeepThinkingEnabled, startInterviewSession } =
     useChatStore();
   const isMediaRecorderSupported = React.useMemo(
     () => typeof window !== "undefined" && "MediaRecorder" in window,
@@ -343,23 +343,25 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
       feedback.error("当前未找到与该卡片对应的岗位配置，请先在管理端检查岗位数据");
       return;
     }
-    const state: InterviewPresetState = {
+    startInterviewSession({
       positionId: resolvedPosition.id,
-      positionKeywords: selectedJob.positionKeywords,
       difficulty: interviewOptions.difficulty,
       timeLimitMinutes: interviewOptions.timeLimitMinutes,
-      questionLimit: interviewOptions.questionLimit,
-      autoStart: true
-    };
-    setSelectedJob(null);
-    navigate("/interview", { state });
+      questionLimit: interviewOptions.questionLimit
+    })
+      .then((sessionId) => {
+        setSelectedJob(null);
+        navigate(`/chat/${sessionId}`);
+      })
+      .catch(() => null);
   }, [
     interviewOptions.difficulty,
     interviewOptions.questionLimit,
     interviewOptions.timeLimitMinutes,
     navigate,
     resolvedPosition,
-    selectedJob
+    selectedJob,
+    startInterviewSession
   ]);
 
   return (

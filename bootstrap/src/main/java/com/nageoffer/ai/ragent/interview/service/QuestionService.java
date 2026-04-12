@@ -23,7 +23,10 @@ import com.nageoffer.ai.ragent.interview.mapper.QuestionMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -82,6 +85,31 @@ public class QuestionService {
         }
 
         return question;
+    }
+
+    public QuestionEntity selectRandomQuestionExcluding(String positionId, Integer difficulty, List<String> excludedQuestionIds) {
+        LambdaQueryWrapper<QuestionEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(QuestionEntity::getPositionId, positionId)
+                .eq(QuestionEntity::getDeleted, 0);
+        if (difficulty != null) {
+            wrapper.eq(QuestionEntity::getDifficulty, difficulty);
+        }
+        List<QuestionEntity> candidates = questionMapper.selectList(wrapper);
+        if ((candidates == null || candidates.isEmpty()) && difficulty != null) {
+            return selectRandomQuestionExcluding(positionId, null, excludedQuestionIds);
+        }
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        List<QuestionEntity> filtered = new ArrayList<>(candidates);
+        if (excludedQuestionIds != null && !excludedQuestionIds.isEmpty()) {
+            filtered.removeIf(item -> excludedQuestionIds.contains(item.getId()));
+        }
+        if (filtered.isEmpty()) {
+            filtered = new ArrayList<>(candidates);
+        }
+        Collections.shuffle(filtered);
+        return filtered.get(0);
     }
 
     @Transactional

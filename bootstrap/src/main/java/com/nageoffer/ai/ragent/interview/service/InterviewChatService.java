@@ -1,0 +1,858 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.nageoffer.ai.ragent.interview.service;
+
+import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nageoffer.ai.ragent.framework.context.UserContext;
+import com.nageoffer.ai.ragent.framework.exception.ClientException;
+import com.nageoffer.ai.ragent.interview.controller.request.InterviewChatStartRequest;
+import com.nageoffer.ai.ragent.interview.entity.InterviewAnswerEntity;
+import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
+import com.nageoffer.ai.ragent.interview.entity.PositionEntity;
+import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
+import com.nageoffer.ai.ragent.interview.mapper.PositionMapper;
+import com.nageoffer.ai.ragent.rag.dao.entity.ConversationDO;
+import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationMapper;
+import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationMessageMapper;
+import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationSummaryMapper;
+import com.nageoffer.ai.ragent.rag.service.ConversationMessageService;
+import com.nageoffer.ai.ragent.rag.service.bo.ConversationMessageBO;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class InterviewChatService {
+
+    private static final int DEFAULT_DIFFICULTY = 3;
+    private static final int DEFAULT_TIME_LIMIT_MINUTES = 20;
+    private static final int DEFAULT_QUESTION_LIMIT = 5;
+    private static final int MAX_FOLLOW_UPS = 3;
+    private static final Pattern QUESTION_LIMIT_PATTERN = Pattern.compile("(\\d{1,2})\\s*(题|道)");
+    private static final Pattern TIME_LIMIT_PATTERN = Pattern.compile("(\\d{1,3})\\s*(分钟|min|mins)");
+
+    private final InterviewSessionService interviewSessionService;
+    private final InterviewAnswerService interviewAnswerService;
+    private final QuestionService questionService;
+    private final PositionMapper positionMapper;
+    private final AIEvaluationService aiEvaluationService;
+    private final ConversationMapper conversationMapper;
+    private final ConversationMessageMapper conversationMessageMapper;
+    private final ConversationSummaryMapper conversationSummaryMapper;
+    private final ConversationMessageService conversationMessageService;
+    private final ObjectMapper objectMapper;
+    @Qualifier("memorySummaryThreadPoolExecutor")
+    private final Executor reportExecutor;
+
+    public Map<String, Object> resolveConfig(String content) {
+        String normalized = StrUtil.blankToDefault(content, "").trim().toLowerCase(Locale.ROOT);
+        Map<String, Object> result = new LinkedHashMap<>();
+        PositionEntity position = resolvePosition(normalized);
+        boolean matched = normalized.contains("面试")
+                || normalized.contains("interview")
+                || normalized.contains("mock")
+                || normalized.contains("模拟")
+                || normalized.contains("岗位");
+        result.put("matched", matched && position != null);
+        result.put("positionId", position == null ? null : position.getId());
+        result.put("positionName", position == null ? null : position.getName());
+        result.put("difficulty", resolveDifficulty(normalized));
+        result.put("timeLimitMinutes", resolveTimeLimit(normalized));
+        result.put("questionLimit", resolveQuestionLimit(normalized));
+        return result;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> startInterview(InterviewChatStartRequest request) {
+        String userId = requireUserId();
+        if (StrUtil.isBlank(request.getPositionId())) {
+            throw new ClientException("请选择岗位");
+        }
+        PositionEntity position = requirePosition(request.getPositionId());
+        Integer difficulty = normalizeDifficulty(request.getDifficulty());
+        Integer timeLimitMinutes = normalizeTimeLimit(request.getTimeLimitMinutes());
+        Integer questionLimit = normalizeQuestionLimit(request.getQuestionLimit());
+
+        InterviewSessionEntity session = interviewSessionService.createSession(userId, position.getId(), timeLimitMinutes, questionLimit);
+        session = interviewSessionService.startSession(session.getId());
+
+        QuestionEntity question = questionService.selectRandomQuestionExcluding(position.getId(), difficulty, List.of());
+        if (question == null) {
+            throw new ClientException("当前岗位暂无可用题目");
+        }
+
+        interviewSessionService.incrementQuestionCount(session.getId());
+        RuntimeState runtimeState = new RuntimeState();
+        runtimeState.setPositionId(position.getId());
+        runtimeState.setPositionName(position.getName());
+        runtimeState.setDifficulty(difficulty);
+        runtimeState.setQuestionLimit(questionLimit);
+        runtimeState.setTimeLimitMinutes(timeLimitMinutes);
+        runtimeState.setCurrentQuestionId(question.getId());
+        runtimeState.setCurrentQuestionText(question.getQuestionText());
+        runtimeState.setQuestionIndex(1);
+        runtimeState.setFollowUpCount(0);
+        runtimeState.setAskedQuestionIds(new ArrayList<>(List.of(question.getId())));
+        interviewSessionService.updateEvaluationReport(session.getId(), toRuntimePayload(runtimeState));
+
+        ensureConversation(session.getId(), userId, "面试 · " + position.getName());
+        addAssistantMessage(session.getId(), userId, buildOpeningMessage(position.getName(), difficulty, timeLimitMinutes, questionLimit));
+        addAssistantMessage(session.getId(), userId, buildQuestionMessage(runtimeState.getQuestionIndex(), question.getQuestionText()));
+
+        InterviewSessionEntity latest = interviewSessionService.getSessionById(session.getId());
+        return buildStartResponse(latest, runtimeState);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> submitTurn(String sessionId, String content) {
+        String userId = requireUserId();
+        if (StrUtil.isBlank(content)) {
+            throw new ClientException("请输入回答内容");
+        }
+        InterviewSessionEntity session = requireOwnedSession(sessionId, userId);
+        if ("completed".equalsIgnoreCase(session.getStatus())) {
+            throw new ClientException("本场面试已结束");
+        }
+        RuntimeState runtimeState = readRuntimeState(session);
+        if (StrUtil.isBlank(runtimeState.getCurrentQuestionId())) {
+            throw new ClientException("当前面试缺少题目状态，请重新开始");
+        }
+
+        addUserMessage(sessionId, userId, content.trim());
+        QuestionEntity question = questionService.getQuestionById(runtimeState.getCurrentQuestionId());
+        if (question == null) {
+            throw new ClientException("当前题目不存在");
+        }
+
+        InterviewAnswerEntity answer = interviewAnswerService.saveOrUpdateAnswer(sessionId, question.getId(), content.trim());
+        Map<String, Object> evaluation = aiEvaluationService.evaluateAnswer(question, content.trim(), runtimeState.getFollowUpCount());
+        interviewAnswerService.evaluateAnswer(
+                answer.getId(),
+                (Integer) evaluation.get("score"),
+                (Integer) evaluation.get("technicalScore"),
+                (Integer) evaluation.get("expressionScore"),
+                (Integer) evaluation.get("logicScore"),
+                (Integer) evaluation.get("knowledgeScore"),
+                (String) evaluation.get("feedback"),
+                (String) evaluation.get("suggestions")
+        );
+
+        boolean timeoutReached = isTimeoutReached(session);
+        boolean shouldAskFollowUp = !timeoutReached
+                && runtimeState.getFollowUpCount() < MAX_FOLLOW_UPS
+                && shouldAskFollowUp(evaluation);
+        if (shouldAskFollowUp) {
+            String followUpQuestionText = StrUtil.blankToDefault((String) evaluation.get("followUpQuestion"), "");
+            if (StrUtil.isBlank(followUpQuestionText)) {
+                QuestionEntity followUpQuestion = aiEvaluationService.generateFollowUpQuestion(question, content.trim());
+                followUpQuestionText = followUpQuestion == null ? "" : StrUtil.blankToDefault(followUpQuestion.getQuestionText(), "");
+            }
+            if (StrUtil.isNotBlank(followUpQuestionText)) {
+                runtimeState.setFollowUpCount(runtimeState.getFollowUpCount() + 1);
+                interviewSessionService.updateEvaluationReport(sessionId, toRuntimePayload(runtimeState));
+                addAssistantMessage(sessionId, userId, followUpQuestionText);
+                return buildTurnResponse(interviewSessionService.getSessionById(sessionId), runtimeState);
+            }
+        }
+
+        Integer currentQuestionCount = session.getCurrentQuestionCount() == null ? 0 : session.getCurrentQuestionCount();
+        Integer totalQuestions = session.getTotalQuestions() == null ? DEFAULT_QUESTION_LIMIT : session.getTotalQuestions();
+        boolean limitReached = currentQuestionCount >= totalQuestions;
+
+        if (timeoutReached || limitReached) {
+            completeInterview(session, runtimeState, userId);
+            return buildTurnResponse(interviewSessionService.getSessionById(sessionId), runtimeState);
+        }
+
+        QuestionEntity nextQuestion = questionService.selectRandomQuestionExcluding(
+                session.getPositionId(),
+                runtimeState.getDifficulty(),
+                runtimeState.getAskedQuestionIds()
+        );
+        if (nextQuestion == null) {
+            completeInterview(session, runtimeState, userId);
+            return buildTurnResponse(interviewSessionService.getSessionById(sessionId), runtimeState);
+        }
+
+        interviewSessionService.incrementQuestionCount(sessionId);
+        runtimeState.getAskedQuestionIds().add(nextQuestion.getId());
+        runtimeState.setCurrentQuestionId(nextQuestion.getId());
+        runtimeState.setCurrentQuestionText(nextQuestion.getQuestionText());
+        runtimeState.setQuestionIndex(runtimeState.getQuestionIndex() + 1);
+        runtimeState.setFollowUpCount(0);
+        interviewSessionService.updateEvaluationReport(sessionId, toRuntimePayload(runtimeState));
+
+        addAssistantMessage(sessionId, userId, "我们继续下一题。");
+        addAssistantMessage(sessionId, userId, buildQuestionMessage(runtimeState.getQuestionIndex(), nextQuestion.getQuestionText()));
+        return buildTurnResponse(interviewSessionService.getSessionById(sessionId), runtimeState);
+    }
+
+    public Map<String, Object> getSessionState(String sessionId) {
+        String userId = requireUserId();
+        InterviewSessionEntity session = requireOwnedSession(sessionId, userId);
+        RuntimeState runtimeState = readRuntimeState(session);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("session", buildSessionMap(session, runtimeState));
+        result.put("reportAvailable", isReportReady(session));
+        result.put("runtime", buildRuntimeMap(runtimeState));
+        return result;
+    }
+
+    public Map<String, Object> getReport(String sessionId) {
+        String userId = requireUserId();
+        InterviewSessionEntity session = requireOwnedSession(sessionId, userId);
+        if (!"completed".equalsIgnoreCase(session.getStatus())) {
+            throw new ClientException("面试尚未结束，暂无报告");
+        }
+        if (isReportPending(session)) {
+            return Map.of(
+                    "reportStatus", "pending",
+                    "overallScore", Optional.ofNullable(session.getTotalScore()).orElse(0)
+            );
+        }
+        return readReportPayload(session);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void renameSession(String sessionId, String title) {
+        String userId = requireUserId();
+        requireOwnedSession(sessionId, userId);
+        ConversationDO conversation = conversationMapper.selectOne(
+                Wrappers.lambdaQuery(ConversationDO.class)
+                        .eq(ConversationDO::getConversationId, sessionId)
+                        .eq(ConversationDO::getUserId, userId)
+                        .eq(ConversationDO::getDeleted, 0)
+        );
+        if (conversation == null) {
+            throw new ClientException("面试会话不存在");
+        }
+        conversation.setTitle(StrUtil.blankToDefault(title, conversation.getTitle()).trim());
+        conversationMapper.updateById(conversation);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteSession(String sessionId) {
+        String userId = requireUserId();
+        requireOwnedSession(sessionId, userId);
+        interviewSessionService.deleteSession(sessionId);
+        interviewAnswerService.deleteAnswersBySessionId(sessionId);
+        conversationMessageMapper.delete(
+                Wrappers.lambdaQuery(com.nageoffer.ai.ragent.rag.dao.entity.ConversationMessageDO.class)
+                        .eq(com.nageoffer.ai.ragent.rag.dao.entity.ConversationMessageDO::getConversationId, sessionId)
+                        .eq(com.nageoffer.ai.ragent.rag.dao.entity.ConversationMessageDO::getUserId, userId)
+                        .eq(com.nageoffer.ai.ragent.rag.dao.entity.ConversationMessageDO::getDeleted, 0)
+        );
+        conversationSummaryMapper.delete(
+                Wrappers.lambdaQuery(com.nageoffer.ai.ragent.rag.dao.entity.ConversationSummaryDO.class)
+                        .eq(com.nageoffer.ai.ragent.rag.dao.entity.ConversationSummaryDO::getConversationId, sessionId)
+                        .eq(com.nageoffer.ai.ragent.rag.dao.entity.ConversationSummaryDO::getUserId, userId)
+                        .eq(com.nageoffer.ai.ragent.rag.dao.entity.ConversationSummaryDO::getDeleted, 0)
+        );
+        ConversationDO conversation = conversationMapper.selectOne(
+                Wrappers.lambdaQuery(ConversationDO.class)
+                        .eq(ConversationDO::getConversationId, sessionId)
+                        .eq(ConversationDO::getUserId, userId)
+                        .eq(ConversationDO::getDeleted, 0)
+        );
+        if (conversation != null) {
+            conversationMapper.deleteById(conversation.getId());
+        }
+    }
+
+    private void completeInterview(InterviewSessionEntity session, RuntimeState runtimeState, String userId) {
+        List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(session.getId());
+        Map<String, Object> baseReport = buildBaseReport(session, runtimeState, answers);
+        int overallScore = ((Number) baseReport.getOrDefault("overallScore", 0)).intValue();
+        interviewSessionService.completeSession(session.getId(), overallScore, toPendingReportPayload(baseReport));
+        addAssistantMessage(session.getId(), userId, buildCompletionMessage(session.getId(), overallScore));
+        generateReportAsync(session.getId(), session.getUserId(), runtimeState, answers, baseReport);
+    }
+
+    private Map<String, Object> buildStartResponse(InterviewSessionEntity session, RuntimeState runtimeState) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("session", buildSessionMap(session, runtimeState));
+        result.put("messages", buildMessages(session.getId(), requireUserId()));
+        result.put("runtime", buildRuntimeMap(runtimeState));
+        return result;
+    }
+
+    private Map<String, Object> buildTurnResponse(InterviewSessionEntity session, RuntimeState runtimeState) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("session", buildSessionMap(session, runtimeState));
+        result.put("messages", buildMessages(session.getId(), requireUserId()));
+        result.put("reportAvailable", isReportReady(session));
+        result.put("runtime", buildRuntimeMap(runtimeState));
+        if (isReportReady(session)) {
+            result.put("report", readReportPayload(session));
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> buildMessages(String conversationId, String userId) {
+        return conversationMessageService.listMessages(conversationId, userId, null, null).stream().map(item -> {
+            Map<String, Object> message = new LinkedHashMap<>();
+            message.put("id", String.valueOf(item.getId()));
+            message.put("conversationId", item.getConversationId());
+            message.put("role", item.getRole());
+            message.put("content", item.getContent());
+            message.put("vote", item.getVote());
+            message.put("createTime", item.getCreateTime());
+            return message;
+        }).collect(Collectors.toList());
+    }
+
+    private Map<String, Object> buildSessionMap(InterviewSessionEntity session, RuntimeState runtimeState) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("id", session.getId());
+        data.put("status", session.getStatus());
+        data.put("positionId", session.getPositionId());
+        data.put("positionName", runtimeState.getPositionName());
+        data.put("difficulty", runtimeState.getDifficulty());
+        data.put("timeLimitMinutes", runtimeState.getTimeLimitMinutes());
+        data.put("questionLimit", runtimeState.getQuestionLimit());
+        data.put("currentQuestionCount", session.getCurrentQuestionCount());
+        data.put("totalScore", session.getTotalScore());
+        data.put("startTime", session.getStartTime());
+        data.put("endTime", session.getEndTime());
+        return data;
+    }
+
+    private Map<String, Object> buildRuntimeMap(RuntimeState runtimeState) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("positionId", runtimeState.getPositionId());
+        data.put("positionName", runtimeState.getPositionName());
+        data.put("difficulty", runtimeState.getDifficulty());
+        data.put("timeLimitMinutes", runtimeState.getTimeLimitMinutes());
+        data.put("questionLimit", runtimeState.getQuestionLimit());
+        data.put("currentQuestionId", runtimeState.getCurrentQuestionId());
+        data.put("currentQuestionText", runtimeState.getCurrentQuestionText());
+        data.put("questionIndex", runtimeState.getQuestionIndex());
+        data.put("followUpCount", runtimeState.getFollowUpCount());
+        data.put("askedQuestionIds", runtimeState.getAskedQuestionIds());
+        return data;
+    }
+
+    private Map<String, Object> buildBaseReport(InterviewSessionEntity session, RuntimeState runtimeState, List<InterviewAnswerEntity> answers) {
+        List<InterviewAnswerEntity> validAnswers = answers == null ? List.of() : answers;
+        int overallScore = average(validAnswers.stream().map(InterviewAnswerEntity::getScore).toList());
+        int technicalScore = average(validAnswers.stream().map(InterviewAnswerEntity::getTechnicalScore).toList());
+        int knowledgeScore = average(validAnswers.stream().map(InterviewAnswerEntity::getKnowledgeScore).toList());
+        int logicScore = average(validAnswers.stream().map(InterviewAnswerEntity::getLogicScore).toList());
+        int positionMatchScore = average(validAnswers.stream().map(InterviewAnswerEntity::getExpressionScore).toList());
+
+        List<Map<String, Object>> recommendedPractices = questionService.getQuestionsByPosition(session.getPositionId()).stream()
+                .filter(question -> !runtimeState.getAskedQuestionIds().contains(question.getId()))
+                .limit(3)
+                .map(question -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", question.getId());
+                    item.put("questionText", question.getQuestionText());
+                    item.put("difficulty", question.getDifficulty());
+                    item.put("questionType", question.getQuestionType());
+                    return item;
+                })
+                .collect(Collectors.toList());
+
+        List<String> highlights = validAnswers.stream()
+                .sorted(Comparator.comparing(answer -> Optional.ofNullable(answer.getScore()).orElse(0), Comparator.reverseOrder()))
+                .filter(answer -> Optional.ofNullable(answer.getScore()).orElse(0) >= 70)
+                .limit(3)
+                .map(answer -> summarize("亮点", answer.getFeedback(), "回答展现出较好的知识掌握与表达"))
+                .collect(Collectors.toList());
+        if (highlights.isEmpty()) {
+            highlights = List.of("整体作答较为完整，已经具备继续打磨表达和深度的基础。");
+        }
+
+        List<String> weaknesses = validAnswers.stream()
+                .sorted(Comparator.comparing(answer -> Optional.ofNullable(answer.getScore()).orElse(0)))
+                .limit(3)
+                .map(answer -> summarize("不足", answer.getFeedback(), "部分回答仍缺少关键细节与论证支撑"))
+                .collect(Collectors.toList());
+        if (weaknesses.isEmpty()) {
+            weaknesses = List.of("当前缺少足够答题记录，建议继续完成更多模拟面试。");
+        }
+
+        List<String> improvementSuggestions = validAnswers.stream()
+                .sorted(Comparator.comparing(answer -> Optional.ofNullable(answer.getScore()).orElse(0)))
+                .limit(3)
+                .map(answer -> summarize("建议", answer.getSuggestions(), "建议围绕核心概念、实现细节和业务取舍继续练习"))
+                .collect(Collectors.toList());
+        if (improvementSuggestions.isEmpty()) {
+            improvementSuggestions = List.of("继续按照岗位核心能力维度进行专项训练。");
+        }
+
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("reportStatus", "pending");
+        report.put("overallScore", overallScore);
+        report.put("positionName", runtimeState.getPositionName());
+        report.put("questionLimit", runtimeState.getQuestionLimit());
+        report.put("timeLimitMinutes", runtimeState.getTimeLimitMinutes());
+        report.put("summary", buildFallbackSummary(overallScore));
+        report.put("dimensionScores", Map.of(
+                "technicalCorrectness", technicalScore,
+                "knowledgeDepth", knowledgeScore,
+                "logicRigor", logicScore,
+                "positionMatch", positionMatchScore
+        ));
+        report.put("highlights", highlights);
+        report.put("weaknesses", weaknesses);
+        report.put("improvementSuggestions", improvementSuggestions);
+        report.put("recommendedPractices", recommendedPractices);
+        return report;
+    }
+
+    private void generateReportAsync(
+            String sessionId,
+            String userId,
+            RuntimeState runtimeState,
+            List<InterviewAnswerEntity> answers,
+            Map<String, Object> baseReport
+    ) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                InterviewSessionEntity latestSession = interviewSessionService.getSessionById(sessionId);
+                if (latestSession == null || Integer.valueOf(1).equals(latestSession.getDeleted())) {
+                    return;
+                }
+                Map<String, Object> report = buildFinalReport(runtimeState, answers, baseReport);
+                interviewSessionService.updateEvaluationReport(sessionId, toReportPayload(report));
+            } catch (Exception ex) {
+                log.warn("生成面试报告失败, sessionId={}, userId={}", sessionId, userId, ex);
+                Map<String, Object> fallbackReport = new LinkedHashMap<>(baseReport);
+                fallbackReport.put("reportStatus", "ready");
+                interviewSessionService.updateEvaluationReport(sessionId, toReportPayload(fallbackReport));
+            }
+        }, reportExecutor);
+    }
+
+    private Map<String, Object> buildFinalReport(
+            RuntimeState runtimeState,
+            List<InterviewAnswerEntity> answers,
+            Map<String, Object> baseReport
+    ) {
+        List<InterviewAnswerEntity> validAnswers = answers == null ? List.of() : answers;
+        Map<String, Object> llmReport = aiEvaluationService.generateStructuredEvaluationReport(
+                runtimeState.getPositionName(),
+                runtimeState.getQuestionLimit(),
+                runtimeState.getTimeLimitMinutes(),
+                validAnswers.stream().map(answer -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("score", answer.getScore());
+                    item.put("technicalScore", answer.getTechnicalScore());
+                    item.put("expressionScore", answer.getExpressionScore());
+                    item.put("logicScore", answer.getLogicScore());
+                    item.put("knowledgeScore", answer.getKnowledgeScore());
+                    item.put("feedback", answer.getFeedback());
+                    item.put("suggestions", answer.getSuggestions());
+                    return item;
+                }).toArray(Map[]::new)
+        );
+
+        Map<String, Object> dimensionScores = readDimensionScores(llmReport.get("dimensionScores"));
+        Map<String, Object> baseDimensionScores = readDimensionScores(baseReport.get("dimensionScores"));
+        Map<String, Object> report = new LinkedHashMap<>(baseReport);
+        report.put("reportStatus", "ready");
+        report.put("overallScore", numberOrDefault(llmReport.get("overallScore"), numberOrDefault(baseReport.get("overallScore"), 0)));
+        report.put("summary", stringOrDefault(llmReport.get("summary"), stringOrDefault(baseReport.get("summary"), buildFallbackSummary(numberOrDefault(baseReport.get("overallScore"), 0)))));
+        report.put("dimensionScores", Map.of(
+                "technicalCorrectness", numberOrDefault(dimensionScores.get("technicalCorrectness"), numberOrDefault(baseDimensionScores.get("technicalCorrectness"), 0)),
+                "knowledgeDepth", numberOrDefault(dimensionScores.get("knowledgeDepth"), numberOrDefault(baseDimensionScores.get("knowledgeDepth"), 0)),
+                "logicRigor", numberOrDefault(dimensionScores.get("logicRigor"), numberOrDefault(baseDimensionScores.get("logicRigor"), 0)),
+                "positionMatch", numberOrDefault(dimensionScores.get("positionMatch"), numberOrDefault(baseDimensionScores.get("positionMatch"), 0))
+        ));
+        report.put("highlights", listOrDefault(llmReport.get("highlights"), listOrDefault(baseReport.get("highlights"), List.of())));
+        report.put("weaknesses", listOrDefault(llmReport.get("weaknesses"), listOrDefault(baseReport.get("weaknesses"), List.of())));
+        report.put("improvementSuggestions", listOrDefault(llmReport.get("improvementSuggestions"), listOrDefault(baseReport.get("improvementSuggestions"), List.of())));
+        return report;
+    }
+
+    private RuntimeState readRuntimeState(InterviewSessionEntity session) {
+        if (session == null || StrUtil.isBlank(session.getEvaluationReport())) {
+            return new RuntimeState();
+        }
+        try {
+            Map<String, Object> payload = objectMapper.readValue(session.getEvaluationReport(), new TypeReference<>() {});
+            if (!"runtime".equals(payload.get("kind"))) {
+                return new RuntimeState();
+            }
+            return objectMapper.convertValue(payload.get("data"), RuntimeState.class);
+        } catch (Exception ex) {
+            log.warn("解析面试运行态失败, sessionId={}", session.getId(), ex);
+            return new RuntimeState();
+        }
+    }
+
+    private Map<String, Object> readReportPayload(InterviewSessionEntity session) {
+        if (session == null || StrUtil.isBlank(session.getEvaluationReport())) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> payload = objectMapper.readValue(session.getEvaluationReport(), new TypeReference<>() {});
+            if ("report".equals(payload.get("kind"))) {
+                return objectMapper.convertValue(payload.get("data"), new TypeReference<>() {});
+            }
+            if ("report_pending".equals(payload.get("kind"))) {
+                Map<String, Object> data = objectMapper.convertValue(payload.get("data"), new TypeReference<>() {});
+                Map<String, Object> mutable = new LinkedHashMap<>(data);
+                mutable.put("reportStatus", "pending");
+                return mutable;
+            }
+        } catch (Exception ex) {
+            log.warn("解析面试报告失败, sessionId={}", session.getId(), ex);
+        }
+        return Map.of(
+                "reportStatus", "ready",
+                "overallScore", Optional.ofNullable(session.getTotalScore()).orElse(0),
+                "summary", "历史报告格式为旧版文本，建议重新完成一场聊天式面试以获得更完整的结构化总结。",
+                "dimensionScores", Map.of(
+                        "technicalCorrectness", 0,
+                        "knowledgeDepth", 0,
+                        "logicRigor", 0,
+                        "positionMatch", 0
+                ),
+                "highlights", List.of("历史报告格式为旧版文本，暂未结构化。"),
+                "weaknesses", List.of("建议重新完成一次聊天式面试，以获得完整结构化报告。"),
+                "improvementSuggestions", List.of("从当前岗位核心题型开始继续练习。"),
+                "recommendedPractices", List.of()
+        );
+    }
+
+    private String toRuntimePayload(RuntimeState runtimeState) {
+        return toPayload("runtime", runtimeState);
+    }
+
+    private String toReportPayload(Map<String, Object> report) {
+        return toPayload("report", report);
+    }
+
+    private String toPendingReportPayload(Map<String, Object> report) {
+        return toPayload("report_pending", report);
+    }
+
+    private String toPayload(String kind, Object data) {
+        try {
+            return objectMapper.writeValueAsString(Map.of("kind", kind, "data", data));
+        } catch (Exception ex) {
+            throw new ClientException("序列化面试数据失败");
+        }
+    }
+
+    private void ensureConversation(String conversationId, String userId, String title) {
+        ConversationDO conversation = conversationMapper.selectOne(
+                Wrappers.lambdaQuery(ConversationDO.class)
+                        .eq(ConversationDO::getConversationId, conversationId)
+                        .eq(ConversationDO::getUserId, userId)
+                        .eq(ConversationDO::getDeleted, 0)
+        );
+        Date now = new Date();
+        if (conversation == null) {
+            conversation = ConversationDO.builder()
+                    .conversationId(conversationId)
+                    .userId(userId)
+                    .title(title)
+                    .lastTime(now)
+                    .build();
+            conversationMapper.insert(conversation);
+            return;
+        }
+        conversation.setTitle(title);
+        conversation.setLastTime(now);
+        conversationMapper.updateById(conversation);
+    }
+
+    private void addAssistantMessage(String conversationId, String userId, String content) {
+        addMessage(conversationId, userId, "assistant", content);
+    }
+
+    private void addUserMessage(String conversationId, String userId, String content) {
+        addMessage(conversationId, userId, "user", content);
+    }
+
+    private void addMessage(String conversationId, String userId, String role, String content) {
+        conversationMessageService.addMessage(ConversationMessageBO.builder()
+                .conversationId(conversationId)
+                .userId(userId)
+                .role(role)
+                .content(content)
+                .build());
+        ConversationDO conversation = conversationMapper.selectOne(
+                Wrappers.lambdaQuery(ConversationDO.class)
+                        .eq(ConversationDO::getConversationId, conversationId)
+                        .eq(ConversationDO::getUserId, userId)
+                        .eq(ConversationDO::getDeleted, 0)
+        );
+        if (conversation != null) {
+            conversation.setLastTime(new Date());
+            conversationMapper.updateById(conversation);
+        }
+    }
+
+    private boolean isTimeoutReached(InterviewSessionEntity session) {
+        if (session == null || session.getTimeLimit() == null || session.getStartTime() == null) {
+            return false;
+        }
+        return LocalDateTime.now().isAfter(session.getStartTime().plusMinutes(session.getTimeLimit()));
+    }
+
+    private boolean isReportReady(InterviewSessionEntity session) {
+        return "completed".equalsIgnoreCase(session.getStatus()) && !isReportPending(session);
+    }
+
+    private boolean isReportPending(InterviewSessionEntity session) {
+        if (session == null || StrUtil.isBlank(session.getEvaluationReport())) {
+            return false;
+        }
+        try {
+            Map<String, Object> payload = objectMapper.readValue(session.getEvaluationReport(), new TypeReference<>() {});
+            return "report_pending".equals(payload.get("kind"));
+        } catch (Exception ex) {
+            log.warn("解析报告状态失败, sessionId={}", session.getId(), ex);
+            return false;
+        }
+    }
+
+    private boolean shouldAskFollowUp(Map<String, Object> evaluation) {
+        if (evaluation == null) {
+            return false;
+        }
+        Object explicitDecision = evaluation.get("shouldFollowUp");
+        if (explicitDecision instanceof Boolean bool) {
+            return bool;
+        }
+        if (explicitDecision instanceof String text) {
+            return text.startsWith("是") || "true".equalsIgnoreCase(text);
+        }
+        Integer score = evaluation.get("score") instanceof Integer value ? value : null;
+        return score == null || score < 78;
+    }
+
+    private PositionEntity resolvePosition(String normalized) {
+        List<PositionEntity> positions = positionMapper.selectList(
+                Wrappers.lambdaQuery(PositionEntity.class).eq(PositionEntity::getDeleted, 0)
+        );
+        if (positions == null || positions.isEmpty()) {
+            return null;
+        }
+        if (normalized.contains("java")) {
+            return findFirstMatching(positions, List.of("java", "后端"));
+        }
+        if (normalized.contains("前端") || normalized.contains("react") || normalized.contains("vue") || normalized.contains("web")) {
+            return findFirstMatching(positions, List.of("前端", "web", "react", "vue"));
+        }
+        if (normalized.contains("python") || normalized.contains("算法")) {
+            return findFirstMatching(positions, List.of("python", "算法"));
+        }
+        return positions.stream()
+                .filter(item -> normalized.contains(StrUtil.blankToDefault(item.getName(), "").toLowerCase(Locale.ROOT)))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private PositionEntity findFirstMatching(List<PositionEntity> positions, List<String> keywords) {
+        return positions.stream().filter(position -> {
+            String name = StrUtil.blankToDefault(position.getName(), "").toLowerCase(Locale.ROOT);
+            String desc = StrUtil.blankToDefault(position.getDescription(), "").toLowerCase(Locale.ROOT);
+            return keywords.stream().anyMatch(keyword -> name.contains(keyword) || desc.contains(keyword));
+        }).findFirst().orElse(null);
+    }
+
+    private Integer resolveDifficulty(String normalized) {
+        if (normalized.contains("简单") || normalized.contains("初级") || normalized.contains("入门")) {
+            return 2;
+        }
+        if (normalized.contains("中等") || normalized.contains("中级")) {
+            return 3;
+        }
+        if (normalized.contains("困难") || normalized.contains("高级") || normalized.contains("资深")) {
+            return 4;
+        }
+        Matcher matcher = Pattern.compile("难度\\s*(\\d)").matcher(normalized);
+        if (matcher.find()) {
+            return normalizeDifficulty(Integer.parseInt(matcher.group(1)));
+        }
+        return DEFAULT_DIFFICULTY;
+    }
+
+    private Integer resolveTimeLimit(String normalized) {
+        Matcher matcher = TIME_LIMIT_PATTERN.matcher(normalized);
+        if (matcher.find()) {
+            return normalizeTimeLimit(Integer.parseInt(matcher.group(1)));
+        }
+        return DEFAULT_TIME_LIMIT_MINUTES;
+    }
+
+    private Integer resolveQuestionLimit(String normalized) {
+        Matcher matcher = QUESTION_LIMIT_PATTERN.matcher(normalized);
+        if (matcher.find()) {
+            return normalizeQuestionLimit(Integer.parseInt(matcher.group(1)));
+        }
+        return DEFAULT_QUESTION_LIMIT;
+    }
+
+    private Integer normalizeDifficulty(Integer difficulty) {
+        if (difficulty == null) {
+            return DEFAULT_DIFFICULTY;
+        }
+        return Math.max(1, Math.min(5, difficulty));
+    }
+
+    private Integer normalizeTimeLimit(Integer minutes) {
+        if (minutes == null) {
+            return DEFAULT_TIME_LIMIT_MINUTES;
+        }
+        return Math.max(10, Math.min(90, minutes));
+    }
+
+    private Integer normalizeQuestionLimit(Integer count) {
+        if (count == null) {
+            return DEFAULT_QUESTION_LIMIT;
+        }
+        return Math.max(3, Math.min(10, count));
+    }
+
+    private PositionEntity requirePosition(String positionId) {
+        PositionEntity position = positionMapper.selectById(positionId);
+        if (position == null || Integer.valueOf(1).equals(position.getDeleted())) {
+            throw new ClientException("岗位不存在");
+        }
+        return position;
+    }
+
+    private InterviewSessionEntity requireOwnedSession(String sessionId, String userId) {
+        InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
+        if (session == null || Integer.valueOf(1).equals(session.getDeleted()) || !Objects.equals(session.getUserId(), userId)) {
+            throw new ClientException("面试会话不存在");
+        }
+        return session;
+    }
+
+    private String requireUserId() {
+        String userId = UserContext.getUserId();
+        if (StrUtil.isBlank(userId)) {
+            throw new ClientException("未登录");
+        }
+        return userId;
+    }
+
+    private String buildOpeningMessage(String positionName, Integer difficulty, Integer timeLimitMinutes, Integer questionLimit) {
+        return String.format(
+                "你好，我们开始这场 %s 模拟面试。我会按照难度 %d、总计 %d 题、约 %d 分钟的节奏来推进。每道题我都会先听你的回答，再根据你的内容决定是否继续追问。你不用一次说得很满，先按真实面试状态回答就可以。",
+                positionName,
+                difficulty,
+                questionLimit,
+                timeLimitMinutes
+        );
+    }
+
+    private String buildQuestionMessage(Integer questionIndex, String questionText) {
+        return String.format("第 %d 题，我们正式开始。\n\n%s", questionIndex, questionText);
+    }
+
+    private String buildCompletionMessage(String sessionId, Integer score) {
+        return String.format("今天这场面试先到这里。结合整场回答，你当前的综合得分是 %d 分。我已经把本次表现、亮点、不足和后续练习建议整理成报告。\n\n[查看面试报告](/interview-report/%s)", score, sessionId);
+    }
+
+    private String buildFallbackSummary(int score) {
+        if (score >= 85) {
+            return "整体表现较强，回答已经具备较好的技术准确性和表达完整度，继续补强细节与取舍分析会更接近高水平面试表现。";
+        }
+        if (score >= 70) {
+            return "整体表现合格，基础知识和表达框架基本具备，但在深度、细节和面试节奏控制上还有明显提升空间。";
+        }
+        return "当前表现说明你已经开始建立答题框架，但核心知识点覆盖、表达清晰度和问题拆解能力仍需进一步强化。";
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readDimensionScores(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return Map.of();
+    }
+
+    private int numberOrDefault(Object value, int fallback) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return fallback;
+    }
+
+    private String stringOrDefault(Object value, String fallback) {
+        if (value instanceof String text && !text.isBlank()) {
+            return text.trim();
+        }
+        return fallback;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> listOrDefault(Object value, List<String> fallback) {
+        if (!(value instanceof List<?> list)) {
+            return fallback;
+        }
+        List<String> normalized = ((List<Object>) list).stream()
+                .map(item -> item == null ? "" : String.valueOf(item).trim())
+                .filter(item -> !item.isBlank())
+                .toList();
+        return normalized.isEmpty() ? fallback : normalized;
+    }
+
+    private String summarize(String label, String content, String fallback) {
+        String text = StrUtil.blankToDefault(content, fallback).replace("\n", " ").trim();
+        if (text.length() > 60) {
+            text = text.substring(0, 60) + "...";
+        }
+        return text;
+    }
+
+    private int average(List<Integer> values) {
+        List<Integer> filtered = values.stream().filter(Objects::nonNull).toList();
+        if (filtered.isEmpty()) {
+            return 0;
+        }
+        return Math.round((float) filtered.stream().mapToInt(Integer::intValue).sum() / filtered.size());
+    }
+
+    @lombok.Data
+    public static class RuntimeState {
+        private String positionId;
+        private String positionName;
+        private Integer difficulty = DEFAULT_DIFFICULTY;
+        private Integer timeLimitMinutes = DEFAULT_TIME_LIMIT_MINUTES;
+        private Integer questionLimit = DEFAULT_QUESTION_LIMIT;
+        private String currentQuestionId;
+        private String currentQuestionText;
+        private Integer questionIndex = 0;
+        private Integer followUpCount = 0;
+        private List<String> askedQuestionIds = new ArrayList<>();
+    }
+}

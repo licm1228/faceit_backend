@@ -45,6 +45,14 @@ function resetChatState() {
     messages: [],
     isLoading: false,
     sessionsLoaded: false,
+    currentSessionType: null,
+    currentInterviewState: null,
+    interviewDraftConfig: {
+      positionId: "",
+      difficulty: 3,
+      timeLimitMinutes: 20,
+      questionLimit: 5
+    },
     isStreaming: false,
     isCreatingNew: false,
     deepThinkingEnabled: false,
@@ -113,6 +121,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       messages: [],
       isLoading: false,
       sessionsLoaded: false,
+      currentSessionType: null,
+      currentInterviewState: null,
+      interviewDraftConfig: {
+        positionId: "",
+        difficulty: 3,
+        timeLimitMinutes: 20,
+        questionLimit: 5
+      },
       isStreaming: false,
       isCreatingNew: false,
       deepThinkingEnabled: false,

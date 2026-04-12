@@ -4,6 +4,9 @@ export interface ConversationVO {
   conversationId: string;
   title: string;
   lastTime?: string;
+  sessionType?: "chat" | "interview";
+  interviewStatus?: "pending" | "in_progress" | "completed";
+  positionName?: string;
 }
 
 export interface ConversationMessageVO {
