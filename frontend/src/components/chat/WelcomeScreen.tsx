@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowUpRight, Brain, Braces, Code2, Cpu, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
+import { Brain, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { FaceItMark } from "@/components/common/FaceItMark";
@@ -12,7 +12,7 @@ type JobPreset = {
   id: string;
   title: string;
   description: string;
-  icon: React.ComponentType<{ className?: string }>;
+  iconClass: string;
   positionKeywords: string[];
 };
 
@@ -28,21 +28,21 @@ const JOB_PRESETS: JobPreset[] = [
     id: "web-frontend",
     title: "Web前端开发",
     description: "偏重 React、工程化、性能优化与浏览器基础",
-    icon: Braces,
+    iconClass: "uil-window-grid",
     positionKeywords: ["web前端", "前端", "react", "vue", "javascript", "typescript"]
   },
   {
     id: "java-backend",
     title: "Java后端开发",
     description: "覆盖 Java、Spring、数据库、并发与系统设计",
-    icon: Code2,
+    iconClass: "uil-server-network",
     positionKeywords: ["java后端", "java", "后端", "spring", "spring boot"]
   },
   {
     id: "python-algorithm",
     title: "Python算法开发",
     description: "聚焦 Python、数据结构、算法思维与编码实现",
-    icon: Cpu,
+    iconClass: "uil-brain",
     positionKeywords: ["python算法", "python", "算法", "机器学习", "数据"]
   }
 ];
@@ -499,7 +499,6 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           </div>
           <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {JOB_PRESETS.map((preset) => {
-              const Icon = preset.icon;
               const isActive = selectedJob?.id === preset.id;
               return (
                 <button
@@ -509,32 +508,33 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                   disabled={disabled}
                   aria-pressed={isActive}
                   className={cn(
-                    "group rounded-[26px] border p-5 text-left transition-all duration-200",
+                    "group rounded-2xl border border-[#E6EEF8] bg-white p-5 text-left transition-all duration-200",
                     disabled
-                      ? "cursor-not-allowed border-[#DBEAFE] bg-[#F8FBFF] opacity-60"
+                      ? "cursor-not-allowed opacity-60"
                       : isActive
-                        ? "border-[#93C5FD] bg-[#EFF6FF] shadow-[0_18px_40px_rgba(59,130,246,0.16)]"
-                        : "border-[#DBEAFE] bg-[#F8FBFF] shadow-[0_12px_28px_rgba(37,99,235,0.08)] hover:-translate-y-1 hover:border-[#93C5FD] hover:bg-[#F0F7FF] hover:shadow-[0_20px_42px_rgba(37,99,235,0.14)]"
+                        ? "border-[#BFDBFE] shadow-[0_20px_44px_rgba(15,23,42,0.10)]"
+                        : "shadow-[0_12px_30px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#D6E9FF] hover:shadow-[0_18px_38px_rgba(15,23,42,0.09)]"
                   )}
                 >
                   <div className="flex items-start gap-3">
-                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#DBEAFE] text-[#2563EB] shadow-[inset_0_0_0_1px_rgba(147,197,253,0.35)]">
-                      <Icon className="h-5 w-5" />
+                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#F3F8FF] text-[#3B82F6] shadow-[inset_0_0_0_1px_rgba(191,219,254,0.65)]">
+                      <i className={cn("uil text-[22px] leading-none", preset.iconClass)} aria-hidden="true" />
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="text-base font-semibold text-[#0F172A]">{preset.title}</p>
-                      <p className="mt-1 text-sm leading-6 text-[#475569]">{preset.description}</p>
+                      <p className="mt-1 text-sm leading-6 text-[#64748B]">{preset.description}</p>
                     </div>
                   </div>
-                  <div className="mt-5 flex items-center justify-between">
-                    <span className="rounded-full border border-[#BFDBFE] bg-white px-3 py-1 text-xs font-medium text-[#2563EB]">
+                  <div className="mt-6 flex items-center justify-between border-t border-[#F1F5F9] pt-4">
+                    <span className="rounded-full bg-[#F7FAFF] px-3 py-1 text-xs font-medium text-[#3B82F6]">
                       点击配置面试参数
                     </span>
-                    <ArrowUpRight
+                    <i
                       className={cn(
-                        "h-4 w-4 transition-colors",
-                        isActive ? "text-[#2563EB]" : "text-[#94A3B8] group-hover:text-[#2563EB]"
+                        "uil uil-angle-right-b text-lg leading-none transition-colors",
+                        isActive ? "text-[#3B82F6]" : "text-[#94A3B8] group-hover:text-[#3B82F6]"
                       )}
+                      aria-hidden="true"
                     />
                   </div>
                 </button>
