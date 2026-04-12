@@ -35,22 +35,22 @@ export function RunsTable({
   return (
     <Card className="trace-list-table-card">
       <div className="trace-list-table-header">
-        <h2 className="trace-list-table-title">运行列表</h2>
-        <p className="trace-list-table-description">按时间倒序查看运行记录，通过操作按钮进入独立详情页</p>
+        <h2 className="trace-list-table-title">运行记录</h2>
+        <p className="trace-list-table-description">按时间倒序查看对话运行记录，并进入详情页排查问题</p>
       </div>
       <CardContent className="trace-list-table-content">
         {loading ? (
           <div className="trace-list-table-empty">加载中...</div>
         ) : runs.length === 0 ? (
-          <div className="trace-list-table-empty">暂无链路数据</div>
+          <div className="trace-list-table-empty">暂无运行数据</div>
         ) : (
           <div className="trace-list-table-wrap">
             <Table className="trace-list-table">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="trace-col-trace">Trace Name</TableHead>
-                  <TableHead className="trace-col-run-id">Trace Id</TableHead>
-                  <TableHead className="trace-col-meta">会话ID / TaskID</TableHead>
+                  <TableHead className="trace-col-trace">运行名称</TableHead>
+                  <TableHead className="trace-col-run-id">运行 ID</TableHead>
+                  <TableHead className="trace-col-meta">会话 ID / 任务 ID</TableHead>
                   <TableHead className="trace-col-user">用户名</TableHead>
                   <TableHead className="trace-col-duration">耗时</TableHead>
                   <TableHead className="trace-col-status">状态</TableHead>
@@ -106,7 +106,7 @@ export function RunsTable({
                         onClick={() => onOpenRun(run.traceId)}
                       >
                         <Eye className="h-3.5 w-3.5" />
-                        查看链路
+                        查看详情
                         <ChevronRight className="h-3.5 w-3.5" />
                       </Button>
                     </TableCell>

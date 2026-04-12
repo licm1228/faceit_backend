@@ -1,20 +1,16 @@
 import * as React from "react";
 import { differenceInCalendarDays, isValid } from "date-fns";
 import {
-  BookOpen,
-  Bot,
-  LogOut,
   MessageSquare,
   MoreHorizontal,
   Pencil,
-  PlayCircle,
   Plus,
   Search,
-  Settings,
   Trash2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+import { FaceItMark } from "@/components/common/FaceItMark";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,7 +29,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Loading } from "@/components/common/Loading";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 
 interface SidebarProps {
@@ -54,7 +49,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     fetchSessions
   } = useChatStore();
   const navigate = useNavigate();
-  const { user, logout } = useAuthStore();
   const [query, setQuery] = React.useState("");
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState("");
@@ -62,7 +56,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     id: string;
     title: string;
   } | null>(null);
-  const [avatarFailed, setAvatarFailed] = React.useState(false);
   const renameInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
@@ -117,13 +110,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     }
   }, [renamingId]);
 
-  React.useEffect(() => {
-    setAvatarFailed(false);
-  }, [user?.avatar, user?.userId]);
-
-  const avatarUrl = user?.avatar?.trim();
-  const showAvatar = Boolean(avatarUrl) && !avatarFailed;
-  const avatarFallback = (user?.username || user?.userId || "用户").slice(0, 1).toUpperCase();
   const sessionTitleFont =
     "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", \"Helvetica Neue\", Arial, sans-serif";
 
@@ -170,30 +156,30 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       >
         <div className="border-b border-[#F0F0F0] pb-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#3B82F6]">
-              <Bot className="h-5 w-5 text-white" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#BFDBFE] bg-white shadow-[0_6px_16px_rgba(37,99,235,0.08)]">
+              <FaceItMark className="h-5 w-5" />
             </div>
-            <div style={{ fontFamily: sessionTitleFont }}>
-              <p className="text-base font-semibold text-[#1A1A1A]">Ragent AI 智能体</p>
-              <p className="text-xs text-[#999999]">Powered by AI</p>
+            <div className="font-poppins">
+              <p className="text-base font-semibold text-[#1A1A1A]">Face It Assistant</p>
+              <p className="text-xs text-[#999999]">Chat · Knowledge · Interview</p>
             </div>
           </div>
         </div>
         <div className="py-3 space-y-4">
-          <div className="relative overflow-hidden rounded-2xl border border-[#E6EEF6] bg-gradient-to-br from-[#F0F9FF] via-white to-[#FEF3C7] p-3 shadow-[0_14px_30px_rgba(15,23,42,0.08)]">
+          <div className="relative overflow-hidden rounded-2xl border border-[#E6EEF6] bg-gradient-to-br from-[#EFF6FF] via-white to-[#DBEAFE] p-3 shadow-[0_14px_30px_rgba(15,23,42,0.08)]">
             <span
               aria-hidden="true"
               className="absolute -right-10 -top-10 h-24 w-24 rounded-full bg-[#BAE6FD]/70 blur-2xl"
             />
             <span
               aria-hidden="true"
-              className="absolute -left-12 -bottom-10 h-28 w-28 rounded-full bg-[#FDE68A]/70 blur-2xl"
+              className="absolute -left-12 -bottom-10 h-28 w-28 rounded-full bg-[#DBEAFE]/75 blur-2xl"
             />
             <div className="relative">
               <div className="flex items-center justify-between px-1">
-                <span className="text-[11px] font-semibold text-[#94A3B8]">快速开始</span>
+                <span className="font-poppins text-[11px] font-semibold text-[#94A3B8]">Quick Start</span>
                 <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-[#2563EB]">
-                  新内容
+                  New
                 </span>
               </div>
               <button
@@ -208,24 +194,27 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#60A5FA] to-[#2563EB] text-white shadow-[0_6px_14px_rgba(37,99,235,0.3)]">
                   <Plus className="h-4 w-4" />
                 </span>
-                <span className="flex-1">
-                  <span className="block text-sm font-semibold text-[#1F2937]">新建对话</span>
-                  <span className="block text-xs text-[#94A3B8]">从空白开始</span>
+                <span className="font-poppins flex-1">
+                  <span className="block text-sm font-semibold text-[#1F2937]">New Chat 新建对话</span>
+                  <span className="block text-xs text-[#94A3B8]">Start from scratch</span>
                 </span>
               </button>
-              {user?.role === "admin" ? (
-                <button
-                  type="button"
-                  className="mt-2 inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/70 px-3 py-1.5 text-xs font-semibold text-[#1D4ED8] transition-colors hover:bg-white"
-                  onClick={() => {
-                    window.open("/admin", "_blank");
-                    onClose();
-                  }}
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                  管理后台
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="mt-2 flex w-full items-center gap-3 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-left transition-colors hover:bg-[#DBEAFE]"
+                onClick={() => {
+                  navigate("/interview");
+                  onClose();
+                }}
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-[0_6px_14px_rgba(37,99,235,0.3)]">
+                  <MessageSquare className="h-4 w-4" />
+                </span>
+                <span className="font-poppins flex-1">
+                  <span className="block text-sm font-semibold text-[#1F2937]">Mock Interview 模拟面试</span>
+                  <span className="block text-xs text-[#64748B]">Role-based practice & review</span>
+                </span>
+              </button>
             </div>
           </div>
           <div className="rounded-2xl border border-[#E6EEF6] bg-white p-3 shadow-[0_12px_26px_rgba(15,23,42,0.06)]">
@@ -380,65 +369,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-5 bg-gradient-to-b from-transparent to-[#FAFAFA]"
           />
-        </div>
-        <div className="mt-auto pt-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-[#F5F5F5] data-[state=open]:bg-[#EEEEEE]"
-                aria-label="用户菜单"
-              >
-                <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-[#3B82F6] text-white">
-                  {showAvatar ? (
-                    <img
-                      src={avatarUrl}
-                      alt={user?.username || user?.userId || "用户"}
-                      className="h-full w-full object-cover"
-                      onError={() => setAvatarFailed(true)}
-                    />
-                  ) : (
-                    <span className="text-sm font-medium">{avatarFallback}</span>
-                  )}
-                </div>
-                <span className="flex-1 truncate text-sm font-medium text-[#1A1A1A]">
-                  {(() => {
-                    const fallback = user?.username || user?.userId || "用户";
-                    return /^\d+$/.test(fallback) ? "用户" : fallback;
-                  })()}
-                </span>
-                <MoreHorizontal className="h-4 w-4 text-[#999999]" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-48">
-              <DropdownMenuItem asChild>
-                <a
-                  href="https://nageoffer.com/ragent"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center"
-                >
-                  <BookOpen className="mr-2 h-4 w-4" />
-                  官方文档
-                </a>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <a
-                  href="https://space.bilibili.com/352177376"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center"
-                >
-                  <PlayCircle className="mr-2 h-4 w-4" />
-                  哔哩哔哩
-                </a>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => logout()} className="text-rose-600 focus:text-rose-600">
-                <LogOut className="mr-2 h-4 w-4" />
-                退出登录
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </aside>
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {

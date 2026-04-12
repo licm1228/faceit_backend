@@ -319,7 +319,7 @@ export function RagTraceDetailPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-sm">
               <Link to="/admin/traces" className="text-slate-500 hover:text-slate-700">
-                链路追踪
+                对话运行
               </Link>
               <span className="text-slate-300">/</span>
               <span className="text-slate-400">详情</span>
@@ -339,7 +339,7 @@ export function RagTraceDetailPage() {
           <div className="min-h-[300px] flex items-center justify-center">
             <div className="text-center text-slate-500">
               <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-slate-300" />
-              <p>{!traceId ? "缺少 Trace Id" : "暂无数据"}</p>
+              <p>{!traceId ? "缺少运行 ID" : "暂无数据"}</p>
             </div>
           </div>
         </div>
@@ -356,7 +356,7 @@ export function RagTraceDetailPage() {
                   to="/admin/traces"
                   className="text-slate-500 hover:text-slate-700 transition-colors"
               >
-                RAG 链路列表
+                对话链路列表
               </Link>
               <span className="text-slate-300">/</span>
             </div>
@@ -400,8 +400,8 @@ export function RagTraceDetailPage() {
         <div className="flex items-center gap-4 text-xs text-slate-500">
         <span
             className="font-mono cursor-pointer hover:text-slate-700 flex items-center gap-1 transition-colors"
-            onClick={() => copyToClipboard(traceId, "Trace Id")}
-            title="点击复制 Trace Id"
+            onClick={() => copyToClipboard(traceId, "运行 ID")}
+            title="点击复制运行 ID"
         >
           <Hash className="h-3 w-3" />
           {traceId.length > 28 ? `${traceId.slice(0, 12)}...${traceId.slice(-8)}` : traceId}

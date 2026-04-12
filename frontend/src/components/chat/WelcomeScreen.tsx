@@ -1,7 +1,9 @@
 import * as React from "react";
-import { ArrowUpRight, BookOpen, Bot, Brain, Check, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
+import { ArrowUpRight, BookOpen, Brain, Check, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
 
+import { FaceItMark } from "@/components/common/FaceItMark";
 import { cn } from "@/lib/utils";
+import { recognizeSpeechBase64 } from "@/services/interviewService";
 import { listSampleQuestions } from "@/services/sampleQuestionService";
 import { useChatStore } from "@/stores/chatStore";
 
@@ -241,28 +243,7 @@ export function WelcomeScreen() {
     console.log('开始识别PCM语音，Base64长度:', base64Audio.length);
 
     try {
-      const response = await fetch('/api/ragent/speech/recognize/base64', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: new URLSearchParams({
-          audio: base64Audio,
-          format: 'pcm',
-          sampleRate: '16000',
-          language: 'zh_cn'
-        })
-      });
-
-      console.log('语音识别响应状态:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('语音识别失败:', response.status, errorText);
-        throw new Error(`语音识别失败: ${response.status}`);
-      }
-
-      const text = await response.text();
+      const text = await recognizeSpeechBase64(base64Audio, 'pcm', 16000, 'zh_cn');
       console.log('识别结果:', text);
 
       if (text) {
@@ -301,16 +282,16 @@ export function WelcomeScreen() {
           className="text-center opacity-0 animate-fade-up"
           style={{ animationFillMode: "both" }}
         >
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-[#2563EB] shadow-sm">
-            <Bot className="h-3.5 w-3.5" />
-            RAG 智能问答
+          <span className="font-poppins inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-[#2563EB] shadow-sm">
+            <FaceItMark className="h-3.5 w-3.5" />
+            Face It Assistant 智能助手
           </span>
-          <h1 className="mt-4 font-display text-4xl leading-tight tracking-tight text-[#111827] sm:text-5xl md:text-6xl">
+          <h1 className="font-poppins mt-4 text-4xl font-semibold leading-tight tracking-tight text-[#111827] sm:text-5xl md:text-6xl">
             把问题变成
-            <span className="text-gradient">清晰答案</span>
+            <span className="text-gradient"> clear answers</span>
           </h1>
           <p className="mt-4 text-base text-[#4B5563] sm:text-lg">
-            结构化提问、知识检索与深度思考，一次对话给出可执行方案
+            结构化提问、知识检索与深度思考，在一个更专注的 workspace 里完成。
           </p>
         </div>
 
@@ -331,7 +312,7 @@ export function WelcomeScreen() {
                 ref={textareaRef}
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
-                placeholder={deepThinkingEnabled ? "输入需要深度分析的问题..." : "输入你的问题..."}
+                placeholder={deepThinkingEnabled ? "输入更需要深入分析的问题..." : "输入你的问题，Ask anything..."}
                 className="max-h-40 min-h-[52px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 text-[15px] text-[#1F2937] placeholder:text-[#9CA3AF] focus:outline-none sm:text-base"
                 rows={1}
                 onFocus={() => setIsFocused(true)}

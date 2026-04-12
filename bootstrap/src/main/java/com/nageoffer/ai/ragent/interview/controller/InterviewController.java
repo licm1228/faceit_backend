@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/interview")
@@ -115,6 +116,34 @@ public class InterviewController {
             @RequestParam(required = false) Integer difficulty) {
 
         InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
+        if (session == null) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 404);
+            result.put("message", "面试会话不存在");
+            return result;
+        }
+        if ("completed".equals(session.getStatus())) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", "面试已结束，无法继续获取题目");
+            return result;
+        }
+        if (session.getTotalQuestions() != null
+                && session.getCurrentQuestionCount() != null
+                && session.getCurrentQuestionCount() >= session.getTotalQuestions()) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", "已达到题量上限，请结束面试查看报告");
+            return result;
+        }
+        if (session.getTimeLimit() != null
+                && session.getStartTime() != null
+                && LocalDateTime.now().isAfter(session.getStartTime().plusMinutes(session.getTimeLimit()))) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", "面试已超时，请结束当前会话");
+            return result;
+        }
         QuestionEntity question = questionService.selectRandomQuestion(session.getPositionId(), difficulty);
 
         // 增加题目计数
@@ -201,11 +230,11 @@ public class InterviewController {
         // 获取所有回答
         List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(sessionId);
 
-        // 计算总分
+        // 计算平均分，报告页和成长曲线按 0-100 分展示。
         int totalScore = 0;
         List<Map<String, Object>> answerEvaluations = new ArrayList<>();
         for (InterviewAnswerEntity answer : answers) {
-            totalScore += answer.getScore();
+            totalScore += answer.getScore() == null ? 0 : answer.getScore();
             Map<String, Object> eval = new HashMap<>();
             eval.put("score", answer.getScore());
             eval.put("technicalScore", answer.getTechnicalScore());
@@ -216,6 +245,7 @@ public class InterviewController {
             eval.put("suggestions", answer.getSuggestions());
             answerEvaluations.add(eval);
         }
+        int averageScore = answers.isEmpty() ? 0 : Math.round((float) totalScore / answers.size());
 
         // 生成评估报告
         String evaluationReport = aiEvaluationService.generateEvaluationReport(
@@ -226,7 +256,7 @@ public class InterviewController {
         // 完成会话
         InterviewSessionEntity session = interviewSessionService.completeSession(
                 sessionId,
-                totalScore,
+                averageScore,
                 evaluationReport
         );
 
@@ -264,12 +294,30 @@ public class InterviewController {
 
         InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
         List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(sessionId);
+        List<Map<String, Object>> answerDetails = new ArrayList<>();
+        for (InterviewAnswerEntity answer : answers) {
+            QuestionEntity question = questionService.getQuestionById(answer.getQuestionId());
+            Map<String, Object> answerDetail = new HashMap<>();
+            answerDetail.put("id", answer.getId());
+            answerDetail.put("sessionId", answer.getSessionId());
+            answerDetail.put("questionId", answer.getQuestionId());
+            answerDetail.put("questionText", question == null ? null : question.getQuestionText());
+            answerDetail.put("userAnswer", answer.getUserAnswer());
+            answerDetail.put("score", answer.getScore());
+            answerDetail.put("technicalScore", answer.getTechnicalScore());
+            answerDetail.put("expressionScore", answer.getExpressionScore());
+            answerDetail.put("logicScore", answer.getLogicScore());
+            answerDetail.put("knowledgeScore", answer.getKnowledgeScore());
+            answerDetail.put("feedback", answer.getFeedback());
+            answerDetail.put("suggestions", answer.getSuggestions());
+            answerDetails.add(answerDetail);
+        }
 
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         Map<String, Object> data = new HashMap<>();
         data.put("session", session);
-        data.put("answers", answers);
+        data.put("answers", answerDetails);
         result.put("data", data);
         return result;
     }

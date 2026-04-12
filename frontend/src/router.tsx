@@ -1,24 +1,78 @@
+import { lazy, Suspense } from "react";
 import { Navigate, createBrowserRouter } from "react-router-dom";
 
-import { LoginPage } from "@/pages/LoginPage";
-import { ChatPage } from "@/pages/ChatPage";
-import { NotFoundPage } from "@/pages/NotFoundPage";
-import { AdminLayout } from "@/pages/admin/AdminLayout";
-import { DashboardPage } from "@/pages/admin/dashboard/DashboardPage";
-import { KnowledgeListPage } from "@/pages/admin/knowledge/KnowledgeListPage";
-import { KnowledgeDocumentsPage } from "@/pages/admin/knowledge/KnowledgeDocumentsPage";
-import { KnowledgeChunksPage } from "@/pages/admin/knowledge/KnowledgeChunksPage";
-import { IntentTreePage } from "@/pages/admin/intent-tree/IntentTreePage";
-import { IntentListPage } from "@/pages/admin/intent-tree/IntentListPage";
-import { IntentEditPage } from "@/pages/admin/intent-tree/IntentEditPage";
-import { IngestionPage } from "@/pages/admin/ingestion/IngestionPage";
-import { RagTracePage } from "@/pages/admin/traces/RagTracePage";
-import { RagTraceDetailPage } from "@/pages/admin/traces/RagTraceDetailPage";
-import { SystemSettingsPage } from "@/pages/admin/settings/SystemSettingsPage";
-import { SampleQuestionPage } from "@/pages/admin/sample-questions/SampleQuestionPage";
-import { QueryTermMappingPage } from "@/pages/admin/query-term-mapping/QueryTermMappingPage";
-import { UserListPage } from "@/pages/admin/users/UserListPage";
 import { useAuthStore } from "@/stores/authStore";
+
+const LoginPage = lazy(() => import("@/pages/LoginPage").then((mod) => ({ default: mod.LoginPage })));
+const ChatPage = lazy(() => import("@/pages/ChatPage").then((mod) => ({ default: mod.ChatPage })));
+const InterviewPage = lazy(() => import("@/pages/InterviewPage").then((mod) => ({ default: mod.InterviewPage })));
+const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((mod) => ({ default: mod.NotFoundPage })));
+const AdminLayout = lazy(() => import("@/pages/admin/AdminLayout").then((mod) => ({ default: mod.AdminLayout })));
+const DashboardPage = lazy(() =>
+  import("@/pages/admin/dashboard/DashboardPage").then((mod) => ({ default: mod.DashboardPage }))
+);
+const KnowledgeListPage = lazy(() =>
+  import("@/pages/admin/knowledge/KnowledgeListPage").then((mod) => ({ default: mod.KnowledgeListPage }))
+);
+const KnowledgeDocumentsPage = lazy(() =>
+  import("@/pages/admin/knowledge/KnowledgeDocumentsPage").then((mod) => ({ default: mod.KnowledgeDocumentsPage }))
+);
+const KnowledgeChunksPage = lazy(() =>
+  import("@/pages/admin/knowledge/KnowledgeChunksPage").then((mod) => ({ default: mod.KnowledgeChunksPage }))
+);
+const IntentTreePage = lazy(() =>
+  import("@/pages/admin/intent-tree/IntentTreePage").then((mod) => ({ default: mod.IntentTreePage }))
+);
+const IntentListPage = lazy(() =>
+  import("@/pages/admin/intent-tree/IntentListPage").then((mod) => ({ default: mod.IntentListPage }))
+);
+const IntentEditPage = lazy(() =>
+  import("@/pages/admin/intent-tree/IntentEditPage").then((mod) => ({ default: mod.IntentEditPage }))
+);
+const IngestionPage = lazy(() =>
+  import("@/pages/admin/ingestion/IngestionPage").then((mod) => ({ default: mod.IngestionPage }))
+);
+const RagTracePage = lazy(() =>
+  import("@/pages/admin/traces/RagTracePage").then((mod) => ({ default: mod.RagTracePage }))
+);
+const RagTraceDetailPage = lazy(() =>
+  import("@/pages/admin/traces/RagTraceDetailPage").then((mod) => ({ default: mod.RagTraceDetailPage }))
+);
+const SystemSettingsPage = lazy(() =>
+  import("@/pages/admin/settings/SystemSettingsPage").then((mod) => ({ default: mod.SystemSettingsPage }))
+);
+const SampleQuestionPage = lazy(() =>
+  import("@/pages/admin/sample-questions/SampleQuestionPage").then((mod) => ({ default: mod.SampleQuestionPage }))
+);
+const QueryTermMappingPage = lazy(() =>
+  import("@/pages/admin/query-term-mapping/QueryTermMappingPage").then((mod) => ({ default: mod.QueryTermMappingPage }))
+);
+const UserListPage = lazy(() =>
+  import("@/pages/admin/users/UserListPage").then((mod) => ({ default: mod.UserListPage }))
+);
+const PositionManagementPage = lazy(() =>
+  import("@/pages/admin/interview/PositionManagementPage").then((mod) => ({ default: mod.PositionManagementPage }))
+);
+const QuestionManagementPage = lazy(() =>
+  import("@/pages/admin/interview/QuestionManagementPage").then((mod) => ({ default: mod.QuestionManagementPage }))
+);
+const InterviewSessionsPage = lazy(() =>
+  import("@/pages/admin/interview/InterviewSessionsPage").then((mod) => ({ default: mod.InterviewSessionsPage }))
+);
+
+function withSuspense(children: JSX.Element) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#FAFAFA] text-sm text-slate-500">
+          页面加载中...
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  );
+}
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -65,7 +119,7 @@ export const router = createBrowserRouter([
     path: "/login",
     element: (
       <RedirectIfAuth>
-        <LoginPage />
+        {withSuspense(<LoginPage />)}
       </RedirectIfAuth>
     )
   },
@@ -73,7 +127,7 @@ export const router = createBrowserRouter([
     path: "/chat",
     element: (
       <RequireAuth>
-        <ChatPage />
+        {withSuspense(<ChatPage />)}
       </RequireAuth>
     )
   },
@@ -81,7 +135,15 @@ export const router = createBrowserRouter([
     path: "/chat/:sessionId",
     element: (
       <RequireAuth>
-        <ChatPage />
+        {withSuspense(<ChatPage />)}
+      </RequireAuth>
+    )
+  },
+  {
+    path: "/interview",
+    element: (
+      <RequireAuth>
+        {withSuspense(<InterviewPage />)}
       </RequireAuth>
     )
   },
@@ -89,7 +151,7 @@ export const router = createBrowserRouter([
     path: "/admin",
     element: (
       <RequireAdmin>
-        <AdminLayout />
+        {withSuspense(<AdminLayout />)}
       </RequireAdmin>
     ),
     children: [
@@ -99,64 +161,76 @@ export const router = createBrowserRouter([
       },
       {
         path: "dashboard",
-        element: <DashboardPage />
+        element: withSuspense(<DashboardPage />)
       },
       {
         path: "knowledge",
-        element: <KnowledgeListPage />
+        element: withSuspense(<KnowledgeListPage />)
       },
       {
         path: "knowledge/:kbId",
-        element: <KnowledgeDocumentsPage />
+        element: withSuspense(<KnowledgeDocumentsPage />)
       },
       {
         path: "knowledge/:kbId/docs/:docId",
-        element: <KnowledgeChunksPage />
+        element: withSuspense(<KnowledgeChunksPage />)
       },
       {
         path: "intent-tree",
-        element: <IntentTreePage />
+        element: withSuspense(<IntentTreePage />)
       },
       {
         path: "intent-list",
-        element: <IntentListPage />
+        element: withSuspense(<IntentListPage />)
       },
       {
         path: "intent-list/:id/edit",
-        element: <IntentEditPage />
+        element: withSuspense(<IntentEditPage />)
       },
       {
         path: "ingestion",
-        element: <IngestionPage />
+        element: withSuspense(<IngestionPage />)
       },
       {
         path: "traces",
-        element: <RagTracePage />
+        element: withSuspense(<RagTracePage />)
       },
       {
         path: "traces/:traceId",
-        element: <RagTraceDetailPage />
+        element: withSuspense(<RagTraceDetailPage />)
       },
       {
         path: "settings",
-        element: <SystemSettingsPage />
+        element: withSuspense(<SystemSettingsPage />)
       },
       {
         path: "sample-questions",
-        element: <SampleQuestionPage />
+        element: withSuspense(<SampleQuestionPage />)
       },
       {
         path: "mappings",
-        element: <QueryTermMappingPage />
+        element: withSuspense(<QueryTermMappingPage />)
       },
       {
         path: "users",
-        element: <UserListPage />
+        element: withSuspense(<UserListPage />)
+      },
+      {
+        path: "interview/positions",
+        element: withSuspense(<PositionManagementPage />)
+      },
+      {
+        path: "interview/questions",
+        element: withSuspense(<QuestionManagementPage />)
+      },
+      {
+        path: "interview/sessions",
+        element: withSuspense(<InterviewSessionsPage />)
       }
     ]
   },
   {
     path: "*",
-    element: <NotFoundPage />
+    element: withSuspense(<NotFoundPage />)
   }
 ]);

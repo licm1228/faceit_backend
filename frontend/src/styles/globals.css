@@ -1,3 +1,4 @@
+@import "./vendor/google-fonts.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -191,6 +192,10 @@ select:focus:not(:focus-visible),
   -webkit-text-fill-color: transparent;
   background-clip: text;
   color: transparent;
+}
+
+.font-poppins {
+  font-family: "Poppins", sans-serif;
 }
 
 .glass {
