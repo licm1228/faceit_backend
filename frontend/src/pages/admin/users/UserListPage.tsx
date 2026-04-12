@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pencil, Plus, RefreshCw, Trash2, UserPlus } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -51,7 +51,7 @@ export function UserListPage() {
       const data = await getUsersPage(current, PAGE_SIZE, name || undefined);
       setPageData(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载用户列表失败"));
+      feedback.error(getErrorMessage(error, "加载用户列表失败"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -76,12 +76,12 @@ export function UserListPage() {
     if (!deleteTarget) return;
     try {
       await deleteUser(deleteTarget.id);
-      toast.success("删除成功");
+      feedback.success("删除成功");
       setDeleteTarget(null);
       setPageNo(1);
       await loadUsers(1, keyword);
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除失败"));
+      feedback.error(getErrorMessage(error, "删除失败"));
       console.error(error);
     } finally {
       setDeleteTarget(null);
@@ -107,14 +107,14 @@ export function UserListPage() {
     const trimmedUsername = form.username.trim();
     const trimmedPassword = form.password.trim();
     if (!trimmedUsername) {
-      toast.error("请输入用户名");
+      feedback.error("请输入用户名");
       return;
     }
 
     try {
       if (dialogState.mode === "create") {
         if (!trimmedPassword) {
-          toast.error("请输入初始密码");
+          feedback.error("请输入初始密码");
           return;
         }
         const payload: UserCreatePayload = {
@@ -124,7 +124,7 @@ export function UserListPage() {
           avatar: form.avatar?.trim() || undefined
         };
         await createUser(payload);
-        toast.success("创建成功");
+        feedback.success("创建成功");
         setPageNo(1);
         await loadUsers(1, keyword);
       } else if (dialogState.user) {
@@ -135,12 +135,12 @@ export function UserListPage() {
           password: trimmedPassword || undefined
         };
         await updateUser(dialogState.user.id, payload);
-        toast.success("更新成功");
+        feedback.success("更新成功");
         await loadUsers(pageNo, keyword);
       }
       setDialogState({ open: false, mode: "create", user: null });
     } catch (error) {
-      toast.error(getErrorMessage(error, "保存失败"));
+      feedback.error(getErrorMessage(error, "保存失败"));
       console.error(error);
     }
   };

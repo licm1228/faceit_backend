@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -240,7 +240,7 @@ export function IntentEditPage() {
         const data = await getIntentTree();
         setTree(data || []);
       } catch (error) {
-        toast.error(getErrorMessage(error, "加载意图节点失败"));
+        feedback.error(getErrorMessage(error, "加载意图节点失败"));
         console.error(error);
       } finally {
         setLoading(false);
@@ -290,10 +290,10 @@ export function IntentEditPage() {
     try {
       setSaving(true);
       await updateIntentNode(currentNode.id, payload);
-      toast.success("更新成功");
+      feedback.success("更新成功");
       navigate(returnTo);
     } catch (error) {
-      toast.error(getErrorMessage(error, "更新失败"));
+      feedback.error(getErrorMessage(error, "更新失败"));
       console.error(error);
     } finally {
       setSaving(false);

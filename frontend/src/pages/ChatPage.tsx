@@ -28,7 +28,7 @@ function GuestChatShell() {
               <FaceItMark className="h-5 w-5" />
             </div>
             <div className="font-poppins">
-              <p className="text-base font-semibold text-[#1A1A1A]">Face It Assistant</p>
+              <p className="text-base font-semibold text-[#1A1A1A]">FastGPT 面试官</p>
               <p className="text-xs text-[#999999]">Guest Preview</p>
             </div>
           </div>
@@ -49,8 +49,8 @@ function GuestChatShell() {
                   <Lock className="h-4 w-4" />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-[#1F2937]">Guest mode</p>
-                  <p className="text-xs text-[#64748B]">Chat UI is visible, actions are locked.</p>
+                  <p className="text-sm font-semibold text-[#1F2937]">面试练习，从这里开始</p>
+                  <p className="text-xs text-[#64748B]">登录后即可保存进度，获得更完整的对话与练习体验。</p>
                 </div>
               </div>
               <div className="mt-4 space-y-2">
@@ -62,8 +62,8 @@ function GuestChatShell() {
                     <Plus className="h-4 w-4" />
                   </span>
                   <span className="font-poppins flex-1">
-                    <span className="block text-sm font-semibold text-[#1F2937]">Login to start</span>
-                    <span className="block text-xs text-[#94A3B8]">Unlock send, history and sessions</span>
+                    <span className="block text-sm font-semibold text-[#1F2937]">登录后开始体验</span>
+                    <span className="block text-xs text-[#94A3B8]">解锁发送消息、历史会话与完整能力</span>
                   </span>
                 </Link>
                 <Link
@@ -74,15 +74,15 @@ function GuestChatShell() {
                     <MessageSquare className="h-4 w-4" />
                   </span>
                   <span className="font-poppins flex-1">
-                    <span className="block text-sm font-semibold text-[#1F2937]">Create account</span>
-                    <span className="block text-xs text-[#64748B]">Register and continue with Face It</span>
+                    <span className="block text-sm font-semibold text-[#1F2937]">注册账号</span>
+                    <span className="block text-xs text-[#64748B]">创建账号后继续使用 FastGPT</span>
                   </span>
                 </Link>
               </div>
             </div>
           </div>
           <div className="flex flex-1 items-center justify-center rounded-3xl border border-dashed border-[#DBEAFE] bg-white/70 px-6 py-10 text-center text-[#6B7280]">
-            登录后即可查看历史会话、新建对话、进入完整 interview 和知识检索能力。
+            用更轻松的方式开始模拟面试、整理回答思路，并获得更清晰的反馈，助力你拿下大厂 Offer。
           </div>
         </div>
       </aside>
@@ -98,20 +98,20 @@ function GuestChatShell() {
               >
                 <Menu className="h-5 w-5" />
               </button>
-              <p className="text-base font-medium text-gray-900">Face It Preview</p>
+              <p className="text-base font-medium text-gray-900">FastGPT Chat</p>
             </div>
             <div className="flex items-center gap-2">
               <Link
                 to="/login"
                 className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
               >
-                Login
+                登录
               </Link>
               <Link
                 to="/login?mode=register"
                 className="rounded-xl bg-gray-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-black"
               >
-                Register
+                注册
               </Link>
             </div>
           </div>
@@ -146,8 +146,9 @@ export function ChatPage() {
     if (!sessionId) return false;
     return sessions.some((session) => session.id === sessionId);
   }, [sessionId, sessions]);
-  const isInitializingChat = !sessionsReady || (sessions.length > 0 && !currentSessionId && !isCreatingNew);
-  const showWelcome = !isInitializingChat && messages.length === 0 && !isLoading;
+  const hasMessages = messages.length > 0;
+  const isSelectingSession = Boolean(currentSessionId) && isLoading && !hasMessages;
+  const showInput = !isSelectingSession;
 
   React.useEffect(() => {
     if (!isAuthenticated) {
@@ -185,6 +186,7 @@ export function ChatPage() {
     if (sessions.length > 0) {
       const latestSession = sessions[0];
       selectSession(latestSession.id).catch(() => null);
+      return;
     }
   }, [
     currentSessionId,
@@ -215,24 +217,20 @@ export function ChatPage() {
     <MainLayout>
       <div className="flex h-full flex-col bg-white">
         <div className="flex-1 min-h-0">
-          {isInitializingChat ? (
-            <div className="h-full bg-white" />
-          ) : (
-            <MessageList
-              messages={messages}
-              isLoading={isLoading}
-              isStreaming={isStreaming}
-              sessionKey={currentSessionId}
-            />
-          )}
+          <MessageList
+            messages={messages}
+            isLoading={isSelectingSession}
+            isStreaming={isStreaming}
+            sessionKey={currentSessionId}
+          />
         </div>
-        {showWelcome ? null : (
+        {showInput ? (
           <div className="relative z-20 bg-white">
             <div className="mx-auto max-w-[800px] px-6 pt-1 pb-4">
               <ChatInput />
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </MainLayout>
   );

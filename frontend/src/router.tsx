@@ -1,9 +1,10 @@
 import { lazy, Suspense } from "react";
-import { Navigate, createBrowserRouter } from "react-router-dom";
+import { Navigate, createBrowserRouter, useLocation } from "react-router-dom";
 
 import { useAuthStore } from "@/stores/authStore";
 
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((mod) => ({ default: mod.LoginPage })));
+const WelcomePage = lazy(() => import("@/pages/WelcomePage").then((mod) => ({ default: mod.WelcomePage })));
 const ChatPage = lazy(() => import("@/pages/ChatPage").then((mod) => ({ default: mod.ChatPage })));
 const InterviewPage = lazy(() => import("@/pages/InterviewPage").then((mod) => ({ default: mod.InterviewPage })));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((mod) => ({ default: mod.NotFoundPage })));
@@ -75,9 +76,19 @@ function withSuspense(children: JSX.Element) {
 }
 
 function RequireAuth({ children }: { children: JSX.Element }) {
+  const location = useLocation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{
+          redirectTo: location.pathname,
+          redirectState: location.state
+        }}
+      />
+    );
   }
   return children;
 }
@@ -105,15 +116,10 @@ function RedirectIfAuth({ children }: { children: JSX.Element }) {
   return children;
 }
 
-function HomeRedirect() {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  return <Navigate to={isAuthenticated ? "/chat" : "/login"} replace />;
-}
-
 export const router = createBrowserRouter([
   {
     path: "/",
-    element: <HomeRedirect />
+    element: withSuspense(<WelcomePage />)
   },
   {
     path: "/login",
@@ -125,19 +131,11 @@ export const router = createBrowserRouter([
   },
   {
     path: "/chat",
-    element: (
-      <RequireAuth>
-        {withSuspense(<ChatPage />)}
-      </RequireAuth>
-    )
+    element: withSuspense(<ChatPage />)
   },
   {
     path: "/chat/:sessionId",
-    element: (
-      <RequireAuth>
-        {withSuspense(<ChatPage />)}
-      </RequireAuth>
-    )
+    element: withSuspense(<ChatPage />)
   },
   {
     path: "/interview",

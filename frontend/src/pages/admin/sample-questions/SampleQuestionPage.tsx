@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -62,7 +62,7 @@ export function SampleQuestionPage() {
       const data = await getSampleQuestionsPage(current, PAGE_SIZE, keywordValue || undefined);
       setPageData(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载示例问题失败"));
+      feedback.error(getErrorMessage(error, "加载示例问题失败"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -120,24 +120,24 @@ export function SampleQuestionPage() {
     };
 
     if (!payload.question) {
-      toast.error("请输入示例问题内容");
+      feedback.error("请输入示例问题内容");
       return;
     }
 
     try {
       if (dialogState.mode === "create") {
         await createSampleQuestion(payload);
-        toast.success("创建成功");
+        feedback.success("创建成功");
         setPageNo(1);
         await loadQuestions(1, keyword);
       } else if (dialogState.item) {
         await updateSampleQuestion(dialogState.item.id, payload);
-        toast.success("更新成功");
+        feedback.success("更新成功");
         await loadQuestions(pageNo, keyword);
       }
       setDialogState({ open: false, mode: "create", item: null });
     } catch (error) {
-      toast.error(getErrorMessage(error, "保存失败"));
+      feedback.error(getErrorMessage(error, "保存失败"));
       console.error(error);
     }
   };
@@ -147,12 +147,12 @@ export function SampleQuestionPage() {
 
     try {
       await deleteSampleQuestion(deleteTarget.id);
-      toast.success("删除成功");
+      feedback.success("删除成功");
       setDeleteTarget(null);
       setPageNo(1);
       await loadQuestions(1, keyword);
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除失败"));
+      feedback.error(getErrorMessage(error, "删除失败"));
       console.error(error);
     } finally {
       setDeleteTarget(null);

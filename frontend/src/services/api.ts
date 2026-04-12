@@ -1,5 +1,5 @@
 import axios from "axios";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { storage } from "@/utils/storage";
 
@@ -56,11 +56,11 @@ api.interceptors.response.use(
     }
     const responseData = error?.response?.data;
     if (responseData && typeof responseData === "object" && "message" in responseData && responseData.message) {
-      toast.error(responseData.message);
+      feedback.error(responseData.message);
     } else if (error?.code === "ERR_NETWORK") {
-      toast.error("网络错误，请检查网络连接");
+      feedback.error("网络错误，请检查网络连接");
     } else {
-      toast.error(error?.message || "网络错误");
+      feedback.error(error?.message || "网络错误");
     }
     return Promise.reject(error);
   }

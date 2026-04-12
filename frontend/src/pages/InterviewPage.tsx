@@ -2,7 +2,7 @@ import * as React from "react";
 import { Mic, MicOff, Timer } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useLocation, useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
@@ -48,8 +48,17 @@ type SpeechWindow = Window & {
 type RecordingMode = "backend" | "browser" | null;
 
 type InterviewPresetState = {
+  positionId?: string;
   positionKeywords?: string[];
   difficulty?: number;
+  timeLimitMinutes?: number;
+  questionLimit?: number;
+  autoStart?: boolean;
+};
+
+type PendingAutoStartPreset = {
+  key: string;
+  positionId: string;
   timeLimitMinutes?: number;
   questionLimit?: number;
 };
@@ -131,6 +140,7 @@ export function InterviewPage() {
     Array<{ questionText: string; score: number; feedback: string; suggestions: string }>
   >([]);
   const [isRecording, setIsRecording] = React.useState(false);
+  const [isProcessingSpeech, setIsProcessingSpeech] = React.useState(false);
   const reportRef = React.useRef<HTMLDivElement | null>(null);
   const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null);
   const recordingModeRef = React.useRef<RecordingMode>(null);
@@ -140,6 +150,8 @@ export function InterviewPage() {
   const processorNodeRef = React.useRef<ScriptProcessorNode | null>(null);
   const pcmChunksRef = React.useRef<Float32Array[]>([]);
   const appliedPresetRef = React.useRef<string | null>(null);
+  const autoStartedPresetRef = React.useRef<string | null>(null);
+  const pendingAutoStartPresetRef = React.useRef<PendingAutoStartPreset | null>(null);
 
   React.useEffect(() => {
     fetchPositions().catch(() => null);
@@ -150,6 +162,21 @@ export function InterviewPage() {
     fetchHistory(user.userId).catch(() => null);
     fetchProfileData().catch(() => null);
   }, [fetchHistory, fetchProfileData, user?.userId]);
+
+  const startInterviewWithPosition = React.useCallback(async (
+    positionId: string,
+    options?: { timeLimitMinutes?: number; questionLimit?: number }
+  ) => {
+    if (!user?.userId || !positionId) return;
+    setAnswerText("");
+    setQuestionIndex(1);
+    setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
+    setAnswerRecords([]);
+    await createAndStartSession(user.userId, positionId, {
+      timeLimit: options?.timeLimitMinutes ?? timeLimitMinutes,
+      totalQuestions: options?.questionLimit ?? questionLimit
+    });
+  }, [createAndStartSession, questionLimit, timeLimitMinutes, user?.userId]);
 
   React.useEffect(() => {
     if (positions.length === 0) {
@@ -162,9 +189,13 @@ export function InterviewPage() {
 
     if (hasPreset && appliedPresetRef.current !== presetKey) {
       const keywords = (preset?.positionKeywords ?? []).map((keyword) => keyword.trim().toLowerCase());
-      const matchedPosition = positions.find((position) => matchPositionKeywords(position, keywords));
+      const matchedPositionById = preset?.positionId
+        ? positions.find((position) => position.id === preset.positionId)
+        : null;
+      const matchedPositionByKeywords = positions.find((position) => matchPositionKeywords(position, keywords));
+      const matchedPosition = matchedPositionById ?? matchedPositionByKeywords ?? positions[0];
 
-      setSelectedPositionId(matchedPosition?.id ?? positions[0].id);
+      setSelectedPositionId(matchedPosition.id);
 
       if (typeof preset?.difficulty === "number") {
         setDifficulty(preset.difficulty);
@@ -177,6 +208,16 @@ export function InterviewPage() {
       }
 
       appliedPresetRef.current = presetKey;
+
+      if (preset?.autoStart && autoStartedPresetRef.current !== presetKey) {
+        pendingAutoStartPresetRef.current = {
+          key: presetKey,
+          positionId: matchedPosition.id,
+          timeLimitMinutes: preset.timeLimitMinutes,
+          questionLimit: preset.questionLimit
+        };
+      }
+
       navigate(location.pathname, { replace: true, state: null });
       return;
     }
@@ -184,19 +225,42 @@ export function InterviewPage() {
     if (!selectedPositionId) {
       setSelectedPositionId(positions[0].id);
     }
-  }, [location.pathname, location.state, navigate, positions, selectedPositionId, setDifficulty]);
+  }, [
+    location.pathname,
+    location.state,
+    navigate,
+    positions,
+    selectedPositionId,
+    setDifficulty,
+    startInterviewWithPosition,
+    user?.userId
+  ]);
+
+  React.useEffect(() => {
+    const pendingPreset = pendingAutoStartPresetRef.current;
+    if (!pendingPreset || !user?.userId) {
+      return;
+    }
+    if (autoStartedPresetRef.current === pendingPreset.key) {
+      pendingAutoStartPresetRef.current = null;
+      return;
+    }
+
+    autoStartedPresetRef.current = pendingPreset.key;
+    pendingAutoStartPresetRef.current = null;
+
+    startInterviewWithPosition(pendingPreset.positionId, {
+      timeLimitMinutes: pendingPreset.timeLimitMinutes,
+      questionLimit: pendingPreset.questionLimit
+    }).catch(() => {
+      autoStartedPresetRef.current = null;
+    });
+  }, [startInterviewWithPosition, user?.userId]);
 
   const startInterview = React.useCallback(async () => {
-    if (!user?.userId || !selectedPositionId) return;
-    setAnswerText("");
-    setQuestionIndex(1);
-    setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
-    setAnswerRecords([]);
-    await createAndStartSession(user.userId, selectedPositionId, {
-      timeLimit: timeLimitMinutes,
-      totalQuestions: questionLimit
-    });
-  }, [createAndStartSession, questionLimit, selectedPositionId, timeLimitMinutes, user?.userId]);
+    if (!selectedPositionId) return;
+    await startInterviewWithPosition(selectedPositionId);
+  }, [selectedPositionId, startInterviewWithPosition]);
 
   const handleSubmitAnswer = React.useCallback(async () => {
     const next = answerText.trim();
@@ -206,7 +270,7 @@ export function InterviewPage() {
 
   const handleNextQuestion = React.useCallback(async () => {
     if (questionIndex >= questionLimit) {
-      toast.info("已达到题量上限，请结束面试并查看报告");
+      feedback.info("已达到题量上限，请结束面试并查看报告");
       return;
     }
     setAnswerText("");
@@ -223,7 +287,7 @@ export function InterviewPage() {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
           window.clearInterval(timer);
-          toast.warning("当前题目作答时间已到，请提交或进入下一题");
+          feedback.warning("当前题目作答时间已到，请提交或进入下一题");
           return 0;
         }
         return prev - 1;
@@ -367,6 +431,7 @@ export function InterviewPage() {
   const transcribeBackendAudio = React.useCallback(async (chunks: Float32Array[], sourceSampleRate: number) => {
     const merged = mergePcmChunks(chunks);
     if (merged.length === 0) {
+      feedback.info("未识别到有效语音内容");
       return;
     }
     const downsampled = downsampleBuffer(merged, sourceSampleRate, RECORDING_SAMPLE_RATE);
@@ -375,10 +440,10 @@ export function InterviewPage() {
     const transcript = await recognizeSpeechBase64(audioBase64, "wav", RECORDING_SAMPLE_RATE, "zh_cn");
     if (transcript?.trim()) {
       setAnswerText((prev) => `${prev}${prev ? " " : ""}${transcript.trim()}`);
-      toast.success("语音识别完成");
+      feedback.success("语音识别完成");
       return;
     }
-    toast.info("未识别到有效语音内容");
+    feedback.info("未识别到有效语音内容");
   }, [blobToBase64, downsampleBuffer, encodeWav, mergePcmChunks]);
 
   const stopCurrentRecording = React.useCallback(async () => {
@@ -386,12 +451,18 @@ export function InterviewPage() {
     recordingModeRef.current = null;
     setIsRecording(false);
     if (mode === "browser") {
+      setIsProcessingSpeech(true);
       recognitionRef.current?.stop();
       return;
     }
     if (mode === "backend") {
-      const { sampleRate, chunks } = await stopBackendRecording();
-      await transcribeBackendAudio(chunks, sampleRate);
+      setIsProcessingSpeech(true);
+      try {
+        const { sampleRate, chunks } = await stopBackendRecording();
+        await transcribeBackendAudio(chunks, sampleRate);
+      } finally {
+        setIsProcessingSpeech(false);
+      }
     }
   }, [stopBackendRecording, transcribeBackendAudio]);
 
@@ -411,18 +482,20 @@ export function InterviewPage() {
     };
     recognition.onerror = () => {
       setIsRecording(false);
+      setIsProcessingSpeech(false);
       recordingModeRef.current = null;
-      toast.error("语音识别失败，请重试");
+      feedback.error("语音识别失败，请重试");
     };
     recognition.onend = () => {
       setIsRecording(false);
+      setIsProcessingSpeech(false);
       recordingModeRef.current = null;
     };
     recognitionRef.current = recognition;
     recognition.start();
     recordingModeRef.current = "browser";
     setIsRecording(true);
-    toast.info("已切换为浏览器语音识别");
+    feedback.info("已切换为浏览器语音识别");
   }, []);
 
   const startBackendRecording = React.useCallback(async () => {
@@ -446,36 +519,42 @@ export function InterviewPage() {
     processorNodeRef.current = processor;
     recordingModeRef.current = "backend";
     setIsRecording(true);
-    toast.info("开始录音，再次点击后将调用后端语音识别");
+    feedback.info("开始录音，再次点击后将调用后端语音识别");
   }, []);
 
   const toggleRecording = React.useCallback(async () => {
     const speechWindow = window as SpeechWindow;
     const ctor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (isProcessingSpeech) {
+      return;
+    }
     if (isRecording) {
       await stopCurrentRecording();
       return;
     }
 
     try {
-      if (navigator.mediaDevices?.getUserMedia) {
+      if (
+        navigator.mediaDevices &&
+        typeof navigator.mediaDevices.getUserMedia === "function"
+      ) {
         await startBackendRecording();
         return;
       }
     } catch (error) {
       if (!ctor) {
-        toast.error((error as Error).message || "无法访问麦克风，请检查权限");
+        feedback.error((error as Error).message || "无法访问麦克风，请检查权限");
         return;
       }
-      toast.warning("后端语音录音不可用，已降级到浏览器语音识别");
+      feedback.warning("后端语音录音不可用，已降级到浏览器语音识别");
     }
 
     if (!ctor) {
-      toast.error("当前环境不支持语音识别，请检查麦克风权限或浏览器能力");
+      feedback.error("当前环境不支持语音识别，请检查麦克风权限或浏览器能力");
       return;
     }
     startBrowserSpeechRecognition(ctor);
-  }, [isRecording, startBackendRecording, startBrowserSpeechRecognition, stopCurrentRecording]);
+  }, [isProcessingSpeech, isRecording, startBackendRecording, startBrowserSpeechRecognition, stopCurrentRecording]);
 
   const sessionQuestionLimit = currentSession?.totalQuestions ?? questionLimit;
   const sessionQuestionIndex = currentSession?.currentQuestionCount ?? Math.max(questionIndex, 1);
@@ -656,68 +735,93 @@ export function InterviewPage() {
                 <textarea
                   value={answerText}
                   onChange={(event) => setAnswerText(event.target.value)}
-                  placeholder={hasActiveSession ? "请输入你的回答..." : "当前面试已结束，请开始新面试。"}
+                  placeholder={
+                    isProcessingSpeech
+                      ? "语音解析中..."
+                      : hasActiveSession
+                        ? "请输入你的回答..."
+                        : "当前面试已结束，请开始新面试。"
+                  }
                   className="min-h-[148px] w-full rounded-2xl border border-[#D9E3EF] bg-white px-3 py-3 text-sm leading-6 text-[#1F2937] outline-none transition-colors focus:border-[#60A5FA]"
-                  disabled={!hasActiveSession}
+                  disabled={!hasActiveSession || isProcessingSpeech}
                 />
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 rounded-xl"
-                    onClick={toggleRecording}
-                    disabled={currentSession.status === "completed"}
-                  >
-                    {isRecording ? <MicOff className="mr-1 h-4 w-4" /> : <Mic className="mr-1 h-4 w-4" />}
-                    {isRecording ? "停止语音输入" : "语音输入"}
-                  </Button>
-                  <Button
-                    type="button"
-                    className="h-10 rounded-xl"
-                    onClick={() => {
-                      handleSubmitAnswer().catch(() => null);
-                    }}
-                    disabled={submitting || !hasActiveSession || !answerText.trim()}
-                  >
-                    {submitting ? "提交中..." : "提交回答并评估"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-10 rounded-xl"
-                    onClick={() => {
-                      handleNextQuestion().catch(() => null);
-                    }}
-                    disabled={loading || !hasActiveSession || progressValue >= sessionQuestionLimit}
-                  >
-                    下一题
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 rounded-xl"
-                    onClick={() => {
-                      generateFollowUp(answerText).catch(() => null);
-                    }}
-                    disabled={!answerText.trim() || currentSession.status === "completed"}
-                  >
-                    生成追问
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-10 rounded-xl"
-                    onClick={() => {
-                      resetCurrentFlow();
-                      setAnswerText("");
-                      setQuestionIndex(0);
-                      setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
-                      setAnswerRecords([]);
-                    }}
-                  >
-                    重置流程
-                  </Button>
-                </div>
+                {isProcessingSpeech ? (
+                  <div className="mt-3 flex items-center rounded-2xl border border-[#FDE7B2] bg-[#FFF8E8] px-3 py-2 text-sm text-[#9A5B16]">
+                    <span className="mr-2 inline-flex items-end gap-0.5" aria-hidden="true">
+                      {[0, 1, 2].map((index) => (
+                        <span
+                          key={index}
+                          className="w-1 rounded-full bg-current animate-pulse"
+                          style={{ height: `${10 + index * 2}px`, animationDelay: `${index * 140}ms` }}
+                        />
+                      ))}
+                    </span>
+                    语音解析中，结果会自动填入回答框
+                  </div>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 rounded-xl"
+                      onClick={toggleRecording}
+                      disabled={currentSession.status === "completed"}
+                    >
+                      {isRecording ? (
+                        <MicOff className="mr-1 h-4 w-4" />
+                      ) : (
+                        <Mic className="mr-1 h-4 w-4" />
+                      )}
+                      {isRecording ? "停止语音输入" : "语音输入"}
+                    </Button>
+                    <Button
+                      type="button"
+                      className="h-10 rounded-xl"
+                      onClick={() => {
+                        handleSubmitAnswer().catch(() => null);
+                      }}
+                      disabled={submitting || !hasActiveSession || !answerText.trim()}
+                    >
+                      {submitting ? "提交中..." : "提交回答并评估"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-10 rounded-xl"
+                      onClick={() => {
+                        handleNextQuestion().catch(() => null);
+                      }}
+                      disabled={loading || !hasActiveSession || progressValue >= sessionQuestionLimit}
+                    >
+                      下一题
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 rounded-xl"
+                      onClick={() => {
+                        generateFollowUp(answerText).catch(() => null);
+                      }}
+                      disabled={!answerText.trim() || currentSession.status === "completed"}
+                    >
+                      生成追问
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-10 rounded-xl"
+                      onClick={() => {
+                        resetCurrentFlow();
+                        setAnswerText("");
+                        setQuestionIndex(0);
+                        setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
+                        setAnswerRecords([]);
+                      }}
+                    >
+                      重置流程
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : null}
 

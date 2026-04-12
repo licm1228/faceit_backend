@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { GitBranch, Pencil, RefreshCw, Search, X } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -180,7 +180,7 @@ export function IntentListPage() {
       const data = await getIntentTree();
       setTree(data || []);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载意图列表失败"));
+      feedback.error(getErrorMessage(error, "加载意图列表失败"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -309,11 +309,11 @@ export function IntentListPage() {
       } else {
         await batchDisableIntentNodes(targetIds);
       }
-      toast.success(`已${enabled === 1 ? "启用" : "禁用"} ${targetIds.length} 项`);
+      feedback.success(`已${enabled === 1 ? "启用" : "禁用"} ${targetIds.length} 项`);
       await loadIntentTree();
       setSelectedIds([]);
     } catch (error) {
-      toast.error(getErrorMessage(error, "批量更新失败"));
+      feedback.error(getErrorMessage(error, "批量更新失败"));
       console.error(error);
     } finally {
       setBatchSubmitting(null);
@@ -326,11 +326,11 @@ export function IntentListPage() {
     try {
       const targetIds = selectedRows.map((row) => row.id);
       await batchDeleteIntentNodes(targetIds);
-      toast.success(`已删除 ${targetIds.length} 项`);
+      feedback.success(`已删除 ${targetIds.length} 项`);
       await loadIntentTree();
       setSelectedIds([]);
     } catch (error) {
-      toast.error(getErrorMessage(error, "批量删除失败"));
+      feedback.error(getErrorMessage(error, "批量删除失败"));
       console.error(error);
     } finally {
       setBatchSubmitting(null);

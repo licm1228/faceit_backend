@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import type {
   AnswerEvaluation,
@@ -78,7 +78,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       const positions = await listPositions();
       set({ positions });
     } catch (error) {
-      toast.error((error as Error).message || "加载岗位失败");
+      feedback.error((error as Error).message || "加载岗位失败");
     } finally {
       set({ loading: false });
     }
@@ -96,7 +96,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       set({ currentSession: started });
       await get().fetchQuestion();
     } catch (error) {
-      toast.error((error as Error).message || "创建面试会话失败");
+      feedback.error((error as Error).message || "创建面试会话失败");
     } finally {
       set({ loading: false });
     }
@@ -117,7 +117,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           : state.currentSession
       }));
     } catch (error) {
-      toast.error((error as Error).message || "获取题目失败");
+      feedback.error((error as Error).message || "获取题目失败");
       set({ currentQuestion: null });
     } finally {
       set({ loading: false });
@@ -130,9 +130,9 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     try {
       const evaluation = await submitInterviewAnswer(currentSession.id, currentQuestion.id, answer);
       set({ currentEvaluation: evaluation });
-      toast.success("评估已生成");
+      feedback.success("评估已生成");
     } catch (error) {
-      toast.error((error as Error).message || "提交回答失败");
+      feedback.error((error as Error).message || "提交回答失败");
     } finally {
       set({ submitting: false });
     }
@@ -143,10 +143,10 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     try {
       const followUp = await askFollowUpQuestion(currentSession.id, currentQuestion.id, answer);
       set({ followUpQuestion: followUp });
-      toast.success("已生成追问");
+      feedback.success("已生成追问");
     } catch {
       set({ followUpQuestion: null });
-      toast.info("当前后端分支暂不支持追问接口");
+      feedback.info("当前后端分支暂不支持追问接口");
     }
   },
   completeSession: async () => {
@@ -177,9 +177,9 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           get().fetchProfileData()
         ]);
       }
-      toast.success("面试已结束");
+      feedback.success("面试已结束");
     } catch (error) {
-      toast.error((error as Error).message || "结束面试失败");
+      feedback.error((error as Error).message || "结束面试失败");
     } finally {
       set({ loading: false });
     }
@@ -190,7 +190,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       const history = await listInterviewHistory(userId);
       set({ history });
     } catch (error) {
-      toast.error((error as Error).message || "加载面试历史失败");
+      feedback.error((error as Error).message || "加载面试历史失败");
     } finally {
       set({ loading: false });
     }
@@ -201,7 +201,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       const detail = await getInterviewSessionDetail(sessionId);
       set({ sessionDetail: detail });
     } catch (error) {
-      toast.error((error as Error).message || "加载会话详情失败");
+      feedback.error((error as Error).message || "加载会话详情失败");
     } finally {
       set({ loading: false });
     }

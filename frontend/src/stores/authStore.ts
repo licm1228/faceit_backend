@@ -2,7 +2,7 @@
 /* eslint-disable */
 
 import { create } from "zustand";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import type { User } from "@/types";
 import {
@@ -44,14 +44,16 @@ function resetChatState() {
     currentSessionId: null,
     messages: [],
     isLoading: false,
+    sessionsLoaded: false,
     isStreaming: false,
-    isCreatingNew: true,
+    isCreatingNew: false,
     deepThinkingEnabled: false,
     thinkingStartAt: null,
     streamTaskId: null,
     streamAbort: null,
     streamingMessageId: null,
-    cancelRequested: false
+    cancelRequested: false,
+    inputFocusKey: 0
   });
 }
 
@@ -71,9 +73,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ user, token: user.token, isAuthenticated: true });
       get().fetchCurrentUser().catch(() => null);
       resetChatState();
-      toast.success("登录成功");
+      feedback.success("登录成功");
     } catch (error) {
-      toast.error((error as Error).message || "登录失败");
+      feedback.error((error as Error).message || "登录失败");
       throw error;
     } finally {
       set({ isLoading: false });
@@ -90,9 +92,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ user, token: user.token, isAuthenticated: true });
       get().fetchCurrentUser().catch(() => null);
       resetChatState();
-      toast.success("注册成功");
+      feedback.success("注册成功");
     } catch (error) {
-      toast.error((error as Error).message || "注册失败");
+      feedback.error((error as Error).message || "注册失败");
       throw error;
     } finally {
       set({ isLoading: false });
@@ -110,6 +112,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentSessionId: null,
       messages: [],
       isLoading: false,
+      sessionsLoaded: false,
       isStreaming: false,
       isCreatingNew: false,
       deepThinkingEnabled: false,
@@ -117,12 +120,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       streamTaskId: null,
       streamAbort: null,
       streamingMessageId: null,
-      cancelRequested: false
+      cancelRequested: false,
+      inputFocusKey: 0
     });
     storage.clearAuth();
     setAuthToken(null);
     set({ user: null, token: null, isAuthenticated: false });
-    toast.success("已退出登录");
+    feedback.success("已退出登录");
   },
   checkAuth: async () => {
     const token = storage.getToken();

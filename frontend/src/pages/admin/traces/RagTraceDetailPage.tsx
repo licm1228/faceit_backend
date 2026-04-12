@@ -14,7 +14,7 @@ import {
   Calendar,
   Hash
 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,9 +47,9 @@ const decodeTraceId = (value?: string): string => {
 
 const copyToClipboard = (text: string, label: string) => {
   navigator.clipboard.writeText(text).then(() => {
-    toast.success(`${label} 已复制`);
+    feedback.success(`${label} 已复制`);
   }).catch(() => {
-    toast.error("复制失败");
+    feedback.error("复制失败");
   });
 };
 
@@ -225,7 +225,7 @@ export function RagTraceDetailPage() {
       setDetail(result);
     } catch (error) {
       if (detailRequestRef.current !== requestId) return;
-      toast.error(getErrorMessage(error, "加载链路详情失败"));
+      feedback.error(getErrorMessage(error, "加载链路详情失败"));
       console.error(error);
       setDetail(null);
     } finally {

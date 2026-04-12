@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, FileBarChart, FolderOpen, Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -69,7 +69,7 @@ export function KnowledgeListPage() {
       const data = await getKnowledgeBasesPage(current, PAGE_SIZE, name || undefined);
       setPageData(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载知识库列表失败"));
+      feedback.error(getErrorMessage(error, "加载知识库列表失败"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -174,13 +174,13 @@ export function KnowledgeListPage() {
 
     try {
       await deleteKnowledgeBase(deleteTarget.id);
-      toast.success("删除成功");
+      feedback.success("删除成功");
       setDeleteTarget(null);
       setPageNo(1);
       await loadKnowledgeBases(1, keyword);
       await loadStats(keyword);
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除失败"));
+      feedback.error(getErrorMessage(error, "删除失败"));
       console.error(error);
     } finally {
       setDeleteTarget(null);
@@ -228,7 +228,7 @@ export function KnowledgeListPage() {
     if (!renameDialog.kb) return;
     const nextName = renameValue.trim();
     if (!nextName) {
-      toast.error("请输入知识库名称");
+      feedback.error("请输入知识库名称");
       return;
     }
     if (nextName === renameDialog.kb.name) {
@@ -237,11 +237,11 @@ export function KnowledgeListPage() {
     }
     try {
       await renameKnowledgeBase(renameDialog.kb.id, nextName);
-      toast.success("重命名成功");
+      feedback.success("重命名成功");
       setRenameDialog({ open: false, kb: null });
       await loadKnowledgeBases(pageNo, keyword);
     } catch (error) {
-      toast.error(getErrorMessage(error, "重命名失败"));
+      feedback.error(getErrorMessage(error, "重命名失败"));
       console.error(error);
     }
   };

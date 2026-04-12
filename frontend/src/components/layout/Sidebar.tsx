@@ -2,6 +2,7 @@ import * as React from "react";
 import { differenceInCalendarDays, isValid } from "date-fns";
 import {
   MoreHorizontal,
+  MessageSquare,
   Pencil,
   Plus,
   Search,
@@ -154,15 +155,22 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         )}
       >
         <div className="border-b border-[#F0F0F0] pb-3">
-          <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="flex items-center gap-3 text-left transition-opacity hover:opacity-85"
+            onClick={() => {
+              navigate("/");
+              onClose();
+            }}
+          >
             <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#BFDBFE] bg-white shadow-[0_6px_16px_rgba(37,99,235,0.08)]">
               <FaceItMark className="h-5 w-5" />
             </div>
             <div className="font-poppins">
-              <p className="text-base font-semibold text-[#1A1A1A]">Face It Assistant</p>
+              <p className="text-base font-semibold text-[#1A1A1A]">FastGPT 面试官</p>
               <p className="text-xs text-[#999999]">Chat · Knowledge · Interview</p>
             </div>
-          </div>
+          </button>
         </div>
         <div className="py-3 space-y-4">
           <div className="relative overflow-hidden rounded-2xl border border-[#E6EEF6] bg-gradient-to-br from-[#EFF6FF] via-white to-[#DBEAFE] p-3 shadow-[0_14px_30px_rgba(15,23,42,0.08)]">

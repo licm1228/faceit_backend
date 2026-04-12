@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -62,7 +62,7 @@ export function PositionManagementPage() {
       const data = await listPositions();
       setPositions(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载岗位失败"));
+      feedback.error(getErrorMessage(error, "加载岗位失败"));
     } finally {
       setLoading(false);
     }
@@ -102,7 +102,7 @@ export function PositionManagementPage() {
 
   const handleSubmit = async () => {
     if (!form.name.trim()) {
-      toast.error("岗位名称不能为空");
+      feedback.error("岗位名称不能为空");
       return;
     }
     const payload = {
@@ -114,15 +114,15 @@ export function PositionManagementPage() {
     try {
       if (dialogState.mode === "create") {
         await createPosition(payload);
-        toast.success("岗位创建成功");
+        feedback.success("岗位创建成功");
       } else if (dialogState.item?.id) {
         await updatePosition({ id: dialogState.item.id, ...payload });
-        toast.success("岗位更新成功");
+        feedback.success("岗位更新成功");
       }
       setDialogState({ open: false, mode: "create", item: null });
       await loadPositions();
     } catch (error) {
-      toast.error(getErrorMessage(error, "保存岗位失败"));
+      feedback.error(getErrorMessage(error, "保存岗位失败"));
     }
   };
 
@@ -130,11 +130,11 @@ export function PositionManagementPage() {
     if (!deleteTarget?.id) return;
     try {
       await deletePosition(deleteTarget.id);
-      toast.success("岗位删除成功");
+      feedback.success("岗位删除成功");
       setDeleteTarget(null);
       await loadPositions();
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除岗位失败"));
+      feedback.error(getErrorMessage(error, "删除岗位失败"));
     }
   };
 

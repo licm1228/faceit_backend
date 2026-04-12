@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { toast } from "sonner";
+import { feedback as feedbackStore } from "@/stores/useFeedbackStore";
 
 import type { CompletionPayload, FeedbackValue, Message, MessageDeltaPayload, Session } from "@/types";
 import {
@@ -152,9 +152,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: state.currentSessionId === sessionId ? [] : state.messages,
         currentSessionId: state.currentSessionId === sessionId ? null : state.currentSessionId
       }));
-      toast.success("删除成功");
+      feedbackStore.success("删除成功");
     } catch (error) {
-      toast.error((error as Error).message || "删除会话失败");
+      feedbackStore.error((error as Error).message || "删除会话失败");
     }
   },
   renameSession: async (sessionId, title) => {
@@ -167,9 +167,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           session.id === sessionId ? { ...session, title: nextTitle } : session
         )
       }));
-      toast.success("已重命名");
+      feedbackStore.success("已重命名");
     } catch (error) {
-      toast.error((error as Error).message || "重命名失败");
+      feedbackStore.error((error as Error).message || "重命名失败");
     }
   },
   selectSession: async (sessionId) => {
@@ -199,7 +199,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
       set({ messages: mapped });
     } catch (error) {
-      toast.error((error as Error).message || "加载消息失败");
+      feedbackStore.error((error as Error).message || "加载消息失败");
     } finally {
       if (get().currentSessionId !== sessionId) {
         set({ isLoading: false });
@@ -424,7 +424,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               : message
           )
         }));
-        toast.error(error.message || "生成失败");
+        feedbackStore.error(error.message || "生成失败");
       }
     };
 
@@ -513,19 +513,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       )
     }));
     if (vote === null) {
-      toast.success("取消成功");
+      feedbackStore.success("取消成功");
       return;
     }
     try {
       await submitFeedback(messageId, vote);
-      toast.success(feedback === "like" ? "点赞成功" : "点踩成功");
+      feedbackStore.success(feedback === "like" ? "点赞成功" : "点踩成功");
     } catch (error) {
       set((state) => ({
         messages: state.messages.map((message) =>
           message.id === messageId ? { ...message, feedback: prev } : message
         )
       }));
-      toast.error((error as Error).message || "反馈保存失败");
+      feedbackStore.error((error as Error).message || "反馈保存失败");
     }
   }
 }));

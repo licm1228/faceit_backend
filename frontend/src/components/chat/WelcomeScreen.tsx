@@ -1,26 +1,29 @@
 import * as React from "react";
-import { Brain, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
+import { Brain, ChevronRight, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { FaceItMark } from "@/components/common/FaceItMark";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { recognizeSpeechBase64 } from "@/services/interviewService";
+import { listPositions, recognizeSpeechBase64, type Position } from "@/services/interviewService";
 import { useChatStore } from "@/stores/chatStore";
+import { feedback } from "@/stores/useFeedbackStore";
 
 type JobPreset = {
   id: string;
   title: string;
   description: string;
-  iconClass: string;
+  iconPath: string;
   positionKeywords: string[];
 };
 
 type InterviewPresetState = {
-  positionKeywords: string[];
+  positionId?: string;
+  positionKeywords?: string[];
   difficulty: number;
   timeLimitMinutes: number;
   questionLimit: number;
+  autoStart?: boolean;
 };
 
 const JOB_PRESETS: JobPreset[] = [
@@ -28,27 +31,44 @@ const JOB_PRESETS: JobPreset[] = [
     id: "web-frontend",
     title: "Web前端开发",
     description: "偏重 React、工程化、性能优化与浏览器基础",
-    iconClass: "uil-window-grid",
+    iconPath: "/icons/web-frontend.svg",
     positionKeywords: ["web前端", "前端", "react", "vue", "javascript", "typescript"]
   },
   {
     id: "java-backend",
     title: "Java后端开发",
     description: "覆盖 Java、Spring、数据库、并发与系统设计",
-    iconClass: "uil-server-network",
+    iconPath: "/icons/java-backend.svg",
     positionKeywords: ["java后端", "java", "后端", "spring", "spring boot"]
   },
   {
     id: "python-algorithm",
     title: "Python算法开发",
     description: "聚焦 Python、数据结构、算法思维与编码实现",
-    iconClass: "uil-brain",
+    iconPath: "/icons/python-algorithm.svg",
     positionKeywords: ["python算法", "python", "算法", "机器学习", "数据"]
   }
 ];
 
 interface WelcomeScreenProps {
   disabled?: boolean;
+}
+
+function matchPositionKeywords(position: Position, keywords: string[]) {
+  if (keywords.length === 0) {
+    return false;
+  }
+  const searchText = [
+    position.name,
+    position.description,
+    position.requiredSkills,
+    position.interviewFocus
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return keywords.some((keyword) => searchText.includes(keyword));
 }
 
 export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
@@ -58,6 +78,8 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   const [isRecording, setIsRecording] = React.useState(false);
   const [isRecognizingSpeech, setIsRecognizingSpeech] = React.useState(false);
   const [selectedJob, setSelectedJob] = React.useState<JobPreset | null>(null);
+  const [positions, setPositions] = React.useState<Position[]>([]);
+  const [positionsLoading, setPositionsLoading] = React.useState(false);
   const [interviewOptions, setInterviewOptions] = React.useState({
     difficulty: 3,
     timeLimitMinutes: 20,
@@ -91,6 +113,36 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   React.useEffect(() => {
     adjustHeight();
   }, [value, adjustHeight]);
+
+  React.useEffect(() => {
+    if (disabled) {
+      return;
+    }
+
+    let active = true;
+    setPositionsLoading(true);
+
+    listPositions()
+      .then((items) => {
+        if (active) {
+          setPositions(items);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setPositions([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPositionsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [disabled]);
 
   const handleSubmit = async () => {
     if (disabled) return;
@@ -276,17 +328,38 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     [disabled]
   );
 
+  const resolvedPosition = React.useMemo(() => {
+    if (!selectedJob) {
+      return null;
+    }
+    const keywords = selectedJob.positionKeywords.map((keyword) => keyword.trim().toLowerCase());
+    return positions.find((position) => matchPositionKeywords(position, keywords)) ?? null;
+  }, [positions, selectedJob]);
+
   const startPresetInterview = React.useCallback(() => {
     if (!selectedJob) return;
+    if (!resolvedPosition) {
+      feedback.error("当前未找到与该卡片对应的岗位配置，请先在管理端检查岗位数据");
+      return;
+    }
     const state: InterviewPresetState = {
+      positionId: resolvedPosition.id,
       positionKeywords: selectedJob.positionKeywords,
       difficulty: interviewOptions.difficulty,
       timeLimitMinutes: interviewOptions.timeLimitMinutes,
-      questionLimit: interviewOptions.questionLimit
+      questionLimit: interviewOptions.questionLimit,
+      autoStart: true
     };
     setSelectedJob(null);
     navigate("/interview", { state });
-  }, [interviewOptions.difficulty, interviewOptions.questionLimit, interviewOptions.timeLimitMinutes, navigate, selectedJob]);
+  }, [
+    interviewOptions.difficulty,
+    interviewOptions.questionLimit,
+    interviewOptions.timeLimitMinutes,
+    navigate,
+    resolvedPosition,
+    selectedJob
+  ]);
 
   return (
     <div className="relative flex min-h-full items-center justify-center overflow-hidden px-4 py-16 sm:px-6">
@@ -311,20 +384,26 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
         <div className="text-center opacity-0 animate-fade-up" style={{ animationFillMode: "both" }}>
           <span className="font-poppins inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-[#2563EB] shadow-sm">
             <FaceItMark className="h-3.5 w-3.5" />
-            Face It Assistant 智能助手
+            FastGPT 面试官
           </span>
           <h1 className="font-poppins mt-4 text-4xl font-semibold leading-tight tracking-tight text-[#111827] sm:text-5xl md:text-6xl">
-            把问题变成
-            <span className="text-gradient"> clear answers</span>
+            把面试问题变成
+            <span className="text-gradient">更稳的回答</span>
           </h1>
           <p className="mt-4 text-base text-[#4B5563] sm:text-lg">
             {disabled
               ? "Preview the chat experience first. 登录后即可发送消息、保存会话并使用完整能力。"
-              : "结构化提问、知识检索与深度思考，在一个更专注的 workspace 里完成。"}
+              : "围绕模拟面试场景，帮你梳理思路、打磨表达，并通过追问与反馈持续提升。"}
           </p>
         </div>
 
         <div className="mt-10 opacity-0 animate-fade-up" style={{ animationDelay: "80ms", animationFillMode: "both" }}>
+          <p className="mb-3 text-center text-xs text-[#94A3B8]">
+            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">Enter</kbd> 发送
+            <span className="px-1.5">·</span>
+            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">Shift + Enter</kbd> 换行
+            {isStreaming ? <span className="ml-2 animate-pulse-soft">生成中...</span> : null}
+          </p>
           <div
             className={cn(
               "relative flex flex-col rounded-3xl border border-white/70 bg-white/80 px-5 pt-4 pb-3 shadow-soft backdrop-blur-xl transition-all duration-200",
@@ -368,7 +447,9 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                 }}
                 aria-label="发送消息"
               />
-              {isRecognizingSpeech ? <div className="pointer-events-none absolute inset-0 rounded-3xl bg-white/55" /> : null}
+              {isRecognizingSpeech ? (
+                <div className="pointer-events-none absolute inset-0 rounded-3xl bg-white/55" />
+              ) : null}
               <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[10px] bg-gradient-to-b from-white/0 via-white/40 to-white/90" />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -483,12 +564,6 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
               </span>
             </p>
           ) : null}
-          <p className="mt-3 text-center text-xs text-[#94A3B8]">
-            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">Enter</kbd> 发送
-            <span className="px-1.5">·</span>
-            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">Shift + Enter</kbd> 换行
-            {isStreaming ? <span className="ml-2 animate-pulse-soft">生成中...</span> : null}
-          </p>
         </div>
 
         <div className="mt-10 opacity-0 animate-fade-up" style={{ animationDelay: "160ms", animationFillMode: "both" }}>
@@ -517,21 +592,27 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                   )}
                 >
                   <div className="flex items-start gap-3">
-                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#F3F8FF] text-[#3B82F6] shadow-[inset_0_0_0_1px_rgba(191,219,254,0.65)]">
-                      <i className={cn("uil text-[22px] leading-none", preset.iconClass)} aria-hidden="true" />
+                    <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-white">
+                      <img
+                        src={preset.iconPath}
+                        alt=""
+                        aria-hidden="true"
+                        className="h-7 w-7 object-contain opacity-95"
+                        style={{
+                          filter:
+                            "brightness(0) saturate(100%) invert(67%) sepia(61%) saturate(1771%) hue-rotate(184deg) brightness(97%) contrast(93%)"
+                        }}
+                      />
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="text-base font-semibold text-[#0F172A]">{preset.title}</p>
                       <p className="mt-1 text-sm leading-6 text-[#64748B]">{preset.description}</p>
                     </div>
                   </div>
-                  <div className="mt-6 flex items-center justify-between border-t border-[#F1F5F9] pt-4">
-                    <span className="rounded-full bg-[#F7FAFF] px-3 py-1 text-xs font-medium text-[#3B82F6]">
-                      点击配置面试参数
-                    </span>
-                    <i
+                  <div className="mt-6 flex items-center justify-end border-t border-[#F1F5F9] pt-4">
+                    <ChevronRight
                       className={cn(
-                        "uil uil-angle-right-b text-lg leading-none transition-colors",
+                        "h-4.5 w-4.5 transition-colors",
                         isActive ? "text-[#3B82F6]" : "text-[#94A3B8] group-hover:text-[#3B82F6]"
                       )}
                       aria-hidden="true"
@@ -628,6 +709,14 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                   当前配置：难度 {interviewOptions.difficulty}，时长 {interviewOptions.timeLimitMinutes} 分钟，题量 {interviewOptions.questionLimit} 题。
                 </div>
 
+                <div className="mt-3 rounded-2xl border border-[#DBEAFE] bg-white px-4 py-3 text-sm text-[#475569]">
+                  {positionsLoading
+                    ? "正在匹配岗位配置..."
+                    : resolvedPosition
+                      ? `即将进入：${resolvedPosition.name}`
+                      : "未匹配到对应岗位配置，暂时无法直接开始该卡片对应的面试。"}
+                </div>
+
                 <DialogFooter className="mt-6 flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                   <button
                     type="button"
@@ -640,6 +729,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                     type="button"
                     className="h-11 rounded-2xl bg-[#60A5FA] px-5 text-sm font-medium text-white transition-colors hover:bg-[#3B82F6]"
                     onClick={startPresetInterview}
+                    disabled={positionsLoading || !resolvedPosition}
                   >
                     去模拟面试
                   </button>

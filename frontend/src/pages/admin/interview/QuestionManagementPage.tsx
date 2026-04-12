@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -99,7 +99,7 @@ export function QuestionManagementPage() {
       const data = positionId === "all" ? await listQuestions() : await listQuestionsByPosition(positionId);
       setQuestions(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载题目失败"));
+      feedback.error(getErrorMessage(error, "加载题目失败"));
     } finally {
       setLoading(false);
     }
@@ -107,7 +107,7 @@ export function QuestionManagementPage() {
 
   useEffect(() => {
     Promise.all([loadPositions(), loadQuestions("all")]).catch((error) => {
-      toast.error(getErrorMessage(error, "初始化题库页面失败"));
+      feedback.error(getErrorMessage(error, "初始化题库页面失败"));
       setLoading(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -157,11 +157,11 @@ export function QuestionManagementPage() {
 
   const handleSave = async () => {
     if (!form.positionId) {
-      toast.error("请选择岗位");
+      feedback.error("请选择岗位");
       return;
     }
     if (!form.questionText.trim()) {
-      toast.error("题目内容不能为空");
+      feedback.error("题目内容不能为空");
       return;
     }
     const keywords = form.keywords
@@ -179,15 +179,15 @@ export function QuestionManagementPage() {
     try {
       if (dialogState.mode === "create") {
         await createQuestion(payload);
-        toast.success("题目创建成功");
+        feedback.success("题目创建成功");
       } else if (dialogState.item?.id) {
         await updateQuestion({ id: dialogState.item.id, ...payload });
-        toast.success("题目更新成功");
+        feedback.success("题目更新成功");
       }
       setDialogState({ open: false, mode: "create", item: null });
       await loadQuestions(positionFilter);
     } catch (error) {
-      toast.error(getErrorMessage(error, "保存题目失败"));
+      feedback.error(getErrorMessage(error, "保存题目失败"));
     }
   };
 
@@ -195,11 +195,11 @@ export function QuestionManagementPage() {
     if (!deleteTarget?.id) return;
     try {
       await deleteQuestion(deleteTarget.id);
-      toast.success("题目删除成功");
+      feedback.success("题目删除成功");
       setDeleteTarget(null);
       await loadQuestions(positionFilter);
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除题目失败"));
+      feedback.error(getErrorMessage(error, "删除题目失败"));
     }
   };
 
