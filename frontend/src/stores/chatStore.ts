@@ -70,6 +70,7 @@ function computeThinkingDuration(startAt?: number | null) {
 }
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+let fetchSessionsTask: Promise<void> | null = null;
 
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
@@ -87,6 +88,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streamingMessageId: null,
   cancelRequested: false,
   fetchSessions: async () => {
+    if (fetchSessionsTask) {
+      return fetchSessionsTask;
+    }
+    fetchSessionsTask = (async () => {
     set({ isLoading: true });
     try {
       const data = await listSessions();
@@ -103,10 +108,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
       set({ sessions });
     } catch (error) {
-      toast.error((error as Error).message || "加载会话失败");
     } finally {
       set({ isLoading: false, sessionsLoaded: true });
+      fetchSessionsTask = null;
     }
+    })();
+    return fetchSessionsTask;
   },
   createSession: async () => {
     const state = get();

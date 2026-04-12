@@ -59,10 +59,10 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const renameInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
-    if (sessions.length === 0) {
+    if (!sessionsLoaded && !isLoading) {
       fetchSessions().catch(() => null);
     }
-  }, [fetchSessions, sessions.length]);
+  }, [fetchSessions, isLoading, sessionsLoaded]);
 
   const filteredSessions = React.useMemo(() => {
     const keyword = query.trim().toLowerCase();
