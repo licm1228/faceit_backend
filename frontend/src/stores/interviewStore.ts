@@ -150,12 +150,33 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     }
   },
   completeSession: async () => {
-    const { currentSession } = get();
+    const { currentSession, history, sessionDetail } = get();
     if (!currentSession?.id) return;
     set({ loading: true });
     try {
       const completed = await completeInterviewSession(currentSession.id);
-      set({ currentSession: completed });
+      const completedSession: InterviewSession = {
+        ...currentSession,
+        ...completed,
+        status: "completed",
+        endTime: completed.endTime ?? new Date().toISOString()
+      };
+      set({
+        currentSession: completedSession,
+        currentQuestion: null,
+        currentEvaluation: null,
+        followUpQuestion: null,
+        history: history.map((item) => (item.id === completedSession.id ? { ...item, ...completedSession } : item)),
+        sessionDetail: sessionDetail?.session?.id === completedSession.id
+          ? { ...sessionDetail, session: { ...sessionDetail.session, ...completedSession } }
+          : sessionDetail
+      });
+      if (currentSession.userId) {
+        await Promise.allSettled([
+          get().fetchHistory(currentSession.userId),
+          get().fetchProfileData()
+        ]);
+      }
       toast.success("面试已结束");
     } catch (error) {
       toast.error((error as Error).message || "结束面试失败");

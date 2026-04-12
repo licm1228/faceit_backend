@@ -396,7 +396,8 @@ export function InterviewPage() {
 
   const sessionQuestionLimit = currentSession?.totalQuestions ?? questionLimit;
   const sessionQuestionIndex = currentSession?.currentQuestionCount ?? Math.max(questionIndex, 1);
-  const progressValue = currentSession && currentSession.status !== "completed" ? sessionQuestionIndex : Math.max(questionIndex, 1);
+  const hasActiveSession = Boolean(currentSession && currentSession.status !== "completed");
+  const progressValue = hasActiveSession ? sessionQuestionIndex : Math.max(questionIndex, 1);
   const progressPercent = Math.min(100, Math.round((progressValue / sessionQuestionLimit) * 100));
   const minutePart = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secondPart = String(secondsLeft % 60).padStart(2, "0");
@@ -428,13 +429,13 @@ export function InterviewPage() {
                   状态：{currentSession.status || "in_progress"}
                 </span>
               ) : null}
-              {currentSession && currentSession.status !== "completed" ? (
-                  <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-semibold text-[#059669]">
+              {hasActiveSession ? (
+                <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-semibold text-[#059669]">
                   进度：{progressValue}/{sessionQuestionLimit}
                 </span>
               ) : null}
             </div>
-            {currentSession && currentSession.status !== "completed" ? (
+            {hasActiveSession ? (
               <div className="mt-3">
                 <div className="h-2.5 w-full rounded-full bg-[#E5E7EB]">
                   <div
@@ -452,7 +453,7 @@ export function InterviewPage() {
                   className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
                   value={selectedPositionId}
                   onChange={(event) => setSelectedPositionId(event.target.value)}
-                  disabled={Boolean(currentSession)}
+                  disabled={hasActiveSession}
                 >
                   {positions.map((position) => (
                     <option key={position.id} value={position.id}>
@@ -468,7 +469,7 @@ export function InterviewPage() {
                   className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
                   value={difficulty}
                   onChange={(event) => setDifficulty(Number(event.target.value))}
-                  disabled={Boolean(currentSession)}
+                  disabled={hasActiveSession}
                 >
                   {[1, 2, 3, 4, 5].map((level) => (
                     <option key={level} value={level}>
@@ -484,7 +485,7 @@ export function InterviewPage() {
                   className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
                   value={questionLimit}
                   onChange={(event) => setQuestionLimit(Number(event.target.value))}
-                  disabled={Boolean(currentSession)}
+                  disabled={hasActiveSession}
                 >
                   {[3, 5, 8, 10].map((count) => (
                     <option key={count} value={count}>
@@ -500,7 +501,7 @@ export function InterviewPage() {
                   className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
                   value={timeLimitMinutes}
                   onChange={(event) => setTimeLimitMinutes(Number(event.target.value))}
-                  disabled={Boolean(currentSession)}
+                  disabled={hasActiveSession}
                 >
                   {[10, 15, 20, 30, 45].map((minute) => (
                     <option key={minute} value={minute}>
@@ -511,13 +512,13 @@ export function InterviewPage() {
               </label>
 
               <div className="flex items-end gap-2 md:flex-col md:items-stretch">
-                {currentSession && currentSession.status !== "completed" ? (
+                {hasActiveSession ? (
                   <div className="mb-2 flex items-center gap-1 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-2.5 py-2 text-xs text-[#92400E]">
                     <Timer className="h-3.5 w-3.5" />
                     本题剩余 {minutePart}:{secondPart}
                   </div>
                 ) : null}
-                {!currentSession ? (
+                {!hasActiveSession ? (
                   <Button
                     type="button"
                     className="h-10 w-full rounded-xl"
@@ -526,7 +527,7 @@ export function InterviewPage() {
                     }}
                     disabled={loading || !selectedPositionId}
                   >
-                    开始面试
+                    {currentSession?.status === "completed" ? "开始新面试" : "开始面试"}
                   </Button>
                 ) : (
                   <Button
@@ -597,7 +598,7 @@ export function InterviewPage() {
                     onClick={() => {
                       handleNextQuestion().catch(() => null);
                     }}
-                    disabled={loading || progressValue >= sessionQuestionLimit}
+                    disabled={loading || !hasActiveSession || progressValue >= sessionQuestionLimit}
                   >
                     下一题
                   </Button>
