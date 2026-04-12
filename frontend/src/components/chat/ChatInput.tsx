@@ -22,12 +22,6 @@ export function ChatInput() {
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   
-  // 检测浏览器是否支持MediaRecorder API
-  const isMediaRecorderSupported = React.useMemo(() => {
-    const supported = typeof window !== 'undefined' && 'MediaRecorder' in window;
-    console.log('MediaRecorder support:', supported);
-    return supported;
-  }, []);
   const {
     sendMessage,
     isStreaming,
