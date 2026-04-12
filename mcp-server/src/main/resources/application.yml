@@ -3,4 +3,4 @@ server:
 
 spring:
   application:
-    name: faceit-mcp-server
+    name: ragent-mcp-server
