@@ -23,7 +23,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
- * Ragent 核心应用启动类
+ * FaceIt 核心应用启动类
  */
 @SpringBootApplication
 @EnableScheduling
@@ -34,9 +34,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.nageoffer.ai.ragent.user.dao.mapper",
         "com.nageoffer.ai.ragent.interview.mapper",
 })
-public class RagentApplication {
+public class FaceItApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(RagentApplication.class, args);
+        SpringApplication.run(FaceItApplication.class, args);
     }
 }

@@ -1,4 +1,4 @@
-# Ragent AI
+# FaceIt
 
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)
 ![Java](https://img.shields.io/badge/Java-17-ff7f2a.svg)
@@ -6,20 +6,21 @@
 ![Milvus](https://img.shields.io/badge/Milvus-2.6.x-00b3ff.svg)
 ![React](https://img.shields.io/badge/React-18-61dafb.svg)
 
-> 从 0 到 1 纯手工打造，一套真正能落地、经得起推敲的 Agentic RAG 系统。深入底层设计细节，覆盖全链路核心能力。配套完整的 RAG 学习路线、项目实战、部署教程与简历写法。
-
-新年气象，2026 年春节假期最后一天，企业级 AI RAG 正式发布！
-
-作为拿个 offer 社群在 AI 领域的第一个项目，从架构设计到每一行代码都反复打磨，质量标准对齐之前 12306、短链接等项目，不砸自己招牌。
+> 面向计算机相关专业学生的 AI 模拟面试与能力提升平台，提供岗位化题库、模拟面试、即时评估、面试报告和成长分析。
 
 ## 项目介绍
 
-先和大家说一声，**项目开源地址认准 GitHub**，别走丢啦 👀 后续源码更新、版本发布、问题修复，优先同步 GitHub。
+FaceIt 当前基于现有工程演进而来，主目标已经收敛为“AI 模拟面试与能力提升平台”。
 
-如果你想系统补上 RAG / Agent / MCP 这块知识，或者想做一个真正能写进简历、面试里聊得起来的 AI 项目，Ragent 希望给你的，不只是一个能跑起来的 Demo，而是一套更接近真实工程落地的完整实践。
+核心能力包括：
 
-- **GitHub**：[https://github.com/nageoffer/ragent](https://github.com/nageoffer/ragent)
-- **🌟官方文档（项目讲解、快速启动等）**：[https://nageoffer.com/ragent](https://nageoffer.com/ragent)
+- 岗位管理与题库管理
+- 模拟面试主流程
+- AI 评估与面试报告
+- 用户成长曲线与个性化建议
+- 管理后台与基础知识检索能力
+
+本地默认后端入口为 `http://localhost:9090/api/faceit`。
 
 问答页面预览图：
 
