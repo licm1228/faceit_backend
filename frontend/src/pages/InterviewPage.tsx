@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Mic, MicOff, Timer } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -85,6 +86,7 @@ export function InterviewPage() {
     Array<{ questionText: string; score: number; feedback: string; suggestions: string }>
   >([]);
   const [isRecording, setIsRecording] = React.useState(false);
+  const reportRef = React.useRef<HTMLDivElement | null>(null);
   const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null);
   const recordingModeRef = React.useRef<RecordingMode>(null);
   const mediaStreamRef = React.useRef<MediaStream | null>(null);
@@ -176,6 +178,12 @@ export function InterviewPage() {
       stopBackendRecording();
     };
   }, []);
+
+  React.useEffect(() => {
+    if (currentSession?.status === "completed") {
+      reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [currentSession?.status]);
 
   const stopBackendRecording = React.useCallback(async () => {
     const sampleRate = audioContextRef.current?.sampleRate ?? RECORDING_SAMPLE_RATE;
@@ -399,6 +407,12 @@ export function InterviewPage() {
   const hasActiveSession = Boolean(currentSession && currentSession.status !== "completed");
   const progressValue = hasActiveSession ? sessionQuestionIndex : Math.max(questionIndex, 1);
   const progressPercent = Math.min(100, Math.round((progressValue / sessionQuestionLimit) * 100));
+  const currentEvaluationMetrics = [
+    { label: "技术", value: currentEvaluation?.technicalScore ?? 0, max: 30 },
+    { label: "表达", value: currentEvaluation?.expressionScore ?? 0, max: 25 },
+    { label: "逻辑", value: currentEvaluation?.logicScore ?? 0, max: 25 },
+    { label: "知识", value: currentEvaluation?.knowledgeScore ?? 0, max: 20 }
+  ];
   const minutePart = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secondPart = String(secondsLeft % 60).padStart(2, "0");
   const trendData = React.useMemo(() => {
@@ -567,8 +581,9 @@ export function InterviewPage() {
                 <textarea
                   value={answerText}
                   onChange={(event) => setAnswerText(event.target.value)}
-                  placeholder="请输入你的回答..."
+                  placeholder={hasActiveSession ? "请输入你的回答..." : "当前面试已结束，请开始新面试。"}
                   className="min-h-[148px] w-full rounded-2xl border border-[#D9E3EF] bg-white px-3 py-3 text-sm leading-6 text-[#1F2937] outline-none transition-colors focus:border-[#60A5FA]"
+                  disabled={!hasActiveSession}
                 />
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
@@ -587,7 +602,7 @@ export function InterviewPage() {
                     onClick={() => {
                       handleSubmitAnswer().catch(() => null);
                     }}
-                    disabled={submitting || !answerText.trim()}
+                    disabled={submitting || !hasActiveSession || !answerText.trim()}
                   >
                     {submitting ? "提交中..." : "提交回答并评估"}
                   </Button>
@@ -633,13 +648,35 @@ export function InterviewPage() {
 
             {currentEvaluation ? (
               <div className="mt-4 rounded-2xl border border-[#D9F99D] bg-[#F7FEE7] p-4">
-                <p className="text-sm font-semibold text-[#3F6212]">本题评分：{currentEvaluation.score}</p>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
-                  反馈：{currentEvaluation.feedback}
-                </p>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
-                  建议：{currentEvaluation.suggestions}
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#3F6212]">本题评分：{currentEvaluation.score}</p>
+                  <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-[#4D7C0F]">
+                    已完成本题评估
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                  {currentEvaluationMetrics.map((item) => (
+                    <div key={item.label} className="rounded-xl border border-[#D9F99D] bg-white/80 p-3">
+                      <p className="text-xs text-[#4D7C0F]">{item.label}</p>
+                      <p className="mt-1 text-lg font-semibold text-[#365314]">
+                        {item.value}
+                        <span className="ml-1 text-xs font-normal text-[#65A30D]">/ {item.max}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 rounded-xl bg-white/70 p-3">
+                  <p className="text-xs font-semibold text-[#4D7C0F]">反馈</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
+                    {currentEvaluation.feedback || "暂无反馈"}
+                  </p>
+                </div>
+                <div className="mt-3 rounded-xl bg-white/70 p-3">
+                  <p className="text-xs font-semibold text-[#4D7C0F]">改进建议</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
+                    {currentEvaluation.suggestions || "暂无建议"}
+                  </p>
+                </div>
               </div>
             ) : null}
 
@@ -653,13 +690,24 @@ export function InterviewPage() {
             ) : null}
 
             {currentSession?.status === "completed" ? (
-              <div className="mt-4 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] p-4">
-                <p className="text-sm font-semibold text-[#1D4ED8]">
-                  面试总分：{currentSession.totalScore ?? 0}
-                </p>
-                <pre className="mt-2 max-h-[260px] overflow-auto whitespace-pre-wrap text-sm leading-6 text-[#1E3A8A]">
-                  {currentSession.evaluationReport || "报告生成中..."}
-                </pre>
+              <div ref={reportRef} className="mt-4 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#1D4ED8]">
+                    面试总分：{currentSession.totalScore ?? 0}
+                  </p>
+                  <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-[#1D4ED8]">
+                    综合报告
+                  </span>
+                </div>
+                <div className="mt-3 max-h-[360px] overflow-auto rounded-xl bg-white/80 p-4 text-sm leading-6 text-[#1E3A8A]">
+                  {currentSession.evaluationReport ? (
+                    <div className="prose prose-sm max-w-none prose-headings:text-[#1E40AF] prose-p:text-[#1E3A8A] prose-strong:text-[#1D4ED8] prose-li:text-[#1E3A8A]">
+                      <ReactMarkdown>{currentSession.evaluationReport}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p>报告生成中...</p>
+                  )}
+                </div>
               </div>
             ) : null}
           </section>

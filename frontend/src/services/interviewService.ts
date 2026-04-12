@@ -34,6 +34,10 @@ export interface InterviewSession {
 
 export interface AnswerEvaluation {
   score: number;
+  technicalScore?: number;
+  expressionScore?: number;
+  logicScore?: number;
+  knowledgeScore?: number;
   feedback: string;
   suggestions: string;
 }
