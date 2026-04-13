@@ -19,8 +19,11 @@ export function Header({ onToggleSidebar }: HeaderProps) {
   );
 
   const pageTitle = React.useMemo(() => {
-    if (location.pathname.startsWith("/interview")) {
-      return "模拟面试";
+    if (location.pathname.startsWith("/interview-report")) {
+      return "面试评估报告";
+    }
+    if (location.pathname.startsWith("/chat")) {
+      return currentSession?.title || "聊天面试";
     }
     return currentSession?.title || "新对话";
   }, [currentSession?.title, location.pathname]);

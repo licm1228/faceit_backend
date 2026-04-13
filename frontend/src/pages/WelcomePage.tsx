@@ -35,7 +35,7 @@ const footerGroups = [
     title: "Company",
     links: [
       { label: "Face It", to: "/" },
-      { label: "Mock Interview", to: "/interview" },
+      { label: "Mock Interview", to: "/chat" },
       { label: "Admin", to: "/admin" }
     ]
   },
