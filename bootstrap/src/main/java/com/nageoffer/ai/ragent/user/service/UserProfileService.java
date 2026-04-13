@@ -27,6 +27,7 @@ import com.nageoffer.ai.ragent.interview.service.QuestionService;
 import com.nageoffer.ai.ragent.user.controller.vo.GrowthCurvePointVO;
 import com.nageoffer.ai.ragent.user.controller.vo.InterviewHistoryDetailVO;
 import com.nageoffer.ai.ragent.user.controller.vo.RecommendationVO;
+import com.nageoffer.ai.ragent.user.controller.vo.RecommendedPracticeVO;
 import com.nageoffer.ai.ragent.user.controller.vo.UserProfileVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,8 +38,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -124,6 +127,8 @@ public class UserProfileService {
                 ? "您还未完成有效面试结果，建议先完成一次完整模拟面试。"
                 : String.format("您当前平均得分 %.1f 分，建议优先练习以下方向。", profile.getAverageScore());
         String nextStep = buildNextStep(profile.getAverageScore(), profile.getCompletedSessions());
+        List<String> learningSuggestions = buildLearningSuggestions(focusAreas, profile.getAverageScore());
+        List<RecommendedPracticeVO> recommendedPractices = buildRecommendedPractices(userId, focusAreas);
 
         return RecommendationVO.builder()
                 .summary(summary)
@@ -131,6 +136,8 @@ public class UserProfileService {
                 .nextStep(nextStep)
                 .averageScore(profile.getAverageScore())
                 .completedSessions(profile.getCompletedSessions())
+                .learningSuggestions(learningSuggestions)
+                .recommendedPractices(recommendedPractices)
                 .build();
     }
 
@@ -210,6 +217,87 @@ public class UserProfileService {
             return "整理易错题类型，集中攻克中等难度题。";
         }
         return "尝试高难度题并复盘答题过程，提升综合应对能力。";
+    }
+
+    private List<String> buildLearningSuggestions(List<String> focusAreas, double averageScore) {
+        Set<String> suggestions = new LinkedHashSet<>();
+        if (focusAreas != null) {
+            for (String area : focusAreas) {
+                if (area == null || area.isBlank()) {
+                    continue;
+                }
+                suggestions.add("复盘 " + area + " 的核心概念、常见追问和项目落地场景");
+                suggestions.add("针对 " + area + " 做 2-3 道专项题，重点补齐答题结构和细节");
+            }
+        }
+        if (averageScore < 70) {
+            suggestions.add("先用中低难度题重建答题框架，再逐步提升到高频中档题");
+        } else {
+            suggestions.add("在保持准确率的基础上，多练习取舍分析和项目化表达");
+        }
+        return suggestions.stream().limit(4).toList();
+    }
+
+    private List<RecommendedPracticeVO> buildRecommendedPractices(String userId, List<String> focusAreas) {
+        List<InterviewSessionEntity> sessions = interviewSessionService.getSessionsByUserId(userId);
+        InterviewSessionEntity latestCompleted = sessions.stream()
+                .filter(session -> session != null && "completed".equalsIgnoreCase(session.getStatus()))
+                .sorted(Comparator.comparing(InterviewSessionEntity::getUpdateTime, Comparator.nullsLast(Comparator.reverseOrder())))
+                .findFirst()
+                .orElse(null);
+        String positionId = latestCompleted == null ? null : latestCompleted.getPositionId();
+        if (positionId == null) {
+            return List.of();
+        }
+        Set<String> focusSet = focusAreas == null ? Set.of() : focusAreas.stream().filter(item -> item != null && !item.isBlank()).collect(Collectors.toSet());
+        return questionService.getQuestionsByPosition(positionId).stream()
+                .sorted(Comparator.comparingInt((QuestionEntity question) -> practicePriority(question, focusSet)).reversed())
+                .limit(3)
+                .map(question -> RecommendedPracticeVO.builder()
+                        .id(question.getId())
+                        .questionText(question.getQuestionText())
+                        .questionType(question.getQuestionType())
+                        .difficulty(question.getDifficulty())
+                        .knowledgeTags(question.getKeywordList())
+                        .recommendationReason(buildPracticeReason(question, focusSet))
+                        .build())
+                .toList();
+    }
+
+    private int practicePriority(QuestionEntity question, Set<String> focusAreas) {
+        if (question == null) {
+            return 0;
+        }
+        int score = 0;
+        if (focusAreas.contains(question.getQuestionType())) {
+            score += 4;
+        }
+        if (question.getKeywordList() != null) {
+            for (String keyword : question.getKeywordList()) {
+                if (focusAreas.contains(keyword)) {
+                    score += 2;
+                }
+            }
+        }
+        score += Math.max(0, 6 - (question.getDifficulty() == null ? 3 : question.getDifficulty()));
+        return score;
+    }
+
+    private String buildPracticeReason(QuestionEntity question, Set<String> focusAreas) {
+        if (question == null) {
+            return "建议继续完成专项训练。";
+        }
+        if (focusAreas.contains(question.getQuestionType())) {
+            return "这道题与您当前的薄弱题型直接相关，适合优先补强。";
+        }
+        if (question.getKeywordList() != null) {
+            for (String keyword : question.getKeywordList()) {
+                if (focusAreas.contains(keyword)) {
+                    return "这道题覆盖了您近期需要强化的知识点，适合用于针对性复练。";
+                }
+            }
+        }
+        return "这道题属于当前岗位的高频考点，可用于继续稳固核心能力。";
     }
 
     private GrowthCurvePointVO toCurvePoint(InterviewSessionEntity session) {

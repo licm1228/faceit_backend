@@ -121,6 +121,15 @@ export interface Recommendation {
   nextStep: string;
   averageScore: number;
   completedSessions: number;
+  learningSuggestions?: string[];
+  recommendedPractices?: Array<{
+    id: string;
+    questionText: string;
+    questionType?: string;
+    difficulty?: number;
+    knowledgeTags?: string[];
+    recommendationReason?: string;
+  }>;
 }
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");

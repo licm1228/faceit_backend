@@ -28,19 +28,17 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RecommendationVO {
+public class RecommendedPracticeVO {
 
-    private String summary;
+    private String id;
 
-    private List<String> focusAreas;
+    private String questionText;
 
-    private String nextStep;
+    private String questionType;
 
-    private double averageScore;
+    private Integer difficulty;
 
-    private int completedSessions;
+    private List<String> knowledgeTags;
 
-    private List<String> learningSuggestions;
-
-    private List<RecommendedPracticeVO> recommendedPractices;
+    private String recommendationReason;
 }

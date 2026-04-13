@@ -1132,6 +1132,37 @@ export function InterviewPage() {
                   <div className="mt-2 rounded-lg bg-[#F8FAFF] p-2.5 text-xs text-[#1E40AF]">
                     <p className="font-medium">{recommendation.summary}</p>
                     <p className="mt-1">下一步：{recommendation.nextStep}</p>
+                    {profile.weakTopics?.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {profile.weakTopics.map((topic) => (
+                          <span key={topic} className="rounded-full border border-[#D6E4FF] bg-white px-2.5 py-1 text-[11px] text-[#475467]">
+                            {topic}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {recommendation.learningSuggestions?.length ? (
+                      <div className="mt-3 rounded-2xl bg-white px-3 py-3 text-[11px] leading-5 text-[#475467]">
+                        {recommendation.learningSuggestions.map((item, index) => (
+                          <p key={`${item}-${index}`}>{index + 1}. {item}</p>
+                        ))}
+                      </div>
+                    ) : null}
+                    {recommendation.recommendedPractices?.length ? (
+                      <div className="mt-3 space-y-2">
+                        {recommendation.recommendedPractices.map((practice) => (
+                          <div key={practice.id} className="rounded-2xl border border-[#D6E4FF] bg-white px-3 py-3 text-[11px] text-[#334155]">
+                            <p className="font-medium text-[#0F172A]">{practice.questionText}</p>
+                            <p className="mt-1 text-[#64748B]">
+                              {practice.questionType || "专项题"} · 难度 {practice.difficulty || "-"}
+                            </p>
+                            {practice.recommendationReason ? (
+                              <p className="mt-2 leading-5">{practice.recommendationReason}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
