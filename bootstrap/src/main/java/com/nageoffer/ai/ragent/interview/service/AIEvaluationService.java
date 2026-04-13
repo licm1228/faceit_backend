@@ -386,13 +386,14 @@ public class AIEvaluationService {
                 "4. 知识覆盖度（0-20分）\n" +
                 "总分为各项之和（0-100分）\n" +
                 "同时提供详细的反馈和改进建议，并判断是否应该继续追问。\n" +
+                "你还需要给候选人一句可以直接说出口的即时反馈，要求 1-2 句，先点出亮点，再指出一个最需要改进的问题，语气自然，不要像报告。\n" +
                 "你必须像真实技术面试官一样追问，而不是像题库老师出补全题。\n" +
                 "追问规则：\n" +
                 "1. 每轮最多只追问一个关键点，只能有一个追问意图和一个追问聚焦点。\n" +
                 "2. 如果候选人已经提到某个点，不得要求其完整复述或重新列举。\n" +
                 "3. 优先顺序：补关键缺口 -> 判断理解是否真实 -> 问场景应用 -> 问取舍原因 -> 问实现细节。\n" +
                 "4. 禁止把原题改写成更细的背诵题，禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”等考试式措辞。\n" +
-                "5. 如果当前追问轮次已达到 2，默认不要继续追问。\n" +
+                "5. 如果当前追问轮次已达到 3，默认不要继续追问。\n" +
                 "6. 如果上一轮已经围绕某个聚焦点追问，本轮不得重复同一聚焦点，也不得延续同一追问意图。\n" +
                 "7. 追问语气必须像口头面试，短、自然、针对性强。\n" +
                 "8. 如果回答已经足够完整，就直接进入下一题，不要为了互动而强行追问。\n" +
@@ -403,6 +404,7 @@ public class AIEvaluationService {
                 "岗位匹配度：[分数]\n" +
                 "逻辑清晰度：[分数]\n" +
                 "知识覆盖度：[分数]\n" +
+                "即时反馈：[1-2句口语化反馈]\n" +
                 "反馈：[详细反馈]\n" +
                 "建议：[改进建议]\n" +
                 "已覆盖要点：[逗号分隔]\n" +
@@ -578,6 +580,7 @@ public class AIEvaluationService {
         evaluation.put("expressionScore", 0);
         evaluation.put("logicScore", 0);
         evaluation.put("knowledgeScore", 0);
+        evaluation.put("instantFeedback", "");
         evaluation.put("feedback", "");
         evaluation.put("suggestions", "");
         evaluation.put("shouldFollowUp", false);
@@ -613,6 +616,7 @@ public class AIEvaluationService {
             extractScore(result, "岗位匹配度：", "expressionScore", evaluation);
             extractScore(result, "逻辑清晰度：", "logicScore", evaluation);
             extractScore(result, "知识覆盖度：", "knowledgeScore", evaluation);
+            extractText(result, "即时反馈：", "instantFeedback", evaluation, "反馈：");
 
             // 尝试提取反馈
             int feedbackIndex = result.indexOf("反馈：");
@@ -662,6 +666,9 @@ public class AIEvaluationService {
                 evaluation.put("feedback", "评估完成");
                 evaluation.put("suggestions", "继续努力");
             }
+            if (evaluation.get("instantFeedback").equals("")) {
+                evaluation.put("instantFeedback", buildFallbackInstantFeedback(evaluation));
+            }
         } catch (Exception e) {
             System.err.println("Parse error: " + e.getMessage());
         }
@@ -697,6 +704,46 @@ public class AIEvaluationService {
         }
         String value = result.substring(index + prefix.length(), endIndex).trim();
         evaluation.put(key, value);
+    }
+
+    private String buildFallbackInstantFeedback(Map<String, Object> evaluation) {
+        String feedback = toSafeText(evaluation.get("feedback"), "");
+        String suggestions = toSafeText(evaluation.get("suggestions"), "");
+        String feedbackSentence = firstSentence(feedback);
+        String suggestionSentence = firstSentence(suggestions);
+
+        if (!feedbackSentence.isBlank() && !suggestionSentence.isBlank()) {
+            return feedbackSentence + " " + suggestionSentence;
+        }
+        if (!feedbackSentence.isBlank()) {
+            return feedbackSentence;
+        }
+        if (!suggestionSentence.isBlank()) {
+            return suggestionSentence;
+        }
+        return "这题回答有一定基础，但还可以再把关键概念和推导过程说得更完整一些。";
+    }
+
+    private String firstSentence(String text) {
+        String normalized = toSafeText(text, "")
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        int splitIndex = -1;
+        for (String delimiter : Arrays.asList("。", "！", "？", ".", "!", "?", ";", "；")) {
+            int idx = normalized.indexOf(delimiter);
+            if (idx >= 0 && (splitIndex == -1 || idx < splitIndex)) {
+                splitIndex = idx;
+            }
+        }
+        if (splitIndex >= 0) {
+            return normalized.substring(0, splitIndex + 1).trim();
+        }
+        return normalized;
     }
 
     private void extractList(String result, String prefix, String key, Map<String, Object> evaluation) {
