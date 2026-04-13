@@ -53,6 +53,7 @@ function resetChatState() {
       timeLimitMinutes: 20,
       questionLimit: 5
     },
+    chatMode: "interview",
     isStreaming: false,
     isCreatingNew: false,
     deepThinkingEnabled: false,
@@ -129,6 +130,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         timeLimitMinutes: 20,
         questionLimit: 5
       },
+      chatMode: "interview",
       isStreaming: false,
       isCreatingNew: false,
       deepThinkingEnabled: false,

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { feedback as feedbackStore } from "@/stores/useFeedbackStore";
 
 import type {
+  ChatMode,
   CompletionPayload,
   FeedbackValue,
   InterviewDraftConfig,
@@ -45,6 +46,7 @@ interface ChatState {
   inputFocusKey: number;
   isStreaming: boolean;
   isCreatingNew: boolean;
+  chatMode: ChatMode;
   deepThinkingEnabled: boolean;
   thinkingStartAt: number | null;
   streamTaskId: string | null;
@@ -58,6 +60,8 @@ interface ChatState {
   renameSession: (sessionId: string, title: string) => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   updateSessionTitle: (sessionId: string, title: string) => void;
+  setChatMode: (mode: ChatMode) => void;
+  cycleChatMode: () => void;
   setDeepThinkingEnabled: (enabled: boolean) => void;
   setInterviewDraftConfig: (patch: Partial<InterviewDraftConfig>) => void;
   sendMessage: (content: string, speechAnalysis?: SpeechAnalysis | null) => Promise<void>;
@@ -122,6 +126,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, ""
 let fetchSessionsTask: Promise<void> | null = null;
 let selectSessionTask: Promise<void> | null = null;
 let selectingSessionId: string | null = null;
+const CHAT_MODE_SEQUENCE: ChatMode[] = ["interview", "study", "free"];
 
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
@@ -135,6 +140,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   inputFocusKey: 0,
   isStreaming: false,
   isCreatingNew: false,
+  chatMode: "interview",
   deepThinkingEnabled: false,
   thinkingStartAt: null,
   streamTaskId: null,
@@ -182,6 +188,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (state.messages.length === 0 && !state.currentSessionId) {
       set({
         isCreatingNew: true,
+        chatMode: "interview",
         isLoading: false,
         thinkingStartAt: null,
         deepThinkingEnabled: false,
@@ -201,6 +208,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isStreaming: false,
       isLoading: false,
       isCreatingNew: true,
+      chatMode: "interview",
       deepThinkingEnabled: false,
       thinkingStartAt: null,
       streamTaskId: null,
@@ -372,6 +380,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       )
     }));
   },
+  setChatMode: (mode) => {
+    set({ chatMode: mode });
+  },
+  cycleChatMode: () => {
+    set((state) => {
+      const index = CHAT_MODE_SEQUENCE.indexOf(state.chatMode);
+      const nextIndex = index >= 0 ? (index + 1) % CHAT_MODE_SEQUENCE.length : 0;
+      return { chatMode: CHAT_MODE_SEQUENCE[nextIndex] };
+    });
+  },
   setDeepThinkingEnabled: (enabled) => {
     set({ deepThinkingEnabled: enabled });
   },
@@ -525,7 +543,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
-    if (get().currentSessionType !== "interview") {
+    if (get().chatMode === "interview" && get().currentSessionType !== "interview") {
       try {
         const resolved = await resolveInterviewConfig(trimmed);
         if (resolved.matched && resolved.positionId) {

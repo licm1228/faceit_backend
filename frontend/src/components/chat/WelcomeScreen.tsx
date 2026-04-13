@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Brain, ChevronRight, Lightbulb, Mic, MicOff, Send, Square } from "lucide-react";
+import { BookOpen, Brain, ChevronRight, Lightbulb, MessageCircle, Mic, MicOff, Send, Square } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { FaceItMark } from "@/components/common/FaceItMark";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { listPositions, recognizeSpeechBase64, type Position } from "@/services/interviewService";
 import { useChatStore } from "@/stores/chatStore";
 import { feedback } from "@/stores/useFeedbackStore";
+import type { ChatMode } from "@/types";
 
 type JobPreset = {
   id: string;
@@ -89,8 +90,16 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
-  const { sendMessage, isStreaming, cancelGeneration, deepThinkingEnabled, setDeepThinkingEnabled, startInterviewSession } =
-    useChatStore();
+  const {
+    sendMessage,
+    isStreaming,
+    cancelGeneration,
+    chatMode,
+    cycleChatMode,
+    deepThinkingEnabled,
+    setDeepThinkingEnabled,
+    startInterviewSession
+  } = useChatStore();
   const isMediaRecorderSupported = React.useMemo(
     () => typeof window !== "undefined" && "MediaRecorder" in window,
     []
@@ -162,6 +171,37 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   };
 
   const hasContent = value.trim().length > 0;
+  const modeMeta = React.useMemo<Record<ChatMode, {
+    label: string;
+    description: string;
+    placeholder: string;
+    icon: typeof Brain;
+    activeClassName: string;
+  }>>(() => ({
+    interview: {
+      label: "面试模式",
+      description: "自动识别面试需求并进入模拟面试",
+      placeholder: "输入岗位、时长和题量，例如：来一场 Java 后端 30 分钟 5 题面试...",
+      icon: Brain,
+      activeClassName: "border-[#BFDBFE] bg-[#DBEAFE] text-[#2563EB]"
+    },
+    study: {
+      label: "学习模式",
+      description: "使用当前 Chat 能力，检索知识库并结合模型回答",
+      placeholder: "输入知识点、项目问题或面试题复盘，例如：帮我讲解 Redis 持久化与高可用...",
+      icon: BookOpen,
+      activeClassName: "border-[#C7E9D5] bg-[#EAF8EF] text-[#15803D]"
+    },
+    free: {
+      label: "自由聊天",
+      description: "关闭面试自动识别，按普通对话发送",
+      placeholder: "输入任何你想聊的话题，系统不会自动切换到面试...",
+      icon: MessageCircle,
+      activeClassName: "border-[#E5E7EB] bg-[#F3F4F6] text-[#374151]"
+    }
+  }), []);
+  const currentModeMeta = modeMeta[chatMode];
+  const CurrentModeIcon = currentModeMeta.icon;
 
   const startRecording = async () => {
     try {
@@ -424,8 +464,8 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                     : isRecognizingSpeech
                       ? "语音识别中，请稍候..."
                       : deepThinkingEnabled
-                        ? "输入更需要深入分析的问题..."
-                        : "输入你的问题，Ask anything..."
+                        ? `${currentModeMeta.placeholder} 需要更深入分析时可配合深度思考。`
+                        : currentModeMeta.placeholder
                 }
                 className="max-h-40 min-h-[52px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 text-[15px] text-[#1F2937] placeholder:text-[#9CA3AF] focus:outline-none sm:text-base"
                 rows={1}
@@ -456,6 +496,21 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
               <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[10px] bg-gradient-to-b from-white/0 via-white/40 to-white/90" />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={cycleChatMode}
+                disabled={disabled || isStreaming || isRecognizingSpeech}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
+                  currentModeMeta.activeClassName,
+                  (disabled || isStreaming || isRecognizingSpeech) && "cursor-not-allowed opacity-60"
+                )}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <CurrentModeIcon className="h-3.5 w-3.5" />
+                  {currentModeMeta.label}
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => setDeepThinkingEnabled(!deepThinkingEnabled)}
@@ -548,6 +603,14 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
               <span className="inline-flex items-center gap-1.5">
                 <Lightbulb className="h-3.5 w-3.5" />
                 深度思考模式已开启，AI将进行更深入的分析推理
+              </span>
+            </p>
+          ) : null}
+          {!disabled ? (
+            <p className="mt-2 text-xs text-[#64748B]">
+              <span className="inline-flex items-center gap-1.5">
+                <CurrentModeIcon className="h-3.5 w-3.5" />
+                {currentModeMeta.description}
               </span>
             </p>
           ) : null}

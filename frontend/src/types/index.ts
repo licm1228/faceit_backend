@@ -4,6 +4,8 @@ export type FeedbackValue = "like" | "dislike" | null;
 
 export type MessageStatus = "streaming" | "done" | "cancelled" | "error";
 
+export type ChatMode = "interview" | "study" | "free";
+
 export interface User {
   userId: string;
   username?: string;
