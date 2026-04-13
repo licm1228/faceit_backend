@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.interview.controller;
 
+import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.interview.entity.InterviewAnswerEntity;
 import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
@@ -25,13 +26,22 @@ import com.nageoffer.ai.ragent.interview.service.InterviewAnswerService;
 import com.nageoffer.ai.ragent.interview.service.InterviewRetrieveService;
 import com.nageoffer.ai.ragent.interview.service.InterviewSessionService;
 import com.nageoffer.ai.ragent.interview.service.QuestionService;
+import com.nageoffer.ai.ragent.infra.config.AIModelProperties;
+import com.nageoffer.ai.ragent.rag.dto.MessageDelta;
+import com.nageoffer.ai.ragent.rag.enums.SSEEventType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.time.LocalDateTime;
 
 @RestController
@@ -44,6 +54,9 @@ public class InterviewController {
     private final InterviewSessionService interviewSessionService;
     private final InterviewAnswerService interviewAnswerService;
     private final AIEvaluationService aiEvaluationService;
+    private final AIModelProperties aiModelProperties;
+    @Qualifier("modelStreamExecutor")
+    private final Executor modelStreamExecutor;
 
     /**
      * 创建面试会话
@@ -193,6 +206,17 @@ public class InterviewController {
         return result;
     }
 
+    @PostMapping(value = "/submit-answer/stream", produces = "text/event-stream;charset=UTF-8")
+    public SseEmitter submitAnswerStream(
+            @RequestParam String sessionId,
+            @RequestParam String questionId,
+            @RequestBody String userAnswer) {
+
+        SseEmitter emitter = new SseEmitter(0L);
+        CompletableFuture.runAsync(() -> doSubmitAnswerStream(sessionId, questionId, userAnswer, emitter), modelStreamExecutor);
+        return emitter;
+    }
+
     /**
      * 生成追问
      * @param sessionId 会话ID
@@ -216,6 +240,17 @@ public class InterviewController {
         result.put("code", 200);
         result.put("data", followUpQuestion);
         return result;
+    }
+
+    @PostMapping(value = "/ask-follow-up/stream", produces = "text/event-stream;charset=UTF-8")
+    public SseEmitter askFollowUpStream(
+            @RequestParam String sessionId,
+            @RequestParam String questionId,
+            @RequestBody String userAnswer) {
+
+        SseEmitter emitter = new SseEmitter(0L);
+        CompletableFuture.runAsync(() -> doAskFollowUpStream(questionId, userAnswer, emitter), modelStreamExecutor);
+        return emitter;
     }
 
     /**
@@ -264,6 +299,15 @@ public class InterviewController {
         result.put("code", 200);
         result.put("data", session);
         return result;
+    }
+
+    @PostMapping(value = "/complete-session/stream", produces = "text/event-stream;charset=UTF-8")
+    public SseEmitter completeSessionStream(
+            @RequestParam String sessionId) {
+
+        SseEmitter emitter = new SseEmitter(0L);
+        CompletableFuture.runAsync(() -> doCompleteSessionStream(sessionId, emitter), modelStreamExecutor);
+        return emitter;
     }
 
     /**
@@ -358,5 +402,109 @@ public class InterviewController {
         response.put("code", 200);
         response.put("data", result);
         return response;
+    }
+
+    private void doSubmitAnswerStream(String sessionId, String questionId, String userAnswer, SseEmitter emitter) {
+        SseEmitterSender sender = new SseEmitterSender(emitter);
+        try {
+            InterviewAnswerEntity answer = interviewAnswerService.saveAnswer(sessionId, questionId, userAnswer);
+            QuestionEntity question = questionService.getQuestionById(questionId);
+            Map<String, Object> evaluation = aiEvaluationService.evaluateAnswer(question, userAnswer);
+
+            interviewAnswerService.evaluateAnswer(answer.getId(),
+                    (Integer) evaluation.get("score"),
+                    (Integer) evaluation.get("technicalScore"),
+                    (Integer) evaluation.get("expressionScore"),
+                    (Integer) evaluation.get("logicScore"),
+                    (Integer) evaluation.get("knowledgeScore"),
+                    (String) evaluation.get("feedback"),
+                    (String) evaluation.get("suggestions"));
+
+            sendChunkedText(sender, "feedback", (String) evaluation.get("feedback"));
+            sendChunkedText(sender, "suggestions", (String) evaluation.get("suggestions"));
+            sender.sendEvent(SSEEventType.FINISH.value(), evaluation);
+            sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
+            sender.complete();
+        } catch (Exception ex) {
+            sender.fail(ex);
+        }
+    }
+
+    private void doAskFollowUpStream(String questionId, String userAnswer, SseEmitter emitter) {
+        SseEmitterSender sender = new SseEmitterSender(emitter);
+        try {
+            QuestionEntity originalQuestion = questionService.getQuestionById(questionId);
+            QuestionEntity followUpQuestion = aiEvaluationService.generateFollowUpQuestion(originalQuestion, userAnswer);
+            sendChunkedText(sender, "follow_up", followUpQuestion == null ? "" : followUpQuestion.getQuestionText());
+            sender.sendEvent(SSEEventType.FINISH.value(), followUpQuestion);
+            sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
+            sender.complete();
+        } catch (Exception ex) {
+            sender.fail(ex);
+        }
+    }
+
+    private void doCompleteSessionStream(String sessionId, SseEmitter emitter) {
+        SseEmitterSender sender = new SseEmitterSender(emitter);
+        try {
+            List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(sessionId);
+            int totalScore = 0;
+            List<Map<String, Object>> answerEvaluations = new ArrayList<>();
+            for (InterviewAnswerEntity answer : answers) {
+                totalScore += answer.getScore() == null ? 0 : answer.getScore();
+                Map<String, Object> eval = new LinkedHashMap<>();
+                eval.put("score", answer.getScore());
+                eval.put("technicalScore", answer.getTechnicalScore());
+                eval.put("expressionScore", answer.getExpressionScore());
+                eval.put("logicScore", answer.getLogicScore());
+                eval.put("knowledgeScore", answer.getKnowledgeScore());
+                eval.put("feedback", answer.getFeedback());
+                eval.put("suggestions", answer.getSuggestions());
+                answerEvaluations.add(eval);
+            }
+            int averageScore = answers.isEmpty() ? 0 : Math.round((float) totalScore / answers.size());
+            String evaluationReport = aiEvaluationService.generateEvaluationReport(
+                    sessionId,
+                    answerEvaluations.toArray(new Map[0])
+            );
+            InterviewSessionEntity session = interviewSessionService.completeSession(
+                    sessionId,
+                    averageScore,
+                    evaluationReport
+            );
+
+            sendChunkedText(sender, "report", evaluationReport);
+            sender.sendEvent(SSEEventType.FINISH.value(), session);
+            sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
+            sender.complete();
+        } catch (Exception ex) {
+            sender.fail(ex);
+        }
+    }
+
+    private void sendChunkedText(SseEmitterSender sender, String type, String content) {
+        if (content == null || content.isBlank()) {
+            return;
+        }
+        int chunkSize = Math.max(1, Optional.ofNullable(aiModelProperties.getStream())
+                .map(AIModelProperties.Stream::getMessageChunkSize)
+                .orElse(5));
+        int idx = 0;
+        int count = 0;
+        StringBuilder buffer = new StringBuilder();
+        while (idx < content.length()) {
+            int codePoint = content.codePointAt(idx);
+            buffer.appendCodePoint(codePoint);
+            idx += Character.charCount(codePoint);
+            count++;
+            if (count >= chunkSize) {
+                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(type, buffer.toString()));
+                buffer.setLength(0);
+                count = 0;
+            }
+        }
+        if (!buffer.isEmpty()) {
+            sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(type, buffer.toString()));
+        }
     }
 }

@@ -7,6 +7,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 
 import { Button } from "@/components/ui/button";
 import { VoiceEqualizerIcon } from "@/components/common/VoiceInputVisual";
+import { useTypewriterText } from "@/hooks/useTypewriterText";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { recognizeSpeechBase64, type Position } from "@/services/interviewService";
 import { useAuthStore } from "@/stores/authStore";
@@ -101,6 +102,10 @@ function matchPositionKeywords(position: Position, keywords: string[]) {
   return keywords.some((keyword) => searchText.includes(keyword));
 }
 
+function TypewriterCursor() {
+  return <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current align-middle" />;
+}
+
 export function InterviewPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -119,6 +124,13 @@ export function InterviewPage() {
     difficulty,
     loading,
     submitting,
+    isStreamingEvaluation,
+    isStreamingFollowUp,
+    isStreamingReport,
+    streamingFeedback,
+    streamingSuggestions,
+    streamingFollowUpText,
+    streamingReport,
     fetchPositions,
     fetchHistory,
     createAndStartSession,
@@ -129,6 +141,7 @@ export function InterviewPage() {
     fetchSessionDetail,
     fetchProfileData,
     setDifficulty,
+    cancelStreaming,
     resetCurrentFlow
   } = useInterviewStore();
   const [selectedPositionId, setSelectedPositionId] = React.useState("");
@@ -585,6 +598,35 @@ export function InterviewPage() {
         score: item.totalScore as number
       }));
   }, [growthCurve, history]);
+  const typedQuestionText = useTypewriterText({
+    text: currentQuestion?.questionText,
+    enabled: Boolean(currentQuestion?.questionText),
+    resetKey: currentQuestion?.id ?? currentSession?.id ?? "question"
+  });
+  const typedFeedbackText = useTypewriterText({
+    text: currentEvaluation?.feedback,
+    enabled: Boolean(currentEvaluation?.feedback) && !streamingFeedback,
+    resetKey: currentQuestion?.id ? `${currentQuestion.id}-feedback` : "feedback"
+  });
+  const typedSuggestionsText = useTypewriterText({
+    text: currentEvaluation?.suggestions,
+    enabled: Boolean(currentEvaluation?.suggestions) && !streamingSuggestions,
+    resetKey: currentQuestion?.id ? `${currentQuestion.id}-suggestions` : "suggestions"
+  });
+  const typedFollowUpText = useTypewriterText({
+    text: followUpQuestion?.questionText,
+    enabled: Boolean(followUpQuestion?.questionText) && !streamingFollowUpText,
+    resetKey: followUpQuestion?.id ?? followUpQuestion?.questionText ?? "follow-up"
+  });
+  const typedReportText = useTypewriterText({
+    text: currentSession?.evaluationReport,
+    enabled: Boolean(currentSession?.evaluationReport) && !streamingReport,
+    resetKey: currentSession?.id ? `${currentSession.id}-report` : "report"
+  });
+  const visibleFeedbackText = streamingFeedback || typedFeedbackText.displayText;
+  const visibleSuggestionsText = streamingSuggestions || typedSuggestionsText.displayText;
+  const visibleFollowUpText = streamingFollowUpText || typedFollowUpText.displayText;
+  const visibleReportText = streamingReport || typedReportText.displayText;
 
   return (
     <MainLayout>
@@ -718,7 +760,8 @@ export function InterviewPage() {
               <div className="mt-5 rounded-2xl border border-[#E6EEF6] bg-[#FCFEFF] p-4">
                 <p className="text-xs font-medium text-[#64748B]">当前题目</p>
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#1E293B]">
-                  {currentQuestion.questionText}
+                  {typedQuestionText.displayText}
+                  {typedQuestionText.isAnimating ? <TypewriterCursor /> : null}
                 </p>
                 <div className="mt-2 text-xs text-[#64748B]">
                   难度：{currentQuestion.difficulty ?? difficulty}
@@ -773,9 +816,9 @@ export function InterviewPage() {
                       onClick={() => {
                         handleSubmitAnswer().catch(() => null);
                       }}
-                      disabled={submitting || !hasActiveSession || !answerText.trim()}
+                      disabled={submitting || isStreamingEvaluation || !hasActiveSession || !answerText.trim()}
                     >
-                      {submitting ? "提交中..." : "提交回答并评估"}
+                      {submitting || isStreamingEvaluation ? "提交中..." : "提交回答并评估"}
                     </Button>
                     <Button
                       type="button"
@@ -784,7 +827,7 @@ export function InterviewPage() {
                       onClick={() => {
                         handleNextQuestion().catch(() => null);
                       }}
-                      disabled={loading || !hasActiveSession || progressValue >= sessionQuestionLimit}
+                      disabled={loading || submitting || isStreamingEvaluation || isStreamingFollowUp || isStreamingReport || !hasActiveSession || progressValue >= sessionQuestionLimit}
                     >
                       下一题
                     </Button>
@@ -795,7 +838,7 @@ export function InterviewPage() {
                       onClick={() => {
                         generateFollowUp(answerText).catch(() => null);
                       }}
-                      disabled={!answerText.trim() || currentSession.status === "completed"}
+                      disabled={loading || submitting || isStreamingEvaluation || isStreamingFollowUp || isStreamingReport || !answerText.trim() || currentSession.status === "completed"}
                     >
                       生成追问
                     </Button>
@@ -804,6 +847,7 @@ export function InterviewPage() {
                       variant="ghost"
                       className="h-10 rounded-xl"
                       onClick={() => {
+                        cancelStreaming();
                         resetCurrentFlow();
                         setAnswerText("");
                         setQuestionIndex(0);
@@ -818,12 +862,12 @@ export function InterviewPage() {
               </div>
             ) : null}
 
-            {currentEvaluation ? (
+            {currentEvaluation || isStreamingEvaluation || visibleFeedbackText || visibleSuggestionsText ? (
               <div className="mt-4 rounded-2xl border border-[#D9F99D] bg-[#F7FEE7] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-[#3F6212]">本题评分：{currentEvaluation.score}</p>
+                  <p className="text-sm font-semibold text-[#3F6212]">本题评分：{currentEvaluation?.score ?? "--"}</p>
                   <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-[#4D7C0F]">
-                    已完成本题评估
+                    {isStreamingEvaluation ? "评估生成中" : "已完成本题评估"}
                   </span>
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-4">
@@ -840,41 +884,45 @@ export function InterviewPage() {
                 <div className="mt-3 rounded-xl bg-white/70 p-3">
                   <p className="text-xs font-semibold text-[#4D7C0F]">反馈</p>
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
-                    {currentEvaluation.feedback || "暂无反馈"}
+                    {visibleFeedbackText || "暂无反馈"}
+                    {isStreamingEvaluation || (!streamingFeedback && currentEvaluation.feedback && typedFeedbackText.isAnimating) ? <TypewriterCursor /> : null}
                   </p>
                 </div>
                 <div className="mt-3 rounded-xl bg-white/70 p-3">
                   <p className="text-xs font-semibold text-[#4D7C0F]">改进建议</p>
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
-                    {currentEvaluation.suggestions || "暂无建议"}
+                    {visibleSuggestionsText || "暂无建议"}
+                    {isStreamingEvaluation || (!streamingSuggestions && currentEvaluation.suggestions && typedSuggestionsText.isAnimating) ? <TypewriterCursor /> : null}
                   </p>
                 </div>
               </div>
             ) : null}
 
-            {followUpQuestion ? (
+            {followUpQuestion || isStreamingFollowUp || visibleFollowUpText ? (
               <div className="mt-4 rounded-2xl border border-[#FDE68A] bg-[#FFFBEB] p-4">
                 <p className="text-sm font-semibold text-[#92400E]">追问建议</p>
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#92400E]">
-                  {followUpQuestion.questionText}
+                  {visibleFollowUpText || "追问生成中..."}
+                  {isStreamingFollowUp || (!streamingFollowUpText && typedFollowUpText.isAnimating) ? <TypewriterCursor /> : null}
                 </p>
               </div>
             ) : null}
 
-            {currentSession?.status === "completed" ? (
+            {currentSession?.status === "completed" || isStreamingReport ? (
               <div ref={reportRef} className="mt-4 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-[#1D4ED8]">
-                    面试总分：{currentSession.totalScore ?? 0}
+                    面试总分：{currentSession?.totalScore ?? "--"}
                   </p>
                   <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-[#1D4ED8]">
                     综合报告
                   </span>
                 </div>
                 <div className="mt-3 max-h-[360px] overflow-auto rounded-xl bg-white/80 p-4 text-sm leading-6 text-[#1E3A8A]">
-                  {currentSession.evaluationReport ? (
+                  {visibleReportText ? (
                     <div className="prose prose-sm max-w-none prose-headings:text-[#1E40AF] prose-p:text-[#1E3A8A] prose-strong:text-[#1D4ED8] prose-li:text-[#1E3A8A]">
-                      <ReactMarkdown>{currentSession.evaluationReport}</ReactMarkdown>
+                      <ReactMarkdown>{visibleReportText}</ReactMarkdown>
+                      {isStreamingReport || (!streamingReport && typedReportText.isAnimating) ? <TypewriterCursor /> : null}
                     </div>
                   ) : (
                     <p>报告生成中...</p>

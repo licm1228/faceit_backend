@@ -1,4 +1,6 @@
 import { api } from "@/services/api";
+import { createStreamResponse, type StreamHandlers } from "@/hooks/useStreamResponse";
+import { storage } from "@/utils/storage";
 
 export interface Position {
   id: string;
@@ -41,6 +43,11 @@ export interface AnswerEvaluation {
   knowledgeScore?: number;
   feedback: string;
   suggestions: string;
+}
+
+export interface InterviewStreamMessagePayload {
+  type: "feedback" | "suggestions" | "follow_up" | "report";
+  delta: string;
 }
 
 export interface SessionDetail {
@@ -86,6 +93,8 @@ export interface Recommendation {
   averageScore: number;
   completedSessions: number;
 }
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 export async function listPositions(): Promise<Position[]> {
   return api.get<Position[], Position[]>("/position/list");
@@ -197,6 +206,29 @@ export async function submitInterviewAnswer(
   );
 }
 
+export function streamInterviewAnswer(
+  sessionId: string,
+  questionId: string,
+  userAnswer: string,
+  handlers: StreamHandlers
+) {
+  const query = new URLSearchParams({ sessionId, questionId });
+  const token = storage.getToken();
+  return createStreamResponse(
+    {
+      url: `${API_BASE_URL}/interview/submit-answer/stream?${query.toString()}`,
+      method: "POST",
+      body: userAnswer,
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        ...(token ? { Authorization: token } : {})
+      },
+      retryCount: 0
+    },
+    handlers
+  );
+}
+
 export async function askFollowUpQuestion(
   sessionId: string,
   questionId: string,
@@ -214,12 +246,52 @@ export async function askFollowUpQuestion(
   );
 }
 
+export function streamFollowUpQuestion(
+  sessionId: string,
+  questionId: string,
+  userAnswer: string,
+  handlers: StreamHandlers
+) {
+  const query = new URLSearchParams({ sessionId, questionId });
+  const token = storage.getToken();
+  return createStreamResponse(
+    {
+      url: `${API_BASE_URL}/interview/ask-follow-up/stream?${query.toString()}`,
+      method: "POST",
+      body: userAnswer,
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        ...(token ? { Authorization: token } : {})
+      },
+      retryCount: 0
+    },
+    handlers
+  );
+}
+
 export async function completeInterviewSession(
   sessionId: string
 ): Promise<InterviewSession> {
   const query = new URLSearchParams({ sessionId });
   return api.post<InterviewSession, InterviewSession>(
     `/interview/complete-session?${query.toString()}`
+  );
+}
+
+export function streamCompleteInterviewSession(
+  sessionId: string,
+  handlers: StreamHandlers
+) {
+  const query = new URLSearchParams({ sessionId });
+  const token = storage.getToken();
+  return createStreamResponse(
+    {
+      url: `${API_BASE_URL}/interview/complete-session/stream?${query.toString()}`,
+      method: "POST",
+      headers: token ? { Authorization: token } : undefined,
+      retryCount: 0
+    },
+    handlers
   );
 }
 
