@@ -1,13 +1,20 @@
 import * as React from "react";
 import { Mic, MicOff, Timer } from "lucide-react";
-import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
+import { useLocation, useNavigate } from "react-router-dom";
+import { feedback } from "@/stores/useFeedbackStore";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
+import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
+import { VoiceEqualizerIcon } from "@/components/common/VoiceInputVisual";
+import { useTypewriterText } from "@/hooks/useTypewriterText";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { recognizeSpeechBase64 } from "@/services/interviewService";
+import { recognizeSpeechBase64, type Position, type SpeechAnalysis } from "@/services/interviewService";
 import { useAuthStore } from "@/stores/authStore";
 import { useInterviewStore } from "@/stores/interviewStore";
+import { resolveInterviewPresetPosition, type InterviewPresetState } from "@/utils/interviewPreset";
+import { analyzeSpeechFromSamples } from "@/utils/speechAnalysis";
 
 const QUESTION_LIMIT = 5;
 const QUESTION_TIME_LIMIT_SECONDS = 180;
@@ -45,9 +52,61 @@ type SpeechWindow = Window & {
 
 type RecordingMode = "backend" | "browser" | null;
 
+type PendingAutoStartPreset = {
+  key: string;
+  positionId: string;
+  timeLimitMinutes?: number;
+  questionLimit?: number;
+};
+
 const RECORDING_SAMPLE_RATE = 16000;
 
+function getSessionStatusLabel(status?: string) {
+  switch ((status || "").toLowerCase()) {
+    case "completed":
+      return "已结束";
+    case "in_progress":
+      return "进行中";
+    case "pending":
+      return "未开始";
+    default:
+      return status || "未开始";
+  }
+}
+
+function getSessionTitle(sessionId: string) {
+  const suffix = sessionId?.slice(-6) || sessionId;
+  return `面试 #${suffix}`;
+}
+
+function TypewriterCursor() {
+  return <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current align-middle" />;
+}
+
+function MetricPill({ label, value, suffix }: { label: string; value?: number; suffix: string }) {
+  const display = typeof value === "number"
+    ? `${Number.isInteger(value) ? value : value.toFixed(2)}${suffix}`
+    : "--";
+  return (
+    <div className="rounded-lg bg-[#F7FEE7] px-3 py-2 text-xs text-[#4D7C0F]">
+      <p>{label}</p>
+      <p className="mt-1 font-semibold text-[#365314]">{display}</p>
+    </div>
+  );
+}
+
+function WeightCard({ label, value }: { label: string; value?: number }) {
+  return (
+    <div className="rounded-2xl border border-[#E6ECF5] bg-white px-4 py-3">
+      <p className="text-xs text-[#667085]">{label}</p>
+      <p className="mt-1 text-base font-semibold text-[#111827]">{value ?? "--"}%</p>
+    </div>
+  );
+}
+
 export function InterviewPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const {
     positions,
@@ -63,6 +122,15 @@ export function InterviewPage() {
     difficulty,
     loading,
     submitting,
+    isStreamingEvaluation,
+    isStreamingFollowUp,
+    isStreamingReport,
+    streamingEvaluationResponse,
+    streamingEvaluationThinking,
+    streamingFollowUpResponse,
+    streamingFollowUpThinking,
+    streamingReportResponse,
+    streamingReportThinking,
     fetchPositions,
     fetchHistory,
     createAndStartSession,
@@ -73,6 +141,7 @@ export function InterviewPage() {
     fetchSessionDetail,
     fetchProfileData,
     setDifficulty,
+    cancelStreaming,
     resetCurrentFlow
   } = useInterviewStore();
   const [selectedPositionId, setSelectedPositionId] = React.useState("");
@@ -84,7 +153,10 @@ export function InterviewPage() {
   const [answerRecords, setAnswerRecords] = React.useState<
     Array<{ questionText: string; score: number; feedback: string; suggestions: string }>
   >([]);
+  const [lastSpeechAnalysis, setLastSpeechAnalysis] = React.useState<SpeechAnalysis | null>(null);
   const [isRecording, setIsRecording] = React.useState(false);
+  const [isProcessingSpeech, setIsProcessingSpeech] = React.useState(false);
+  const reportRef = React.useRef<HTMLDivElement | null>(null);
   const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null);
   const recordingModeRef = React.useRef<RecordingMode>(null);
   const mediaStreamRef = React.useRef<MediaStream | null>(null);
@@ -92,6 +164,9 @@ export function InterviewPage() {
   const sourceNodeRef = React.useRef<MediaStreamAudioSourceNode | null>(null);
   const processorNodeRef = React.useRef<ScriptProcessorNode | null>(null);
   const pcmChunksRef = React.useRef<Float32Array[]>([]);
+  const appliedPresetRef = React.useRef<string | null>(null);
+  const autoStartedPresetRef = React.useRef<string | null>(null);
+  const pendingAutoStartPresetRef = React.useRef<PendingAutoStartPreset | null>(null);
 
   React.useEffect(() => {
     fetchPositions().catch(() => null);
@@ -103,36 +178,121 @@ export function InterviewPage() {
     fetchProfileData().catch(() => null);
   }, [fetchHistory, fetchProfileData, user?.userId]);
 
-  React.useEffect(() => {
-    if (positions.length > 0 && !selectedPositionId) {
-      setSelectedPositionId(positions[0].id);
-    }
-  }, [positions, selectedPositionId]);
-
-  const startInterview = React.useCallback(async () => {
-    if (!user?.userId || !selectedPositionId) return;
+  const startInterviewWithPosition = React.useCallback(async (
+    positionId: string,
+    options?: { timeLimitMinutes?: number; questionLimit?: number }
+  ) => {
+    if (!user?.userId || !positionId) return;
     setAnswerText("");
+    setLastSpeechAnalysis(null);
     setQuestionIndex(1);
     setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
     setAnswerRecords([]);
-    await createAndStartSession(user.userId, selectedPositionId, {
-      timeLimit: timeLimitMinutes,
-      totalQuestions: questionLimit
+    await createAndStartSession(user.userId, positionId, {
+      timeLimit: options?.timeLimitMinutes ?? timeLimitMinutes,
+      totalQuestions: options?.questionLimit ?? questionLimit
     });
-  }, [createAndStartSession, questionLimit, selectedPositionId, timeLimitMinutes, user?.userId]);
+  }, [createAndStartSession, questionLimit, timeLimitMinutes, user?.userId]);
+
+  React.useEffect(() => {
+    if (positions.length === 0) {
+      return;
+    }
+
+    const preset = location.state as InterviewPresetState | null;
+    const presetKey = JSON.stringify(preset ?? {});
+    const hasPreset = Boolean(preset && Object.keys(preset).length > 0);
+
+    if (hasPreset && appliedPresetRef.current !== presetKey) {
+      const matchedPosition = resolveInterviewPresetPosition(positions, preset);
+      if (!matchedPosition) {
+        feedback.error("未找到与预设对应的岗位配置，请先在管理端检查岗位数据");
+        appliedPresetRef.current = presetKey;
+        navigate(location.pathname, { replace: true, state: null });
+        return;
+      }
+
+      setSelectedPositionId(matchedPosition.id);
+
+      if (typeof preset?.difficulty === "number") {
+        setDifficulty(preset.difficulty);
+      }
+      if (typeof preset?.timeLimitMinutes === "number") {
+        setTimeLimitMinutes(preset.timeLimitMinutes);
+      }
+      if (typeof preset?.questionLimit === "number") {
+        setQuestionLimit(preset.questionLimit);
+      }
+
+      appliedPresetRef.current = presetKey;
+
+      if (preset?.autoStart && autoStartedPresetRef.current !== presetKey) {
+        pendingAutoStartPresetRef.current = {
+          key: presetKey,
+          positionId: matchedPosition.id,
+          timeLimitMinutes: preset.timeLimitMinutes,
+          questionLimit: preset.questionLimit
+        };
+      }
+
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+
+    if (!selectedPositionId) {
+      setSelectedPositionId(positions[0].id);
+    }
+  }, [
+    location.pathname,
+    location.state,
+    navigate,
+    positions,
+    selectedPositionId,
+    setDifficulty,
+    startInterviewWithPosition,
+    user?.userId
+  ]);
+
+  React.useEffect(() => {
+    const pendingPreset = pendingAutoStartPresetRef.current;
+    if (!pendingPreset || !user?.userId) {
+      return;
+    }
+    if (autoStartedPresetRef.current === pendingPreset.key) {
+      pendingAutoStartPresetRef.current = null;
+      return;
+    }
+
+    autoStartedPresetRef.current = pendingPreset.key;
+    pendingAutoStartPresetRef.current = null;
+
+    startInterviewWithPosition(pendingPreset.positionId, {
+      timeLimitMinutes: pendingPreset.timeLimitMinutes,
+      questionLimit: pendingPreset.questionLimit
+    }).catch(() => {
+      autoStartedPresetRef.current = null;
+    });
+  }, [startInterviewWithPosition, user?.userId]);
+
+  const startInterview = React.useCallback(async () => {
+    if (!selectedPositionId) return;
+    await startInterviewWithPosition(selectedPositionId);
+  }, [selectedPositionId, startInterviewWithPosition]);
 
   const handleSubmitAnswer = React.useCallback(async () => {
     const next = answerText.trim();
     if (!next) return;
-    await submitAnswer(next);
-  }, [answerText, submitAnswer]);
+    await submitAnswer(next, lastSpeechAnalysis);
+    setLastSpeechAnalysis(null);
+  }, [answerText, lastSpeechAnalysis, submitAnswer]);
 
   const handleNextQuestion = React.useCallback(async () => {
     if (questionIndex >= questionLimit) {
-      toast.info("已达到题量上限，请结束面试并查看报告");
+      feedback.info("已达到题量上限，请结束面试并查看报告");
       return;
     }
     setAnswerText("");
+    setLastSpeechAnalysis(null);
     setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
     setQuestionIndex((prev) => prev + 1);
     await fetchQuestion();
@@ -146,7 +306,7 @@ export function InterviewPage() {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
           window.clearInterval(timer);
-          toast.warning("当前题目作答时间已到，请提交或进入下一题");
+          feedback.warning("当前题目作答时间已到，请提交或进入下一题");
           return 0;
         }
         return prev - 1;
@@ -176,6 +336,12 @@ export function InterviewPage() {
       stopBackendRecording();
     };
   }, []);
+
+  React.useEffect(() => {
+    if (currentSession?.status === "completed") {
+      reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [currentSession?.status]);
 
   const stopBackendRecording = React.useCallback(async () => {
     const sampleRate = audioContextRef.current?.sampleRate ?? RECORDING_SAMPLE_RATE;
@@ -284,18 +450,20 @@ export function InterviewPage() {
   const transcribeBackendAudio = React.useCallback(async (chunks: Float32Array[], sourceSampleRate: number) => {
     const merged = mergePcmChunks(chunks);
     if (merged.length === 0) {
+      feedback.info("未识别到有效语音内容");
       return;
     }
     const downsampled = downsampleBuffer(merged, sourceSampleRate, RECORDING_SAMPLE_RATE);
     const wavBlob = encodeWav(downsampled, RECORDING_SAMPLE_RATE);
     const audioBase64 = await blobToBase64(wavBlob);
     const transcript = await recognizeSpeechBase64(audioBase64, "wav", RECORDING_SAMPLE_RATE, "zh_cn");
-    if (transcript?.trim()) {
-      setAnswerText((prev) => `${prev}${prev ? " " : ""}${transcript.trim()}`);
-      toast.success("语音识别完成");
-      return;
-    }
-    toast.info("未识别到有效语音内容");
+      if (transcript?.trim()) {
+        setAnswerText((prev) => `${prev}${prev ? " " : ""}${transcript.trim()}`);
+        setLastSpeechAnalysis(analyzeSpeechFromSamples([downsampled], RECORDING_SAMPLE_RATE, transcript.trim()));
+        feedback.success("语音识别完成");
+        return;
+      }
+    feedback.info("未识别到有效语音内容");
   }, [blobToBase64, downsampleBuffer, encodeWav, mergePcmChunks]);
 
   const stopCurrentRecording = React.useCallback(async () => {
@@ -303,12 +471,18 @@ export function InterviewPage() {
     recordingModeRef.current = null;
     setIsRecording(false);
     if (mode === "browser") {
+      setIsProcessingSpeech(true);
       recognitionRef.current?.stop();
       return;
     }
     if (mode === "backend") {
-      const { sampleRate, chunks } = await stopBackendRecording();
-      await transcribeBackendAudio(chunks, sampleRate);
+      setIsProcessingSpeech(true);
+      try {
+        const { sampleRate, chunks } = await stopBackendRecording();
+        await transcribeBackendAudio(chunks, sampleRate);
+      } finally {
+        setIsProcessingSpeech(false);
+      }
     }
   }, [stopBackendRecording, transcribeBackendAudio]);
 
@@ -324,22 +498,25 @@ export function InterviewPage() {
       }
       if (transcript.trim()) {
         setAnswerText((prev) => `${prev}${prev ? " " : ""}${transcript.trim()}`);
+        setLastSpeechAnalysis(null);
       }
     };
     recognition.onerror = () => {
       setIsRecording(false);
+      setIsProcessingSpeech(false);
       recordingModeRef.current = null;
-      toast.error("语音识别失败，请重试");
+      feedback.error("语音识别失败，请重试");
     };
     recognition.onend = () => {
       setIsRecording(false);
+      setIsProcessingSpeech(false);
       recordingModeRef.current = null;
     };
     recognitionRef.current = recognition;
     recognition.start();
     recordingModeRef.current = "browser";
     setIsRecording(true);
-    toast.info("已切换为浏览器语音识别");
+    feedback.info("已切换为浏览器语音识别");
   }, []);
 
   const startBackendRecording = React.useCallback(async () => {
@@ -363,41 +540,56 @@ export function InterviewPage() {
     processorNodeRef.current = processor;
     recordingModeRef.current = "backend";
     setIsRecording(true);
-    toast.info("开始录音，再次点击后将调用后端语音识别");
+    feedback.info("开始录音，再次点击后将调用后端语音识别");
   }, []);
 
   const toggleRecording = React.useCallback(async () => {
     const speechWindow = window as SpeechWindow;
     const ctor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (isProcessingSpeech) {
+      return;
+    }
     if (isRecording) {
       await stopCurrentRecording();
       return;
     }
 
     try {
-      if (navigator.mediaDevices?.getUserMedia) {
+      if (
+        navigator.mediaDevices &&
+        typeof navigator.mediaDevices.getUserMedia === "function"
+      ) {
         await startBackendRecording();
         return;
       }
     } catch (error) {
       if (!ctor) {
-        toast.error((error as Error).message || "无法访问麦克风，请检查权限");
+        feedback.error((error as Error).message || "无法访问麦克风，请检查权限");
         return;
       }
-      toast.warning("后端语音录音不可用，已降级到浏览器语音识别");
+      feedback.warning("后端语音录音不可用，已降级到浏览器语音识别");
     }
 
     if (!ctor) {
-      toast.error("当前环境不支持语音识别，请检查麦克风权限或浏览器能力");
+      feedback.error("当前环境不支持语音识别，请检查麦克风权限或浏览器能力");
       return;
     }
     startBrowserSpeechRecognition(ctor);
-  }, [isRecording, startBackendRecording, startBrowserSpeechRecognition, stopCurrentRecording]);
+  }, [isProcessingSpeech, isRecording, startBackendRecording, startBrowserSpeechRecognition, stopCurrentRecording]);
 
   const sessionQuestionLimit = currentSession?.totalQuestions ?? questionLimit;
   const sessionQuestionIndex = currentSession?.currentQuestionCount ?? Math.max(questionIndex, 1);
-  const progressValue = currentSession && currentSession.status !== "completed" ? sessionQuestionIndex : Math.max(questionIndex, 1);
+  const hasActiveSession = Boolean(currentSession && currentSession.status !== "completed");
+  const selectedPosition = positions.find((position) => position.id === selectedPositionId) ?? null;
+  const progressValue = hasActiveSession ? sessionQuestionIndex : Math.max(questionIndex, 1);
   const progressPercent = Math.min(100, Math.round((progressValue / sessionQuestionLimit) * 100));
+  const currentEvaluationMetrics = [
+    { label: "技术", value: currentEvaluation?.technicalScore ?? 0, max: 30 },
+    { label: "岗位", value: currentEvaluation?.positionMatchScore ?? 0, max: 25 },
+    { label: "逻辑", value: currentEvaluation?.logicScore ?? 0, max: 25 },
+    { label: "知识", value: currentEvaluation?.knowledgeScore ?? 0, max: 20 }
+  ];
+  const currentExpressionMetrics = currentEvaluation?.expressionAnalysis;
   const minutePart = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secondPart = String(secondsLeft % 60).padStart(2, "0");
   const trendData = React.useMemo(() => {
@@ -415,6 +607,36 @@ export function InterviewPage() {
         score: item.totalScore as number
       }));
   }, [growthCurve, history]);
+  const typedQuestionText = useTypewriterText({
+    text: currentQuestion?.questionText,
+    enabled: Boolean(currentQuestion?.questionText),
+    resetKey: currentQuestion?.id ?? currentSession?.id ?? "question"
+  });
+  const typedFeedbackText = useTypewriterText({
+    text: currentEvaluation?.feedback,
+    enabled: Boolean(currentEvaluation?.feedback) && !isStreamingEvaluation,
+    resetKey: currentQuestion?.id ? `${currentQuestion.id}-feedback` : "feedback"
+  });
+  const typedSuggestionsText = useTypewriterText({
+    text: currentEvaluation?.suggestions,
+    enabled: Boolean(currentEvaluation?.suggestions) && !isStreamingEvaluation,
+    resetKey: currentQuestion?.id ? `${currentQuestion.id}-suggestions` : "suggestions"
+  });
+  const typedFollowUpText = useTypewriterText({
+    text: followUpQuestion?.questionText,
+    enabled: Boolean(followUpQuestion?.questionText) && !isStreamingFollowUp,
+    resetKey: followUpQuestion?.id ?? followUpQuestion?.questionText ?? "follow-up"
+  });
+  const typedReportText = useTypewriterText({
+    text: currentSession?.evaluationReport,
+    enabled: Boolean(currentSession?.evaluationReport) && !isStreamingReport,
+    resetKey: currentSession?.id ? `${currentSession.id}-report` : "report"
+  });
+  const visibleFeedbackText = currentEvaluation ? typedFeedbackText.displayText : "";
+  const visibleSuggestionsText = currentEvaluation ? typedSuggestionsText.displayText : "";
+  const visibleFollowUpText = followUpQuestion ? typedFollowUpText.displayText : "";
+  const visibleReportText = currentSession?.evaluationReport ? typedReportText.displayText : "";
+  const visibleStreamingEvaluationText = streamingEvaluationResponse.trim();
 
   return (
     <MainLayout>
@@ -425,16 +647,16 @@ export function InterviewPage() {
               <h1 className="text-lg font-semibold text-[#1F2937]">面试模式</h1>
               {currentSession ? (
                 <span className="rounded-full bg-[#EEF6FF] px-3 py-1 text-xs font-semibold text-[#2563EB]">
-                  状态：{currentSession.status || "in_progress"}
+                  状态：{getSessionStatusLabel(currentSession.status)}
                 </span>
               ) : null}
-              {currentSession && currentSession.status !== "completed" ? (
-                  <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-semibold text-[#059669]">
+              {hasActiveSession ? (
+                <span className="rounded-full bg-[#ECFDF5] px-3 py-1 text-xs font-semibold text-[#059669]">
                   进度：{progressValue}/{sessionQuestionLimit}
                 </span>
               ) : null}
             </div>
-            {currentSession && currentSession.status !== "completed" ? (
+            {hasActiveSession ? (
               <div className="mt-3">
                 <div className="h-2.5 w-full rounded-full bg-[#E5E7EB]">
                   <div
@@ -452,7 +674,7 @@ export function InterviewPage() {
                   className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
                   value={selectedPositionId}
                   onChange={(event) => setSelectedPositionId(event.target.value)}
-                  disabled={Boolean(currentSession)}
+                  disabled={hasActiveSession}
                 >
                   {positions.map((position) => (
                     <option key={position.id} value={position.id}>
@@ -468,7 +690,7 @@ export function InterviewPage() {
                   className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
                   value={difficulty}
                   onChange={(event) => setDifficulty(Number(event.target.value))}
-                  disabled={Boolean(currentSession)}
+                  disabled={hasActiveSession}
                 >
                   {[1, 2, 3, 4, 5].map((level) => (
                     <option key={level} value={level}>
@@ -484,7 +706,7 @@ export function InterviewPage() {
                   className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
                   value={questionLimit}
                   onChange={(event) => setQuestionLimit(Number(event.target.value))}
-                  disabled={Boolean(currentSession)}
+                  disabled={hasActiveSession}
                 >
                   {[3, 5, 8, 10].map((count) => (
                     <option key={count} value={count}>
@@ -500,7 +722,7 @@ export function InterviewPage() {
                   className="h-10 rounded-xl border border-[#D9E3EF] bg-white px-3 text-sm text-[#111827] outline-none transition-colors focus:border-[#60A5FA]"
                   value={timeLimitMinutes}
                   onChange={(event) => setTimeLimitMinutes(Number(event.target.value))}
-                  disabled={Boolean(currentSession)}
+                  disabled={hasActiveSession}
                 >
                   {[10, 15, 20, 30, 45].map((minute) => (
                     <option key={minute} value={minute}>
@@ -511,13 +733,13 @@ export function InterviewPage() {
               </label>
 
               <div className="flex items-end gap-2 md:flex-col md:items-stretch">
-                {currentSession && currentSession.status !== "completed" ? (
+                {hasActiveSession ? (
                   <div className="mb-2 flex items-center gap-1 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-2.5 py-2 text-xs text-[#92400E]">
                     <Timer className="h-3.5 w-3.5" />
                     本题剩余 {minutePart}:{secondPart}
                   </div>
                 ) : null}
-                {!currentSession ? (
+                {!hasActiveSession ? (
                   <Button
                     type="button"
                     className="h-10 w-full rounded-xl"
@@ -526,7 +748,7 @@ export function InterviewPage() {
                     }}
                     disabled={loading || !selectedPositionId}
                   >
-                    开始面试
+                    {currentSession?.status === "completed" ? "开始新面试" : "开始面试"}
                   </Button>
                 ) : (
                   <Button
@@ -544,11 +766,42 @@ export function InterviewPage() {
               </div>
             </div>
 
+            {selectedPosition ? (
+              <div className="mt-4 rounded-2xl border border-[#E5EAF1] bg-[#FCFDFF] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="max-w-2xl">
+                    <p className="text-sm font-semibold text-[#111827]">{selectedPosition.name} 岗位画像</p>
+                    <p className="mt-1 text-sm leading-6 text-[#667085]">
+                      {selectedPosition.interviewFocus || selectedPosition.description || "当前岗位暂未配置详细侧重点说明。"}
+                    </p>
+                  </div>
+                  <div className="grid min-w-[260px] gap-2 sm:grid-cols-2">
+                    <WeightCard label="技术" value={selectedPosition.evaluationWeights?.technical} />
+                    <WeightCard label="岗位匹配" value={selectedPosition.evaluationWeights?.positionMatch} />
+                    <WeightCard label="逻辑" value={selectedPosition.evaluationWeights?.logic} />
+                    <WeightCard label="知识" value={selectedPosition.evaluationWeights?.knowledge} />
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(selectedPosition.requiredSkills || "")
+                    .split(/[,，]/)
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+                    .map((item) => (
+                      <span key={item} className="rounded-full border border-[#D6E4FF] bg-white px-3 py-1 text-xs text-[#475467]">
+                        {item}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            ) : null}
+
             {currentQuestion ? (
               <div className="mt-5 rounded-2xl border border-[#E6EEF6] bg-[#FCFEFF] p-4">
                 <p className="text-xs font-medium text-[#64748B]">当前题目</p>
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#1E293B]">
-                  {currentQuestion.questionText}
+                  {typedQuestionText.displayText}
+                  {typedQuestionText.isAnimating ? <TypewriterCursor /> : null}
                 </p>
                 <div className="mt-2 text-xs text-[#64748B]">
                   难度：{currentQuestion.difficulty ?? difficulty}
@@ -565,100 +818,204 @@ export function InterviewPage() {
                 <label className="mb-2 block text-sm font-medium text-[#374151]">你的回答</label>
                 <textarea
                   value={answerText}
-                  onChange={(event) => setAnswerText(event.target.value)}
-                  placeholder="请输入你的回答..."
+                  onChange={(event) => {
+                    setAnswerText(event.target.value);
+                    setLastSpeechAnalysis(null);
+                  }}
+                  placeholder={
+                    isProcessingSpeech
+                      ? "语音解析中..."
+                      : hasActiveSession
+                        ? "请输入你的回答..."
+                        : "当前面试已结束，请开始新面试。"
+                  }
                   className="min-h-[148px] w-full rounded-2xl border border-[#D9E3EF] bg-white px-3 py-3 text-sm leading-6 text-[#1F2937] outline-none transition-colors focus:border-[#60A5FA]"
+                  disabled={!hasActiveSession || isProcessingSpeech}
                 />
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 rounded-xl"
-                    onClick={toggleRecording}
-                    disabled={currentSession.status === "completed"}
-                  >
-                    {isRecording ? <MicOff className="mr-1 h-4 w-4" /> : <Mic className="mr-1 h-4 w-4" />}
-                    {isRecording ? "停止语音输入" : "语音输入"}
-                  </Button>
-                  <Button
-                    type="button"
-                    className="h-10 rounded-xl"
-                    onClick={() => {
-                      handleSubmitAnswer().catch(() => null);
-                    }}
-                    disabled={submitting || !answerText.trim()}
-                  >
-                    {submitting ? "提交中..." : "提交回答并评估"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-10 rounded-xl"
-                    onClick={() => {
-                      handleNextQuestion().catch(() => null);
-                    }}
-                    disabled={loading || progressValue >= sessionQuestionLimit}
-                  >
-                    下一题
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 rounded-xl"
-                    onClick={() => {
-                      generateFollowUp(answerText).catch(() => null);
-                    }}
-                    disabled={!answerText.trim() || currentSession.status === "completed"}
-                  >
-                    生成追问
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-10 rounded-xl"
-                    onClick={() => {
-                      resetCurrentFlow();
-                      setAnswerText("");
-                      setQuestionIndex(0);
-                      setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
-                      setAnswerRecords([]);
-                    }}
-                  >
-                    重置流程
-                  </Button>
+                {isProcessingSpeech ? (
+                  <div className="mt-3 flex items-center rounded-2xl border border-[#FDE7B2] bg-[#FFF8E8] px-3 py-2 text-sm text-[#9A5B16]">
+                    <VoiceEqualizerIcon className="mr-2 text-current" />
+                    语音解析中，结果会自动填入回答框
+                  </div>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 rounded-xl"
+                      onClick={toggleRecording}
+                      disabled={currentSession.status === "completed"}
+                    >
+                      {isRecording ? (
+                        <MicOff className="mr-1 h-4 w-4" />
+                      ) : (
+                        <Mic className="mr-1 h-4 w-4" />
+                      )}
+                      {isRecording ? "停止语音输入" : "语音输入"}
+                    </Button>
+                    <Button
+                      type="button"
+                      className="h-10 rounded-xl"
+                      onClick={() => {
+                        handleSubmitAnswer().catch(() => null);
+                      }}
+                      disabled={submitting || isStreamingEvaluation || !hasActiveSession || !answerText.trim()}
+                    >
+                      {submitting || isStreamingEvaluation ? "提交中..." : "提交回答并评估"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-10 rounded-xl"
+                      onClick={() => {
+                        handleNextQuestion().catch(() => null);
+                      }}
+                      disabled={loading || submitting || isStreamingEvaluation || isStreamingFollowUp || isStreamingReport || !hasActiveSession || progressValue >= sessionQuestionLimit}
+                    >
+                      下一题
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 rounded-xl"
+                      onClick={() => {
+                        generateFollowUp(answerText).catch(() => null);
+                      }}
+                      disabled={loading || submitting || isStreamingEvaluation || isStreamingFollowUp || isStreamingReport || !answerText.trim() || currentSession.status === "completed"}
+                    >
+                      生成追问
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-10 rounded-xl"
+                      onClick={() => {
+                        cancelStreaming();
+                        resetCurrentFlow();
+                        setAnswerText("");
+                        setLastSpeechAnalysis(null);
+                        setQuestionIndex(0);
+                        setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
+                        setAnswerRecords([]);
+                      }}
+                    >
+                      重置流程
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {currentEvaluation || isStreamingEvaluation || streamingEvaluationResponse || streamingEvaluationThinking ? (
+              <div className="mt-4 rounded-2xl border border-[#D9F99D] bg-[#F7FEE7] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#3F6212]">本题评分：{currentEvaluation?.score ?? "--"}</p>
+                  <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-[#4D7C0F]">
+                    {isStreamingEvaluation ? "评估生成中" : "已完成本题评估"}
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                  {currentEvaluationMetrics.map((item) => (
+                    <div key={item.label} className="rounded-xl border border-[#D9F99D] bg-white/80 p-3">
+                      <p className="text-xs text-[#4D7C0F]">{item.label}</p>
+                      <p className="mt-1 text-lg font-semibold text-[#365314]">
+                        {item.value}
+                        <span className="ml-1 text-xs font-normal text-[#65A30D]">/ {item.max}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 rounded-xl border border-[#D9F99D] bg-white/85 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold text-[#4D7C0F]">表达分析</p>
+                      <p className="mt-1 text-lg font-semibold text-[#365314]">
+                        {currentEvaluation?.expressionScore ?? lastSpeechAnalysis?.expressionScore ?? "--"}
+                        <span className="ml-1 text-xs font-normal text-[#65A30D]">/ 100</span>
+                      </p>
+                    </div>
+                    <p className="max-w-[420px] text-xs leading-5 text-[#4D7C0F]">
+                      {currentEvaluation?.expressionFeedback || lastSpeechAnalysis?.summary || "使用语音回答后，这里会展示语速、停顿和表达稳定度分析。"}
+                    </p>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                    <MetricPill label="语速" value={currentExpressionMetrics?.wordsPerMinute ?? lastSpeechAnalysis?.wordsPerMinute} suffix="字/分" />
+                    <MetricPill label="停顿占比" value={currentExpressionMetrics?.pauseRatio ?? lastSpeechAnalysis?.pauseRatio} suffix="" />
+                    <MetricPill label="清晰度" value={currentExpressionMetrics?.clarityScore ?? lastSpeechAnalysis?.clarityScore} suffix="" />
+                    <MetricPill label="自信度" value={currentExpressionMetrics?.confidenceScore ?? lastSpeechAnalysis?.confidenceScore} suffix="" />
+                  </div>
+                </div>
+                {isStreamingEvaluation && streamingEvaluationThinking ? (
+                  <div className="mt-3">
+                    <ThinkingIndicator content={streamingEvaluationThinking} />
+                  </div>
+                ) : null}
+                <div className="mt-3 rounded-xl bg-white/70 p-3">
+                  <p className="text-xs font-semibold text-[#4D7C0F]">反馈</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
+                    {isStreamingEvaluation
+                      ? (visibleStreamingEvaluationText || "评估生成中...")
+                      : (visibleFeedbackText || currentEvaluation?.feedback || "暂无反馈")}
+                    {isStreamingEvaluation
+                      ? <TypewriterCursor />
+                      : (!isStreamingEvaluation && currentEvaluation?.feedback && typedFeedbackText.isAnimating ? <TypewriterCursor /> : null)}
+                  </p>
+                </div>
+                <div className="mt-3 rounded-xl bg-white/70 p-3">
+                  <p className="text-xs font-semibold text-[#4D7C0F]">改进建议</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
+                    {visibleSuggestionsText || "暂无建议"}
+                    {!isStreamingEvaluation && currentEvaluation?.suggestions && typedSuggestionsText.isAnimating ? <TypewriterCursor /> : null}
+                  </p>
                 </div>
               </div>
             ) : null}
 
-            {currentEvaluation ? (
-              <div className="mt-4 rounded-2xl border border-[#D9F99D] bg-[#F7FEE7] p-4">
-                <p className="text-sm font-semibold text-[#3F6212]">本题评分：{currentEvaluation.score}</p>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
-                  反馈：{currentEvaluation.feedback}
-                </p>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
-                  建议：{currentEvaluation.suggestions}
-                </p>
-              </div>
-            ) : null}
-
-            {followUpQuestion ? (
+            {followUpQuestion || isStreamingFollowUp || streamingFollowUpResponse || streamingFollowUpThinking ? (
               <div className="mt-4 rounded-2xl border border-[#FDE68A] bg-[#FFFBEB] p-4">
                 <p className="text-sm font-semibold text-[#92400E]">追问建议</p>
+                {isStreamingFollowUp && streamingFollowUpThinking ? (
+                  <div className="mt-3">
+                    <ThinkingIndicator content={streamingFollowUpThinking} />
+                  </div>
+                ) : null}
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#92400E]">
-                  {followUpQuestion.questionText}
+                  {isStreamingFollowUp ? (streamingFollowUpResponse || "追问生成中...") : (visibleFollowUpText || "暂无追问")}
+                  {isStreamingFollowUp ? <TypewriterCursor /> : (!isStreamingFollowUp && followUpQuestion?.questionText && typedFollowUpText.isAnimating ? <TypewriterCursor /> : null)}
                 </p>
               </div>
             ) : null}
 
-            {currentSession?.status === "completed" ? (
-              <div className="mt-4 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] p-4">
-                <p className="text-sm font-semibold text-[#1D4ED8]">
-                  面试总分：{currentSession.totalScore ?? 0}
-                </p>
-                <pre className="mt-2 max-h-[260px] overflow-auto whitespace-pre-wrap text-sm leading-6 text-[#1E3A8A]">
-                  {currentSession.evaluationReport || "报告生成中..."}
-                </pre>
+            {currentSession?.status === "completed" || isStreamingReport ? (
+              <div ref={reportRef} className="mt-4 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#1D4ED8]">
+                    面试总分：{currentSession?.totalScore ?? "--"}
+                  </p>
+                  <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-medium text-[#1D4ED8]">
+                    综合报告
+                  </span>
+                </div>
+                <div className="mt-3 max-h-[360px] overflow-auto rounded-xl bg-white/80 p-4 text-sm leading-6 text-[#1E3A8A]">
+                  {isStreamingReport && streamingReportThinking ? (
+                    <div className="mb-3">
+                      <ThinkingIndicator content={streamingReportThinking} />
+                    </div>
+                  ) : null}
+                  {isStreamingReport && streamingReportResponse ? (
+                    <div className="prose prose-sm max-w-none whitespace-pre-wrap text-[#1E3A8A]">
+                      {streamingReportResponse}
+                      <TypewriterCursor />
+                    </div>
+                  ) : visibleReportText ? (
+                    <div className="prose prose-sm max-w-none prose-headings:text-[#1E40AF] prose-p:text-[#1E3A8A] prose-strong:text-[#1D4ED8] prose-li:text-[#1E3A8A]">
+                      <ReactMarkdown>{visibleReportText}</ReactMarkdown>
+                      {!isStreamingReport && typedReportText.isAnimating ? <TypewriterCursor /> : null}
+                    </div>
+                  ) : (
+                    <p>报告生成中...</p>
+                  )}
+                </div>
               </div>
             ) : null}
           </section>
@@ -679,11 +1036,11 @@ export function InterviewPage() {
                     }}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-[#111827]">会话 {item.id}</span>
-                      <span className="text-xs text-[#6B7280]">{item.status}</span>
+                      <span className="text-sm font-medium text-[#111827]">{getSessionTitle(item.id)}</span>
+                      <span className="text-xs text-[#6B7280]">{getSessionStatusLabel(item.status)}</span>
                     </div>
                     <p className="mt-1 text-xs text-[#6B7280]">
-                      分数：{item.totalScore ?? "-"} · 创建时间：{item.createTime || "-"}
+                      得分：{item.totalScore ?? "-"} · 创建时间：{item.createTime || "-"}
                     </p>
                   </button>
                 ))}
@@ -694,7 +1051,7 @@ export function InterviewPage() {
               <div className="mt-4 rounded-2xl border border-[#E5E7EB] bg-[#FAFAFA] p-3">
                 <p className="text-sm font-semibold text-[#1F2937]">会话详情</p>
                 <p className="mt-1 text-xs text-[#6B7280]">
-                  总分：{sessionDetail.session.totalScore ?? "-"} · 状态：{sessionDetail.session.status}
+                  得分：{sessionDetail.session.totalScore ?? "-"} · 状态：{getSessionStatusLabel(sessionDetail.session.status)}
                 </p>
                 <div className="mt-3 max-h-[320px] space-y-2 overflow-y-auto">
                   {sessionDetail.answers.map((answer) => (
@@ -705,8 +1062,11 @@ export function InterviewPage() {
                       <p className="mt-1 text-xs text-[#6B7280] line-clamp-3">回答：{answer.userAnswer}</p>
                       <p className="mt-1 text-xs text-[#1D4ED8]">总分：{answer.score ?? "-"}</p>
                       <p className="mt-1 text-[11px] text-[#6B7280]">
-                        技术 {answer.technicalScore ?? "-"} · 表达 {answer.expressionScore ?? "-"} · 逻辑 {answer.logicScore ?? "-"} · 知识 {answer.knowledgeScore ?? "-"}
+                        技术 {answer.technicalScore ?? "-"} · 岗位 {answer.positionMatchScore ?? "-"} · 表达 {answer.expressionScore ?? "-"} · 逻辑 {answer.logicScore ?? "-"} · 知识 {answer.knowledgeScore ?? "-"}
                       </p>
+                      {answer.expressionFeedback ? (
+                        <p className="mt-1 line-clamp-2 text-[11px] text-[#4D7C0F]">表达：{answer.expressionFeedback}</p>
+                      ) : null}
                       {answer.feedback ? (
                         <p className="mt-1 line-clamp-2 text-[11px] text-[#2563EB]">反馈：{answer.feedback}</p>
                       ) : null}
@@ -744,6 +1104,37 @@ export function InterviewPage() {
                   <div className="mt-2 rounded-lg bg-[#F8FAFF] p-2.5 text-xs text-[#1E40AF]">
                     <p className="font-medium">{recommendation.summary}</p>
                     <p className="mt-1">下一步：{recommendation.nextStep}</p>
+                    {profile.weakTopics?.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {profile.weakTopics.map((topic) => (
+                          <span key={topic} className="rounded-full border border-[#D6E4FF] bg-white px-2.5 py-1 text-[11px] text-[#475467]">
+                            {topic}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {recommendation.learningSuggestions?.length ? (
+                      <div className="mt-3 rounded-2xl bg-white px-3 py-3 text-[11px] leading-5 text-[#475467]">
+                        {recommendation.learningSuggestions.map((item, index) => (
+                          <p key={`${item}-${index}`}>{index + 1}. {item}</p>
+                        ))}
+                      </div>
+                    ) : null}
+                    {recommendation.recommendedPractices?.length ? (
+                      <div className="mt-3 space-y-2">
+                        {recommendation.recommendedPractices.map((practice) => (
+                          <div key={practice.id} className="rounded-2xl border border-[#D6E4FF] bg-white px-3 py-3 text-[11px] text-[#334155]">
+                            <p className="font-medium text-[#0F172A]">{practice.questionText}</p>
+                            <p className="mt-1 text-[#64748B]">
+                              {practice.questionType || "专项题"} · 难度 {practice.difficulty || "-"}
+                            </p>
+                            {practice.recommendationReason ? (
+                              <p className="mt-2 leading-5">{practice.recommendationReason}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

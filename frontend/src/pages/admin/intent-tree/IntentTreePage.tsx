@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -191,7 +191,7 @@ export function IntentTreePage() {
         return data?.[0]?.intentCode ?? null;
       });
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载意图树失败"));
+      feedback.error(getErrorMessage(error, "加载意图树失败"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -241,10 +241,10 @@ export function IntentTreePage() {
     if (!deleteTarget) return;
     try {
       await deleteIntentNode(deleteTarget.id);
-      toast.success("删除成功");
+      feedback.success("删除成功");
       await loadTree();
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除失败"));
+      feedback.error(getErrorMessage(error, "删除失败"));
       console.error(error);
     } finally {
       setDeleteTarget(null);
@@ -253,13 +253,13 @@ export function IntentTreePage() {
 
   const handleCreate = async (payload: IntentNodeCreatePayload) => {
     await createIntentNode(payload);
-    toast.success("创建成功");
+    feedback.success("创建成功");
     await loadTree();
   };
 
   const handleUpdate = async (id: number, payload: IntentNodeUpdatePayload) => {
     await updateIntentNode(id, payload);
-    toast.success("更新成功");
+    feedback.success("更新成功");
     await loadTree();
   };
 
@@ -521,8 +521,6 @@ function IntentNodeDialog({
 
     const nextLevel = parentNode ? Math.min((parentNode.level ?? 0) + 1, 2) : 0;
     const parentKind = parentNode?.kind ?? 0;
-    const kbMatch = knowledgeBases.find((kb) => kb.collectionName === parentNode?.collectionName);
-
     return {
       name: "",
       intentCode: "",
@@ -630,7 +628,7 @@ function IntentNodeDialog({
       onOpenChange(false);
     } catch (error) {
       console.error(error);
-      toast.error(getErrorMessage(error, mode === "create" ? "创建失败" : "更新失败"));
+      feedback.error(getErrorMessage(error, mode === "create" ? "创建失败" : "更新失败"));
     } finally {
       setSaving(false);
     }

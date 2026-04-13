@@ -17,12 +17,25 @@
 
 package com.nageoffer.ai.ragent.interview.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
+import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
+import com.nageoffer.ai.ragent.interview.controller.request.SpeechAnalysisRequest;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
+import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
+import com.nageoffer.ai.ragent.infra.chat.StreamCancellationHandle;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,6 +46,11 @@ public class AIEvaluationService {
     private static final Pattern FIRST_NUMBER_PATTERN = Pattern.compile("\\d+");
 
     private final LLMService llmService;
+    private final ObjectMapper objectMapper;
+    private final PositionProfileService positionProfileService;
+
+    public record StreamExecution<T>(StreamCancellationHandle handle, CompletableFuture<T> resultFuture) {
+    }
 
     /**
      * 评估学生回答
@@ -41,8 +59,37 @@ public class AIEvaluationService {
      * @return 评估结果
      */
     public Map<String, Object> evaluateAnswer(QuestionEntity question, String userAnswer) {
+        return evaluateAnswer(question, userAnswer, null, 0);
+    }
+
+    public Map<String, Object> evaluateAnswer(QuestionEntity question, String userAnswer, int followUpCount) {
+        return evaluateAnswer(question, userAnswer, null, followUpCount, "", "", List.of());
+    }
+
+    public Map<String, Object> evaluateAnswer(QuestionEntity question, String userAnswer, SpeechAnalysisRequest speechAnalysis) {
+        return evaluateAnswer(question, userAnswer, speechAnalysis, 0);
+    }
+
+    public Map<String, Object> evaluateAnswer(
+            QuestionEntity question,
+            String userAnswer,
+            SpeechAnalysisRequest speechAnalysis,
+            int followUpCount
+    ) {
+        return evaluateAnswer(question, userAnswer, speechAnalysis, followUpCount, "", "", List.of());
+    }
+
+    public Map<String, Object> evaluateAnswer(
+            QuestionEntity question,
+            String userAnswer,
+            SpeechAnalysisRequest speechAnalysis,
+            int followUpCount,
+            String lastFollowUpIntent,
+            String lastFollowUpFocus,
+            List<String> followUpHistory
+    ) {
         // 构建评估提示词
-        String prompt = buildEvaluationPrompt(question, userAnswer);
+        String prompt = buildEvaluationPrompt(question, userAnswer, speechAnalysis, followUpCount, lastFollowUpIntent, lastFollowUpFocus, followUpHistory);
 
         try {
             // 调用LLM服务进行评估
@@ -50,20 +97,63 @@ public class AIEvaluationService {
             System.out.println("LLM Evaluation Result: " + evaluationResult);
 
             // 解析评估结果
-            return parseEvaluationResult(evaluationResult);
+            return enrichEvaluationResult(question, parseEvaluationResult(evaluationResult), userAnswer, speechAnalysis);
         } catch (Exception e) {
             System.err.println("Evaluation error: " + e.getMessage());
-            // 返回默认评估结果
-            Map<String, Object> defaultEvaluation = new HashMap<>();
-            defaultEvaluation.put("score", 0);
-            defaultEvaluation.put("technicalScore", 0);
-            defaultEvaluation.put("expressionScore", 0);
-            defaultEvaluation.put("logicScore", 0);
-            defaultEvaluation.put("knowledgeScore", 0);
-            defaultEvaluation.put("feedback", "评估服务暂时不可用");
-            defaultEvaluation.put("suggestions", "请稍后再试");
-            return defaultEvaluation;
+            return enrichEvaluationResult(question, buildDefaultEvaluation(), userAnswer, speechAnalysis);
         }
+    }
+
+    public StreamExecution<Map<String, Object>> streamEvaluateAnswer(
+            QuestionEntity question,
+            String userAnswer,
+            SpeechAnalysisRequest speechAnalysis,
+            int followUpCount,
+            String lastFollowUpIntent,
+            String lastFollowUpFocus,
+            List<String> followUpHistory,
+            Consumer<String> contentConsumer,
+            Consumer<String> thinkingConsumer
+    ) {
+        String prompt = buildEvaluationPrompt(question, userAnswer, speechAnalysis, followUpCount, lastFollowUpIntent, lastFollowUpFocus, followUpHistory);
+        StringBuilder content = new StringBuilder();
+        CompletableFuture<Map<String, Object>> resultFuture = new CompletableFuture<>();
+
+        StreamCancellationHandle handle = llmService.streamChat(
+                ChatRequest.builder()
+                        .messages(List.of(ChatMessage.user(prompt)))
+                        .thinking(true)
+                        .build(),
+                new StreamCallback() {
+                    @Override
+                    public void onContent(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        content.append(chunk);
+                        contentConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onThinking(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        thinkingConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        resultFuture.complete(enrichEvaluationResult(question, parseEvaluationResult(content.toString()), userAnswer, speechAnalysis));
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        resultFuture.completeExceptionally(error);
+                    }
+                }
+        );
+        return new StreamExecution<>(handle, resultFuture);
     }
 
     /**
@@ -86,6 +176,68 @@ public class AIEvaluationService {
         }
     }
 
+    public StreamExecution<String> streamGenerateEvaluationReport(
+            Map<String, Object>[] answers,
+            Consumer<String> contentConsumer,
+            Consumer<String> thinkingConsumer
+    ) {
+        String prompt = buildReportPrompt(answers);
+        StringBuilder content = new StringBuilder();
+        CompletableFuture<String> resultFuture = new CompletableFuture<>();
+
+        StreamCancellationHandle handle = llmService.streamChat(
+                ChatRequest.builder()
+                        .messages(List.of(ChatMessage.user(prompt)))
+                        .thinking(true)
+                        .build(),
+                new StreamCallback() {
+                    @Override
+                    public void onContent(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        content.append(chunk);
+                        contentConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onThinking(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        thinkingConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        resultFuture.complete(content.toString());
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        resultFuture.completeExceptionally(error);
+                    }
+                }
+        );
+        return new StreamExecution<>(handle, resultFuture);
+    }
+
+    public Map<String, Object> generateStructuredEvaluationReport(
+            String positionName,
+            Integer questionLimit,
+            Integer timeLimitMinutes,
+            Map<String, Object>[] answers
+    ) {
+        String prompt = buildStructuredReportPrompt(positionName, questionLimit, timeLimitMinutes, answers);
+        try {
+            String result = llmService.chat(prompt);
+            return parseStructuredReport(result);
+        } catch (Exception e) {
+            System.err.println("Structured report generation error: " + e.getMessage());
+            return Map.of();
+        }
+    }
+
     /**
      * 生成追问
      * @param question 原题目
@@ -93,8 +245,19 @@ public class AIEvaluationService {
      * @return 追问题目
      */
     public QuestionEntity generateFollowUpQuestion(QuestionEntity question, String userAnswer) {
+        return generateFollowUpQuestion(question, userAnswer, 0, "", "", List.of());
+    }
+
+    public QuestionEntity generateFollowUpQuestion(
+            QuestionEntity question,
+            String userAnswer,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory
+    ) {
         // 构建追问提示词
-        String prompt = buildFollowUpPrompt(question, userAnswer);
+        String prompt = buildFollowUpPrompt(question, userAnswer, followUpCount, followUpIntent, followUpFocus, followUpHistory);
 
         try {
             // 调用LLM服务生成追问
@@ -117,26 +280,146 @@ public class AIEvaluationService {
         }
     }
 
-    private String buildEvaluationPrompt(QuestionEntity question, String userAnswer) {
+    public StreamExecution<QuestionEntity> streamGenerateFollowUpQuestion(
+            QuestionEntity question,
+            String userAnswer,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory,
+            Consumer<String> contentConsumer,
+            Consumer<String> thinkingConsumer
+    ) {
+        String prompt = buildFollowUpPrompt(question, userAnswer, followUpCount, followUpIntent, followUpFocus, followUpHistory);
+        StringBuilder content = new StringBuilder();
+        CompletableFuture<QuestionEntity> resultFuture = new CompletableFuture<>();
+
+        StreamCancellationHandle handle = llmService.streamChat(
+                ChatRequest.builder()
+                        .messages(List.of(ChatMessage.user(prompt)))
+                        .thinking(true)
+                        .build(),
+                new StreamCallback() {
+                    @Override
+                    public void onContent(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        content.append(chunk);
+                        contentConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onThinking(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        thinkingConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        QuestionEntity followUpQuestion = new QuestionEntity();
+                        followUpQuestion.setParentQuestionId(question.getId());
+                        followUpQuestion.setPositionId(question.getPositionId());
+                        followUpQuestion.setQuestionType(question.getQuestionType());
+                        followUpQuestion.setDifficulty(question.getDifficulty());
+                        followUpQuestion.setQuestionText(content.toString().trim());
+                        followUpQuestion.setReferenceAnswer("");
+                        followUpQuestion.setKeywords(question.getKeywords());
+                        resultFuture.complete(followUpQuestion);
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        resultFuture.completeExceptionally(error);
+                    }
+                }
+        );
+        return new StreamExecution<>(handle, resultFuture);
+    }
+
+    public String rewriteFollowUpQuestion(
+            QuestionEntity question,
+            String userAnswer,
+            String followUpQuestion,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory
+    ) {
+        String prompt = buildFollowUpRewritePrompt(
+                question,
+                userAnswer,
+                followUpQuestion,
+                followUpCount,
+                followUpIntent,
+                followUpFocus,
+                followUpHistory
+        );
+        try {
+            return llmService.chat(prompt);
+        } catch (Exception e) {
+            System.err.println("Follow-up rewrite error: " + e.getMessage());
+            return "";
+        }
+    }
+
+    private String buildEvaluationPrompt(
+            QuestionEntity question,
+            String userAnswer,
+            SpeechAnalysisRequest speechAnalysis,
+            int followUpCount,
+            String lastFollowUpIntent,
+            String lastFollowUpFocus,
+            List<String> followUpHistory
+    ) {
         return "你是一位专业的技术面试官，请评估以下学生的回答：\n" +
                 "题目：" + question.getQuestionText() + "\n" +
                 "参考答案：" + question.getReferenceAnswer() + "\n" +
                 "学生回答：" + userAnswer + "\n" +
+                "语音表达补充：" + buildSpeechPromptFragment(speechAnalysis) + "\n" +
+                "岗位侧重点：" + buildPositionFocusPrompt(question) + "\n" +
+                "岗位评分权重：" + buildWeightPrompt(question) + "\n" +
+                "当前追问轮次：" + followUpCount + "\n" +
+                "上一轮追问意图：" + blankDefault(lastFollowUpIntent, "无") + "\n" +
+                "上一轮追问聚焦点：" + blankDefault(lastFollowUpFocus, "无") + "\n" +
+                "本题历史追问：" + stringifyList(followUpHistory) + "\n" +
                 "请从以下几个方面进行评估：\n" +
                 "1. 技术准确性（0-30分）\n" +
-                "2. 表达能力（0-25分）\n" +
+                "2. 岗位匹配度（0-25分）\n" +
                 "3. 逻辑清晰度（0-25分）\n" +
                 "4. 知识覆盖度（0-20分）\n" +
                 "总分为各项之和（0-100分）\n" +
-                "同时提供详细的反馈和改进建议。\n" +
+                "同时提供详细的反馈和改进建议，并判断是否应该继续追问。\n" +
+                "你还需要给候选人一句可以直接说出口的即时反馈，要求 1-2 句，先点出亮点，再指出一个最需要改进的问题，语气自然，不要像报告。\n" +
+                "你必须像真实技术面试官一样追问，而不是像题库老师出补全题。\n" +
+                "追问规则：\n" +
+                "1. 每轮最多只追问一个关键点，只能有一个追问意图和一个追问聚焦点。\n" +
+                "2. 如果候选人已经提到某个点，不得要求其完整复述或重新列举。\n" +
+                "3. 优先顺序：补关键缺口 -> 判断理解是否真实 -> 问场景应用 -> 问取舍原因 -> 问实现细节。\n" +
+                "4. 禁止把原题改写成更细的背诵题，禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”等考试式措辞。\n" +
+                "5. 如果当前追问轮次已达到 3，默认不要继续追问。\n" +
+                "6. 如果上一轮已经围绕某个聚焦点追问，本轮不得重复同一聚焦点，也不得延续同一追问意图。\n" +
+                "7. 追问语气必须像口头面试，短、自然、针对性强。\n" +
+                "8. 如果回答已经足够完整，就直接进入下一题，不要为了互动而强行追问。\n" +
+                "追问意图只能从以下枚举中选择一个：missing_fact, deeper_understanding, scenario_application, tradeoff_reasoning, implementation_detail\n" +
                 "请按照以下格式输出：\n" +
                 "评分：[总分]\n" +
                 "技术准确性：[分数]\n" +
-                "表达能力：[分数]\n" +
+                "岗位匹配度：[分数]\n" +
                 "逻辑清晰度：[分数]\n" +
                 "知识覆盖度：[分数]\n" +
+                "即时反馈：[1-2句口语化反馈]\n" +
                 "反馈：[详细反馈]\n" +
-                "建议：[改进建议]";
+                "建议：[改进建议]\n" +
+                "已覆盖要点：[逗号分隔]\n" +
+                "缺失要点：[逗号分隔]\n" +
+                "避免重复：[逗号分隔]\n" +
+                "继续追问：[是/否]\n" +
+                "追问意图：[missing_fact/deeper_understanding/scenario_application/tradeoff_reasoning/implementation_detail，如不追问留空]\n" +
+                "追问聚焦点：[只写一个最关键的缺口或主题，如不追问留空]\n" +
+                "追问问题：[如需追问则输出具体问题，否则留空]";
     }
 
     private String buildReportPrompt(Map<String, Object>[] answers) {
@@ -148,9 +431,11 @@ public class AIEvaluationService {
             prompt.append("问题").append(i + 1).append("：\n");
             prompt.append("评分：").append(answer.get("score")).append("\n");
             prompt.append("技术准确性：").append(answer.get("technicalScore")).append("\n");
-            prompt.append("表达能力：").append(answer.get("expressionScore")).append("\n");
+            prompt.append("岗位匹配度：").append(answer.get("positionMatchScore")).append("\n");
             prompt.append("逻辑清晰度：").append(answer.get("logicScore")).append("\n");
             prompt.append("知识覆盖度：").append(answer.get("knowledgeScore")).append("\n");
+            prompt.append("表达表现：").append(answer.get("expressionScore")).append("\n");
+            prompt.append("表达分析：").append(answer.get("expressionFeedback")).append("\n");
             prompt.append("反馈：").append(answer.get("feedback")).append("\n");
             prompt.append("建议：").append(answer.get("suggestions")).append("\n\n");
         }
@@ -166,28 +451,142 @@ public class AIEvaluationService {
         return prompt.toString();
     }
 
-    private String buildFollowUpPrompt(QuestionEntity question, String userAnswer) {
+    private String buildStructuredReportPrompt(
+            String positionName,
+            Integer questionLimit,
+            Integer timeLimitMinutes,
+            Map<String, Object>[] answers
+    ) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("你是一位严格但专业的技术面试官，需要为一场模拟面试输出结构化 JSON 报告。");
+        prompt.append("岗位：").append(positionName).append("\n");
+        prompt.append("题量：").append(questionLimit).append("\n");
+        prompt.append("时长：").append(timeLimitMinutes).append("分钟\n\n");
+
+        for (int i = 0; i < answers.length; i++) {
+            Map<String, Object> answer = answers[i];
+            prompt.append("问题").append(i + 1).append("：\n");
+            prompt.append("评分：").append(answer.get("score")).append("\n");
+            prompt.append("技术正确性：").append(answer.get("technicalScore")).append("\n");
+            prompt.append("岗位匹配度：").append(answer.get("positionMatchScore")).append("\n");
+            prompt.append("逻辑清晰度：").append(answer.get("logicScore")).append("\n");
+            prompt.append("知识覆盖度：").append(answer.get("knowledgeScore")).append("\n");
+            prompt.append("表达表现：").append(answer.get("expressionScore")).append("\n");
+            prompt.append("表达分析：").append(answer.get("expressionFeedback")).append("\n");
+            prompt.append("反馈：").append(answer.get("feedback")).append("\n");
+            prompt.append("建议：").append(answer.get("suggestions")).append("\n\n");
+        }
+
+        prompt.append("请仅返回合法 JSON，不要输出 Markdown，不要添加解释。");
+        prompt.append("字段结构必须为：");
+        prompt.append("{");
+        prompt.append("\"overallScore\": number,");
+        prompt.append("\"summary\": string,");
+        prompt.append("\"dimensionScores\": {");
+        prompt.append("\"technicalCorrectness\": number,");
+        prompt.append("\"knowledgeDepth\": number,");
+        prompt.append("\"logicRigor\": number,");
+        prompt.append("\"positionMatch\": number,");
+        prompt.append("\"expressionDelivery\": number");
+        prompt.append("},");
+        prompt.append("\"expressionSummary\": string,");
+        prompt.append("\"highlights\": string[],");
+        prompt.append("\"weaknesses\": string[],");
+        prompt.append("\"improvementSuggestions\": string[]");
+        prompt.append("}");
+        prompt.append("所有分数范围为 0 到 100，数组各输出 2 到 4 条，内容具体、像真实面试官。");
+        return prompt.toString();
+    }
+
+    private String buildFollowUpPrompt(
+            QuestionEntity question,
+            String userAnswer,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory
+    ) {
         return "你是一位专业的技术面试官，根据以下题目和学生回答，生成一个相关的追问：\n" +
                 "题目：" + question.getQuestionText() + "\n" +
                 "学生回答：" + userAnswer + "\n" +
+                "当前追问轮次：" + followUpCount + "\n" +
+                "指定追问意图：" + blankDefault(followUpIntent, "deeper_understanding") + "\n" +
+                "指定追问聚焦点：" + blankDefault(followUpFocus, "回答中最关键的薄弱点") + "\n" +
+                "本题历史追问：" + stringifyList(followUpHistory) + "\n" +
                 "要求：\n" +
-                "1. 追问应该针对学生回答中的薄弱环节或需要进一步澄清的地方\n" +
+                "1. 追问应该针对学生回答中的一个薄弱环节或需要进一步澄清的地方，只追一个点\n" +
                 "2. 追问应该与原题目相关，能够深入了解学生的技术水平\n" +
-                "3. 追问应该简洁明了，直击问题核心\n" +
-                "4. 只输出追问内容，不要添加任何其他说明";
+                "3. 追问应该简洁明了，像真实口头面试，不要像考试题\n" +
+                "4. 禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”等措辞\n" +
+                "5. 禁止重复历史追问中的主题\n" +
+                "6. 只输出一句追问内容，不要添加任何其他说明";
+    }
+
+    private String buildFollowUpRewritePrompt(
+            QuestionEntity question,
+            String userAnswer,
+            String followUpQuestion,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory
+    ) {
+        return "你是一位真实技术面试官，请把下面这句不自然的追问改写成更像口头面试的追问。\n" +
+                "题目：" + question.getQuestionText() + "\n" +
+                "学生回答：" + userAnswer + "\n" +
+                "当前追问轮次：" + followUpCount + "\n" +
+                "追问意图：" + blankDefault(followUpIntent, "deeper_understanding") + "\n" +
+                "追问聚焦点：" + blankDefault(followUpFocus, "回答中的关键薄弱点") + "\n" +
+                "历史追问：" + stringifyList(followUpHistory) + "\n" +
+                "原始追问：" + blankDefault(followUpQuestion, "无") + "\n" +
+                "改写要求：\n" +
+                "1. 只追问一个点，语气像真实面试官口头追问。\n" +
+                "2. 禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”“请从以下几个方面分析”。\n" +
+                "3. 不要把原题改写成更细的背诵题。\n" +
+                "4. 不要重复历史追问主题。\n" +
+                "5. 尽量短，自然，像接着上一句聊天继续问。\n" +
+                "6. 只输出改写后的追问，不要解释。";
+    }
+
+    private Map<String, Object> parseStructuredReport(String result) {
+        if (result == null || result.isBlank()) {
+            return Map.of();
+        }
+        String normalized = result.trim();
+        int start = normalized.indexOf("{");
+        int end = normalized.lastIndexOf("}");
+        if (start < 0 || end <= start) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> payload = objectMapper.readValue(
+                    normalized.substring(start, end + 1),
+                    new TypeReference<>() {}
+            );
+            Map<String, Object> dimensionScores = castMap(payload.get("dimensionScores"));
+            return Map.of(
+                    "overallScore", clampNumber(payload.get("overallScore")),
+                    "summary", toSafeText(payload.get("summary"), "本场面试已完成，整体表现具备一定基础，但仍有可优化空间。"),
+                    "dimensionScores", Map.of(
+                            "technicalCorrectness", clampNumber(dimensionScores.get("technicalCorrectness")),
+                            "knowledgeDepth", clampNumber(dimensionScores.get("knowledgeDepth")),
+                            "logicRigor", clampNumber(dimensionScores.get("logicRigor")),
+                            "positionMatch", clampNumber(dimensionScores.get("positionMatch")),
+                            "expressionDelivery", clampNumber(dimensionScores.get("expressionDelivery"))
+                    ),
+                    "expressionSummary", toSafeText(payload.get("expressionSummary"), "表达整体稳定，但还可以继续优化语速控制、停顿节奏和重点强调。"),
+                    "highlights", toStringList(payload.get("highlights")),
+                    "weaknesses", toStringList(payload.get("weaknesses")),
+                    "improvementSuggestions", toStringList(payload.get("improvementSuggestions"))
+            );
+        } catch (Exception ex) {
+            System.err.println("Structured report parse error: " + ex.getMessage());
+            return Map.of();
+        }
     }
 
     private Map<String, Object> parseEvaluationResult(String result) {
-        Map<String, Object> evaluation = new HashMap<>();
-
-        // 设置默认值，防止空结果
-        evaluation.put("score", 0);
-        evaluation.put("technicalScore", 0);
-        evaluation.put("expressionScore", 0);
-        evaluation.put("logicScore", 0);
-        evaluation.put("knowledgeScore", 0);
-        evaluation.put("feedback", "");
-        evaluation.put("suggestions", "");
+        Map<String, Object> evaluation = buildDefaultEvaluation();
 
         // 检查结果是否为空
         if (result == null || result.isEmpty()) {
@@ -211,9 +610,10 @@ public class AIEvaluationService {
 
             // 提取各维度评分
             extractScore(result, "技术准确性：", "technicalScore", evaluation);
-            extractScore(result, "表达能力：", "expressionScore", evaluation);
+            extractScore(result, "岗位匹配度：", "positionMatchScore", evaluation);
             extractScore(result, "逻辑清晰度：", "logicScore", evaluation);
             extractScore(result, "知识覆盖度：", "knowledgeScore", evaluation);
+            extractText(result, "即时反馈：", "instantFeedback", evaluation, "反馈：");
 
             // 尝试提取反馈
             int feedbackIndex = result.indexOf("反馈：");
@@ -227,8 +627,35 @@ public class AIEvaluationService {
             // 尝试提取建议
             int suggestionsIndex = result.indexOf("建议：");
             if (suggestionsIndex != -1) {
-                String suggestions = result.substring(suggestionsIndex + 3).trim();
+                int suggestionsEndIndex = result.indexOf("已覆盖要点：", suggestionsIndex);
+                if (suggestionsEndIndex == -1) {
+                    suggestionsEndIndex = result.length();
+                }
+                String suggestions = result.substring(suggestionsIndex + 3, suggestionsEndIndex).trim();
                 evaluation.put("suggestions", suggestions);
+            }
+
+            extractList(result, "已覆盖要点：", "answeredPoints", evaluation);
+            extractList(result, "缺失要点：", "missingPoints", evaluation);
+            extractList(result, "避免重复：", "avoidRepeat", evaluation);
+
+            int shouldFollowUpIndex = result.indexOf("继续追问：");
+            if (shouldFollowUpIndex != -1) {
+                int endIndex = result.indexOf("\n", shouldFollowUpIndex);
+                if (endIndex == -1) {
+                    endIndex = result.length();
+                }
+                String shouldFollowUp = result.substring(shouldFollowUpIndex + 5, endIndex).trim();
+                evaluation.put("shouldFollowUp", shouldFollowUp.startsWith("是"));
+            }
+
+            extractText(result, "追问意图：", "followUpIntent", evaluation, "追问聚焦点：");
+            extractText(result, "追问聚焦点：", "followUpFocus", evaluation, "追问问题：");
+
+            int followUpQuestionIndex = result.indexOf("追问问题：");
+            if (followUpQuestionIndex != -1) {
+                String followUpQuestion = result.substring(followUpQuestionIndex + 5).trim();
+                evaluation.put("followUpQuestion", followUpQuestion);
             }
 
             // 如果没有找到任何信息，使用默认值
@@ -236,11 +663,187 @@ public class AIEvaluationService {
                 evaluation.put("feedback", "评估完成");
                 evaluation.put("suggestions", "继续努力");
             }
+            if (evaluation.get("instantFeedback").equals("")) {
+                evaluation.put("instantFeedback", buildFallbackInstantFeedback(evaluation));
+            }
         } catch (Exception e) {
             System.err.println("Parse error: " + e.getMessage());
         }
 
         return evaluation;
+    }
+
+    private Map<String, Object> buildDefaultEvaluation() {
+        Map<String, Object> evaluation = new HashMap<>();
+        evaluation.put("score", 0);
+        evaluation.put("technicalScore", 0);
+        evaluation.put("positionMatchScore", 0);
+        evaluation.put("expressionScore", 0);
+        evaluation.put("logicScore", 0);
+        evaluation.put("knowledgeScore", 0);
+        evaluation.put("instantFeedback", "");
+        evaluation.put("feedback", "");
+        evaluation.put("suggestions", "");
+        evaluation.put("expressionFeedback", "");
+        evaluation.put("expressionAnalysis", Map.of());
+        evaluation.put("shouldFollowUp", false);
+        evaluation.put("followUpQuestion", "");
+        evaluation.put("followUpIntent", "");
+        evaluation.put("followUpFocus", "");
+        evaluation.put("answeredPoints", List.of());
+        evaluation.put("missingPoints", List.of());
+        evaluation.put("avoidRepeat", List.of());
+        return evaluation;
+    }
+
+    private Map<String, Object> enrichEvaluationResult(
+            QuestionEntity question,
+            Map<String, Object> evaluation,
+            String userAnswer,
+            SpeechAnalysisRequest speechAnalysis
+    ) {
+        Map<String, Object> mutable = new LinkedHashMap<>(evaluation == null ? buildDefaultEvaluation() : evaluation);
+        int technicalScore = clampNumber(mutable.get("technicalScore"));
+        int logicScore = clampNumber(mutable.get("logicScore"));
+        int knowledgeScore = clampNumber(mutable.get("knowledgeScore"));
+        int score = clampNumber(mutable.get("score"));
+        int recoveredPositionMatch = clamp(score - technicalScore - logicScore - knowledgeScore, 0, 25);
+        int positionMatchScore = clampNumber(mutable.get("positionMatchScore")) <= 0
+                ? recoveredPositionMatch
+                : clampNumber(mutable.get("positionMatchScore"));
+        mutable.put("positionMatchScore", positionMatchScore);
+        int expressionScore = computeExpressionScore(userAnswer, speechAnalysis);
+        mutable.put("expressionScore", expressionScore);
+        mutable.put("expressionAnalysis", buildExpressionAnalysisMap(speechAnalysis, expressionScore));
+        mutable.put("expressionFeedback", buildExpressionFeedback(speechAnalysis, expressionScore));
+        mutable.put("score", recomputeOverallScore(question, technicalScore, positionMatchScore, logicScore, knowledgeScore));
+        return mutable;
+    }
+
+    private int computeExpressionScore(String userAnswer, SpeechAnalysisRequest speechAnalysis) {
+        if (speechAnalysis != null) {
+            int directScore = clamp(numberOrZero(speechAnalysis.getExpressionScore()), 0, 100);
+            if (directScore > 0) {
+                return directScore;
+            }
+            double weighted = numberOrZero(speechAnalysis.getClarityScore()) * 0.4
+                    + numberOrZero(speechAnalysis.getConfidenceScore()) * 0.3
+                    + numberOrZero(speechAnalysis.getFluencyScore()) * 0.3;
+            if (weighted > 0) {
+                return clamp((int) Math.round(weighted), 0, 100);
+            }
+        }
+        int length = userAnswer == null ? 0 : userAnswer.trim().length();
+        if (length >= 180) {
+            return 84;
+        }
+        if (length >= 120) {
+            return 76;
+        }
+        if (length >= 60) {
+            return 68;
+        }
+        if (length > 0) {
+            return 58;
+        }
+        return 0;
+    }
+
+    private Map<String, Object> buildExpressionAnalysisMap(SpeechAnalysisRequest speechAnalysis, int expressionScore) {
+        if (speechAnalysis == null) {
+            return Map.of(
+                    "expressionScore", expressionScore,
+                    "summary", "本次未采集到语音数据，表达表现分基于文本完整度进行估计。"
+            );
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("durationSeconds", safeRound(speechAnalysis.getDurationSeconds()));
+        data.put("wordsPerMinute", safeRound(speechAnalysis.getWordsPerMinute()));
+        data.put("averageVolume", safeRound(speechAnalysis.getAverageVolume()));
+        data.put("peakVolume", safeRound(speechAnalysis.getPeakVolume()));
+        data.put("pauseRatio", safeRound(speechAnalysis.getPauseRatio()));
+        data.put("clarityScore", numberOrZero(speechAnalysis.getClarityScore()));
+        data.put("confidenceScore", numberOrZero(speechAnalysis.getConfidenceScore()));
+        data.put("fluencyScore", numberOrZero(speechAnalysis.getFluencyScore()));
+        data.put("expressionScore", expressionScore);
+        data.put("summary", toSafeText(speechAnalysis.getSummary(), ""));
+        return data;
+    }
+
+    private String buildExpressionFeedback(SpeechAnalysisRequest speechAnalysis, int expressionScore) {
+        if (speechAnalysis == null) {
+            if (expressionScore >= 75) {
+                return "本次未采集到语音原始数据，当前表达表现根据文本完整度估计为较稳定。";
+            }
+            return "本次未采集到语音原始数据，建议后续使用语音回答以获得更完整的表达分析。";
+        }
+        String summary = toSafeText(speechAnalysis.getSummary(), "");
+        if (!summary.isBlank()) {
+            return summary;
+        }
+        if (expressionScore >= 85) {
+            return "语速和停顿控制比较自然，整体表达清晰且状态稳定。";
+        }
+        if (expressionScore >= 70) {
+            return "表达基本清晰，节奏总体稳定，但还可以再加强重点强调和停顿控制。";
+        }
+        if (expressionScore >= 55) {
+            return "能够表达主要内容，但语速、停顿和自信度还有明显提升空间。";
+        }
+        return "当前表达较紧张或不够连贯，建议先放慢语速，再强化关键词的清晰表达。";
+    }
+
+    private String buildSpeechPromptFragment(SpeechAnalysisRequest speechAnalysis) {
+        if (speechAnalysis == null) {
+            return "无语音数据，仅根据文本内容判断。";
+        }
+        return String.format(
+                "时长 %.1f 秒，语速 %.1f 字/分钟，停顿占比 %.2f，清晰度 %d，自信度 %d，流畅度 %d，表达总结：%s",
+                numberOrZero(speechAnalysis.getDurationSeconds()),
+                numberOrZero(speechAnalysis.getWordsPerMinute()),
+                numberOrZero(speechAnalysis.getPauseRatio()),
+                numberOrZero(speechAnalysis.getClarityScore()),
+                numberOrZero(speechAnalysis.getConfidenceScore()),
+                numberOrZero(speechAnalysis.getFluencyScore()),
+                blankDefault(speechAnalysis.getSummary(), "无")
+        );
+    }
+
+    private String buildPositionFocusPrompt(QuestionEntity question) {
+        return positionProfileService.resolveInterviewFocus(question.getPositionId(), null, null);
+    }
+
+    private String buildWeightPrompt(QuestionEntity question) {
+        Map<String, Integer> weights = positionProfileService.resolveEvaluationWeights(question.getPositionId(), null);
+        return String.format(
+                "技术准确性 %d%%，岗位匹配度 %d%%，逻辑清晰度 %d%%，知识覆盖度 %d%%",
+                weights.getOrDefault("technical", 30),
+                weights.getOrDefault("positionMatch", 25),
+                weights.getOrDefault("logic", 20),
+                weights.getOrDefault("knowledge", 25)
+        );
+    }
+
+    private int recomputeOverallScore(
+            QuestionEntity question,
+            int technicalScore,
+            int positionMatchScore,
+            int logicScore,
+            int knowledgeScore
+    ) {
+        Map<String, Integer> weights = positionProfileService.resolveEvaluationWeights(question.getPositionId(), null);
+        double weighted = normalize(technicalScore, 30) * weights.getOrDefault("technical", 30)
+                + normalize(positionMatchScore, 25) * weights.getOrDefault("positionMatch", 25)
+                + normalize(logicScore, 25) * weights.getOrDefault("logic", 20)
+                + normalize(knowledgeScore, 20) * weights.getOrDefault("knowledge", 25);
+        return clamp((int) Math.round(weighted), 0, 100);
+    }
+
+    private double normalize(int value, int max) {
+        if (max <= 0) {
+            return 0D;
+        }
+        return clamp(value, 0, max) / (double) max;
     }
 
     private void extractScore(String result, String prefix, String key, Map<String, Object> evaluation) {
@@ -257,6 +860,76 @@ public class AIEvaluationService {
         }
     }
 
+    private void extractText(String result, String prefix, String key, Map<String, Object> evaluation, String nextPrefix) {
+        int index = result.indexOf(prefix);
+        if (index == -1) {
+            return;
+        }
+        int contentStart = index + prefix.length();
+        int endIndex = nextPrefix == null ? -1 : result.indexOf(nextPrefix, contentStart);
+        if (endIndex == -1) {
+            endIndex = result.indexOf("\n", contentStart);
+        }
+        if (endIndex == -1) {
+            endIndex = result.length();
+        }
+        String value = result.substring(contentStart, endIndex).trim();
+        evaluation.put(key, value);
+    }
+
+    private String buildFallbackInstantFeedback(Map<String, Object> evaluation) {
+        String feedback = toSafeText(evaluation.get("feedback"), "");
+        String suggestions = toSafeText(evaluation.get("suggestions"), "");
+        String feedbackSentence = firstSentence(feedback);
+        String suggestionSentence = firstSentence(suggestions);
+
+        if (!feedbackSentence.isBlank() && !suggestionSentence.isBlank()) {
+            return feedbackSentence + " " + suggestionSentence;
+        }
+        if (!feedbackSentence.isBlank()) {
+            return feedbackSentence;
+        }
+        if (!suggestionSentence.isBlank()) {
+            return suggestionSentence;
+        }
+        return "这题回答有一定基础，但还可以再把关键概念和推导过程说得更完整一些。";
+    }
+
+    private String firstSentence(String text) {
+        String normalized = toSafeText(text, "")
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        int splitIndex = -1;
+        for (String delimiter : Arrays.asList("。", "！", "？", ".", "!", "?", ";", "；")) {
+            int idx = normalized.indexOf(delimiter);
+            if (idx >= 0 && (splitIndex == -1 || idx < splitIndex)) {
+                splitIndex = idx;
+            }
+        }
+        if (splitIndex >= 0) {
+            return normalized.substring(0, splitIndex + 1).trim();
+        }
+        return normalized;
+    }
+
+    private void extractList(String result, String prefix, String key, Map<String, Object> evaluation) {
+        int index = result.indexOf(prefix);
+        if (index == -1) {
+            return;
+        }
+        int endIndex = result.indexOf("\n", index);
+        if (endIndex == -1) {
+            endIndex = result.length();
+        }
+        String value = result.substring(index + prefix.length(), endIndex).trim();
+        evaluation.put(key, splitToList(value));
+    }
+
     private int parseFirstNumber(String value) {
         Matcher matcher = FIRST_NUMBER_PATTERN.matcher(value == null ? "" : value);
         if (!matcher.find()) {
@@ -267,5 +940,85 @@ public class AIEvaluationService {
 
     private int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> castMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return Map.of();
+    }
+
+    private int clampNumber(Object value) {
+        if (value instanceof Number number) {
+            return clamp(number.intValue(), 0, 100);
+        }
+        if (value instanceof String text) {
+            return clamp(parseFirstNumber(text), 0, 100);
+        }
+        return 0;
+    }
+
+    private int numberOrZero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private double numberOrZero(Double value) {
+        return value == null ? 0D : value;
+    }
+
+    private double safeRound(Double value) {
+        if (value == null) {
+            return 0D;
+        }
+        return Math.round(value * 100.0D) / 100.0D;
+    }
+
+    private String toSafeText(Object value, String fallback) {
+        if (value instanceof String text && !text.isBlank()) {
+            return text.trim();
+        }
+        return fallback;
+    }
+
+    private List<String> toStringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+                .map(item -> item == null ? "" : String.valueOf(item).trim())
+                .filter(item -> !item.isBlank())
+                .limit(4)
+                .toList();
+    }
+
+    private List<String> splitToList(String value) {
+        if (value == null || value.isBlank() || "无".equals(value.trim())) {
+            return List.of();
+        }
+        return Arrays.stream(value.split("[,，、/\\n]"))
+                .map(item -> item == null ? "" : item.trim())
+                .filter(item -> !item.isBlank())
+                .limit(4)
+                .toList();
+    }
+
+    private String stringifyList(List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return "无";
+        }
+        return String.join("；", items.stream()
+                .map(item -> item == null ? "" : item.trim())
+                .filter(item -> !item.isBlank())
+                .limit(4)
+                .toList());
+    }
+
+    private String blankDefault(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value.trim();
     }
 }

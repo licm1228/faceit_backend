@@ -27,6 +27,7 @@ import com.nageoffer.ai.ragent.framework.trace.RagTraceContext;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
 import com.nageoffer.ai.ragent.infra.chat.StreamCancellationHandle;
+import com.nageoffer.ai.ragent.infra.config.AIModelProperties;
 import com.nageoffer.ai.ragent.rag.aop.ChatRateLimit;
 import com.nageoffer.ai.ragent.rag.core.guidance.GuidanceDecision;
 import com.nageoffer.ai.ragent.rag.core.guidance.IntentGuidanceService;
@@ -79,6 +80,7 @@ public class RAGChatServiceImpl implements RAGChatService {
     private final IntentResolver intentResolver;
     private final RetrievalEngine retrievalEngine;
     private final InterviewRetrieveService interviewRetrieveService;
+    private final AIModelProperties aiModelProperties;
 
     @Override
     @ChatRateLimit
@@ -178,6 +180,7 @@ public class RAGChatServiceImpl implements RAGChatService {
         ChatRequest req = ChatRequest.builder()
                 .messages(messages)
                 .temperature(0.7D)
+                .preferredModelId(resolvePreferredStreamModelId())
                 .thinking(false)
                 .build();
         return llmService.streamChat(req, callback);
@@ -203,12 +206,21 @@ public class RAGChatServiceImpl implements RAGChatService {
         );
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(messages)
+                .preferredModelId(resolvePreferredStreamModelId())
                 .thinking(deepThinking)
                 .temperature(ctx.hasMcp() ? 0.3D : 0D)  // MCP 场景稍微放宽温度
                 .topP(ctx.hasMcp() ? 0.8D : 1D)
                 .build();
 
         return llmService.streamChat(chatRequest, callback);
+    }
+
+    private String resolvePreferredStreamModelId() {
+        AIModelProperties.Features features = aiModelProperties.getFeatures();
+        if (features == null || !Boolean.TRUE.equals(features.getUseGpt())) {
+            return null;
+        }
+        return StrUtil.blankToDefault(features.getGptModelId(), null);
     }
 
     /**
@@ -339,13 +351,13 @@ public class RAGChatServiceImpl implements RAGChatService {
     private String extractPositionId(String question) {
         String lowerQuestion = question.toLowerCase();
         if (lowerQuestion.contains("python") && lowerQuestion.contains("算法")) {
-            return "pos_python_001";
+            return "8";
         } else if (lowerQuestion.contains("java")) {
-            return "pos_java_001";
+            return "1";
         } else if (lowerQuestion.contains("前端") || lowerQuestion.contains("web")) {
-            return "pos_web_001";
+            return "2";
         } else {
-            return "pos_java_001";
+            return "1";
         }
     }
 }

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Check, FileUp, FolderOpen, PlayCircle, RefreshCw, Trash2, Pencil, FileBarChart, X } from "lucide-react";
-import { toast } from "sonner";
+import { FileUp, FolderOpen, PlayCircle, RefreshCw, Trash2, Pencil, FileBarChart, X } from "lucide-react";
+import { feedback } from "@/stores/useFeedbackStore";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, type Resolver } from "react-hook-form";
 import * as z from "zod";
 
 import { cn } from "@/lib/utils";
@@ -155,7 +155,7 @@ export function KnowledgeDocumentsPage() {
       const data = await getKnowledgeBase(kbId);
       setKb(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载知识库失败"));
+      feedback.error(getErrorMessage(error, "加载知识库失败"));
       console.error(error);
     }
   };
@@ -172,7 +172,7 @@ export function KnowledgeDocumentsPage() {
       });
       setPageData(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载文档失败"));
+      feedback.error(getErrorMessage(error, "加载文档失败"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -226,12 +226,12 @@ export function KnowledgeDocumentsPage() {
     if (!deleteTarget) return;
     try {
       await deleteDocument(String(deleteTarget.id));
-      toast.success("删除成功");
+      feedback.success("删除成功");
       setDeleteTarget(null);
       setCurrent(1);
       await loadDocuments(1, statusFilter, keyword);
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除失败"));
+      feedback.error(getErrorMessage(error, "删除失败"));
       console.error(error);
     }
   };
@@ -240,11 +240,11 @@ export function KnowledgeDocumentsPage() {
     if (!chunkTarget) return;
     try {
       await startDocumentChunk(String(chunkTarget.id));
-      toast.success("已开始分块");
+      feedback.success("已开始分块");
       setChunkTarget(null);
       await loadDocuments(current, statusFilter, keyword);
     } catch (error) {
-      toast.error(getErrorMessage(error, "分块失败"));
+      feedback.error(getErrorMessage(error, "分块失败"));
       console.error(error);
     }
   };
@@ -253,10 +253,10 @@ export function KnowledgeDocumentsPage() {
     const enabled = Boolean(doc.enabled);
     try {
       await enableDocument(String(doc.id), !enabled);
-      toast.success(!enabled ? "已启用" : "已禁用");
+      feedback.success(!enabled ? "已启用" : "已禁用");
       await loadDocuments(current, statusFilter, keyword);
     } catch (error) {
-      toast.error(getErrorMessage(error, "操作失败"));
+      feedback.error(getErrorMessage(error, "操作失败"));
       console.error(error);
     }
   };
@@ -265,17 +265,17 @@ export function KnowledgeDocumentsPage() {
     if (!detailTarget) return;
     const nextName = detailName.trim();
     if (!nextName) {
-      toast.error("文档名称不能为空");
+      feedback.error("文档名称不能为空");
       return;
     }
     setDetailSaving(true);
     try {
       await updateDocument(String(detailTarget.id), { docName: nextName });
-      toast.success("更新成功");
+      feedback.success("更新成功");
       await loadDocuments(current, statusFilter, keyword);
       setDetailTarget(null);
     } catch (error) {
-      toast.error(getErrorMessage(error, "更新失败"));
+      feedback.error(getErrorMessage(error, "更新失败"));
       console.error(error);
     } finally {
       setDetailSaving(false);
@@ -288,7 +288,7 @@ export function KnowledgeDocumentsPage() {
       const data = await getChunkLogsPage(docId, 1, 1);
       setLogData(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载分块日志失败"));
+      feedback.error(getErrorMessage(error, "加载分块日志失败"));
       console.error(error);
     } finally {
       setLogLoading(false);
@@ -489,7 +489,7 @@ export function KnowledgeDocumentsPage() {
                               const detail = await getDocument(String(doc.id));
                               setDetailTarget(detail);
                             } catch (error) {
-                              toast.error(getErrorMessage(error, "加载文档详情失败"));
+                              feedback.error(getErrorMessage(error, "加载文档详情失败"));
                             }
                           }}
                           title="编辑"
@@ -559,7 +559,7 @@ export function KnowledgeDocumentsPage() {
         onSubmit={async (payload) => {
           if (!kbId) return;
           await uploadDocument(kbId, payload);
-          toast.success("上传成功");
+          feedback.success("上传成功");
           setUploadOpen(false);
           setCurrent(1);
           await loadDocuments(1, statusFilter, keyword);
@@ -869,18 +869,18 @@ interface UploadDialogProps {
 const uploadSchema = z
   .object({
     sourceType: z.enum(["file", "url"]),
-    sourceLocation: z.string().optional(),
+    sourceLocation: z.string().default(""),
     scheduleEnabled: z.boolean().default(false),
-    scheduleCron: z.string().optional(),
+    scheduleCron: z.string().default(""),
     processMode: z.enum(["chunk", "pipeline"]).default("chunk"),
-    chunkStrategy: z.enum(["fixed_size", "structure_aware"]).optional(),
-    pipelineId: z.string().optional(),
-    chunkSize: z.string().optional(),
-    overlapSize: z.string().optional(),
-    targetChars: z.string().optional(),
-    maxChars: z.string().optional(),
-    minChars: z.string().optional(),
-    overlapChars: z.string().optional()
+    chunkStrategy: z.enum(["fixed_size", "structure_aware"]).default("fixed_size"),
+    pipelineId: z.string().default(""),
+    chunkSize: z.string().default("512"),
+    overlapSize: z.string().default("128"),
+    targetChars: z.string().default("1400"),
+    maxChars: z.string().default("1800"),
+    minChars: z.string().default("600"),
+    overlapChars: z.string().default("0")
   })
   .superRefine((values, ctx) => {
     const isBlank = (value?: string) => !value || value.trim() === "";
@@ -961,7 +961,7 @@ function UploadDialog({ open, onOpenChange, onSubmit }: UploadDialogProps) {
   const [maxFileSize, setMaxFileSize] = useState<number>(50 * 1024 * 1024);
 
   const form = useForm<UploadFormValues>({
-    resolver: zodResolver(uploadSchema),
+    resolver: zodResolver(uploadSchema) as Resolver<UploadFormValues>,
     defaultValues: {
       sourceType: "file",
       sourceLocation: "",
@@ -996,7 +996,7 @@ function UploadDialog({ open, onOpenChange, onSubmit }: UploadDialogProps) {
       setPipelines(result.records || []);
     } catch (error) {
       console.error("加载Pipeline失败", error);
-      toast.error("加载Pipeline失败");
+      feedback.error("加载Pipeline失败");
     } finally {
       setLoadingPipelines(false);
     }
@@ -1065,12 +1065,12 @@ function UploadDialog({ open, onOpenChange, onSubmit }: UploadDialogProps) {
 
   const handleSubmit = async (values: UploadFormValues) => {
     if (values.sourceType === "file" && !file) {
-      toast.error("请选择文件");
+      feedback.error("请选择文件");
       return;
     }
     if (values.sourceType === "file" && file && file.size > maxFileSize) {
       const sizeMB = Math.floor(maxFileSize / 1024 / 1024);
-      toast.error(`上传文件大小超过限制，最大允许 ${sizeMB}MB`);
+      feedback.error(`上传文件大小超过限制，最大允许 ${sizeMB}MB`);
       return;
     }
     const chunkSize = parseNumber(values.chunkSize);
@@ -1103,7 +1103,7 @@ function UploadDialog({ open, onOpenChange, onSubmit }: UploadDialogProps) {
       };
       await onSubmit(payload);
     } catch (error) {
-      toast.error(getErrorMessage(error, "上传失败"));
+      feedback.error(getErrorMessage(error, "上传失败"));
       console.error(error);
     } finally {
       setSaving(false);

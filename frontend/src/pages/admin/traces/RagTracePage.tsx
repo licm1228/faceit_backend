@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, Clock3, Layers, RefreshCw, Search, TrendingUp } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,7 +55,7 @@ export function RagTracePage() {
       setPageData(result);
     } catch (error) {
       if (runsRequestRef.current !== requestId) return;
-      toast.error(getErrorMessage(error, "加载链路运行列表失败"));
+      feedback.error(getErrorMessage(error, "加载链路运行列表失败"));
       console.error(error);
     } finally {
       if (runsRequestRef.current !== requestId) return;

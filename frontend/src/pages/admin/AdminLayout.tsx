@@ -38,7 +38,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 import { changePassword } from "@/services/userService";
 import {
   getKnowledgeBases,
@@ -47,6 +47,7 @@ import {
   type KnowledgeDocumentSearchItem
 } from "@/services/knowledgeService";
 import { Avatar } from "@/components/common/Avatar";
+import { FaceItMark } from "@/components/common/FaceItMark";
 
 type MenuChild = {
   path: string;
@@ -374,11 +375,11 @@ export function AdminLayout() {
 
   const handlePasswordSubmit = async () => {
     if (!passwordForm.currentPassword || !passwordForm.newPassword) {
-      toast.error("请输入当前密码和新密码");
+      feedback.error("请输入当前密码和新密码");
       return;
     }
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      toast.error("两次输入的新密码不一致");
+      feedback.error("两次输入的新密码不一致");
       return;
     }
     try {
@@ -387,11 +388,11 @@ export function AdminLayout() {
         currentPassword: passwordForm.currentPassword,
         newPassword: passwordForm.newPassword
       });
-      toast.success("密码已更新");
+      feedback.success("密码已更新");
       setPasswordOpen(false);
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
     } catch (error) {
-      toast.error((error as Error).message || "修改密码失败");
+      feedback.error((error as Error).message || "修改密码失败");
     } finally {
       setPasswordSubmitting(false);
     }
@@ -474,7 +475,9 @@ export function AdminLayout() {
       <aside className={cn("admin-sidebar", collapsed && "admin-sidebar--collapsed")}>
         <div className="admin-sidebar__brand">
           <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-            <div className="admin-sidebar__logo">R</div>
+            <div className="admin-sidebar__logo">
+              <FaceItMark className="h-6 w-6" />
+            </div>
             {!collapsed && (
               <div className="min-w-0">
                 <h1 className="admin-sidebar__title">Face It 管理后台</h1>

@@ -1,11 +1,15 @@
 import * as React from "react";
-import { Brain, ChevronDown } from "lucide-react";
+import { Brain, ChevronDown, FileText, ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { FeedbackButtons } from "@/components/chat/FeedbackButtons";
-import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/types";
+
+const MarkdownRenderer = React.lazy(() =>
+  import("@/components/chat/MarkdownRenderer").then((mod) => ({ default: mod.MarkdownRenderer }))
+);
 
 interface MessageItemProps {
   message: Message;
@@ -24,6 +28,7 @@ export const MessageItem = React.memo(function MessageItem({ message, isLast }: 
   const hasThinking = Boolean(message.thinking && message.thinking.trim().length > 0);
   const hasContent = message.content.trim().length > 0;
   const isWaiting = message.status === "streaming" && !isThinking && !hasContent;
+  const reportMatch = message.content.match(/\[查看面试报告\]\((\/interview-report\/[^)]+)\)/);
 
   if (isUser) {
     return (
@@ -36,6 +41,14 @@ export const MessageItem = React.memo(function MessageItem({ message, isLast }: 
   }
 
   const thinkingDuration = message.thinkingDuration ? `${message.thinkingDuration}秒` : "";
+  const renderMarkdown = (content: string) => (
+    <React.Suspense
+      fallback={<div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-[#0F172A]">{content}</div>}
+    >
+      <MarkdownRenderer content={content} />
+    </React.Suspense>
+  );
+
   return (
     <div className="group flex">
       <div className="min-w-0 flex-1 space-y-4">
@@ -86,7 +99,32 @@ export const MessageItem = React.memo(function MessageItem({ message, isLast }: 
               </span>
             </div>
           ) : null}
-          {hasContent ? <MarkdownRenderer content={message.content} /> : null}
+          {hasContent ? (
+            reportMatch ? (
+              <div className="space-y-3">
+                {message.content.replace(reportMatch[0], "").trim() ? (
+                  renderMarkdown(message.content.replace(reportMatch[0], "").trim())
+                ) : null}
+                <Link
+                  to={reportMatch[1]}
+                  className="flex items-center justify-between rounded-2xl border border-[#DBEAFE] bg-gradient-to-r from-[#EFF6FF] to-white px-4 py-4 transition hover:border-[#93C5FD] hover:shadow-[0_12px_24px_rgba(37,99,235,0.08)]"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#2563EB] text-white">
+                      <FileText className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-[#0F172A]">查看面试报告</p>
+                      <p className="text-xs text-[#64748B]">进入结构化评估报告页，查看得分与推荐练习。</p>
+                    </div>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-[#2563EB]" />
+                </Link>
+              </div>
+            ) : (
+              renderMarkdown(message.content)
+            )
+          ) : null}
           {message.status === "error" ? (
             <p className="text-xs text-rose-500">生成已中断。</p>
           ) : null}

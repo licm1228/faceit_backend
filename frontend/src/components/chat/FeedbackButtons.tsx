@@ -1,5 +1,5 @@
 import { Copy, ThumbsDown, ThumbsUp } from "lucide-react";
-import { toast } from "sonner";
+import { feedback as feedbackStore } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -31,9 +31,9 @@ export function FeedbackButtons({
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(content);
-      toast.success("复制成功");
+      feedbackStore.success("复制成功");
     } catch {
-      toast.error("复制失败");
+      feedbackStore.error("复制失败");
     }
   };
 

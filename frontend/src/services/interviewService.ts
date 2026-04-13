@@ -1,4 +1,6 @@
 import { api } from "@/services/api";
+import { createStreamResponse, type StreamHandlers } from "@/hooks/useStreamResponse";
+import { storage } from "@/utils/storage";
 
 export interface Position {
   id: string;
@@ -6,6 +8,12 @@ export interface Position {
   description?: string;
   requiredSkills?: string;
   interviewFocus?: string;
+  evaluationWeights?: {
+    technical: number;
+    positionMatch: number;
+    logic: number;
+    knowledge: number;
+  };
 }
 
 export interface Question {
@@ -15,6 +23,11 @@ export interface Question {
   difficulty?: number;
   questionText: string;
   referenceAnswer?: string;
+  keywords?: string[];
+  keywordList?: string[];
+  knowledgeSource?: string;
+  recommendationReason?: string;
+  referenceAnswerPreview?: string;
 }
 
 export interface InterviewSession {
@@ -34,8 +47,34 @@ export interface InterviewSession {
 
 export interface AnswerEvaluation {
   score: number;
+  technicalScore?: number;
+  positionMatchScore?: number;
+  expressionScore?: number;
+  logicScore?: number;
+  knowledgeScore?: number;
+  instantFeedback?: string;
+  expressionFeedback?: string;
+  expressionAnalysis?: SpeechAnalysis | null;
   feedback: string;
   suggestions: string;
+}
+
+export interface SpeechAnalysis {
+  durationSeconds?: number;
+  wordsPerMinute?: number;
+  averageVolume?: number;
+  peakVolume?: number;
+  pauseRatio?: number;
+  clarityScore?: number;
+  confidenceScore?: number;
+  fluencyScore?: number;
+  expressionScore?: number;
+  summary?: string;
+}
+
+export interface InterviewStreamMessagePayload {
+  type: "response" | "think";
+  delta: string;
 }
 
 export interface SessionDetail {
@@ -48,9 +87,11 @@ export interface SessionDetail {
     userAnswer: string;
     score?: number;
     technicalScore?: number;
+    positionMatchScore?: number;
     expressionScore?: number;
     logicScore?: number;
     knowledgeScore?: number;
+    expressionFeedback?: string;
     feedback?: string;
     suggestions?: string;
   }>;
@@ -80,54 +121,80 @@ export interface Recommendation {
   nextStep: string;
   averageScore: number;
   completedSessions: number;
+  learningSuggestions?: string[];
+  recommendedPractices?: Array<{
+    id: string;
+    questionText: string;
+    questionType?: string;
+    difficulty?: number;
+    knowledgeTags?: string[];
+    recommendationReason?: string;
+  }>;
 }
 
-export async function listPositions() {
-  return api.get<Position[]>("/position/list");
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
+export async function listPositions(): Promise<Position[]> {
+  return api.get<Position[], Position[]>("/position/list");
 }
 
-export async function createPosition(payload: Partial<Position>) {
-  return api.post<Position>("/position/create", payload);
+export async function createPosition(
+  payload: Partial<Position>
+): Promise<Position> {
+  return api.post<Position, Position>("/position/create", payload);
 }
 
-export async function updatePosition(payload: Partial<Position> & { id: string }) {
-  return api.put<Position>("/position/update", payload);
+export async function updatePosition(
+  payload: Partial<Position> & { id: string }
+): Promise<Position> {
+  return api.put<Position, Position>("/position/update", payload);
 }
 
-export async function deletePosition(id: string) {
-  return api.delete<void>(`/position/${id}`);
+export async function deletePosition(id: string): Promise<void> {
+  return api.delete<void, void>(`/position/${id}`);
 }
 
-export async function listQuestions() {
-  return api.get<Question[]>("/question/list");
+export async function listQuestions(): Promise<Question[]> {
+  return api.get<Question[], Question[]>("/question/list");
 }
 
-export async function listQuestionsByPosition(positionId: string) {
-  return api.get<Question[]>(`/question/by-position/${positionId}`);
+export async function listQuestionsByPosition(
+  positionId: string
+): Promise<Question[]> {
+  return api.get<Question[], Question[]>(`/question/by-position/${positionId}`);
 }
 
-export async function createQuestion(payload: Partial<Question>) {
-  return api.post<Question>("/question/create", payload);
+export async function createQuestion(
+  payload: Partial<Question>
+): Promise<Question> {
+  return api.post<Question, Question>("/question/create", payload);
 }
 
-export async function updateQuestion(payload: Partial<Question> & { id: string }) {
-  return api.put<Question>("/question/update", payload);
+export async function updateQuestion(
+  payload: Partial<Question> & { id: string }
+): Promise<Question> {
+  return api.put<Question, Question>("/question/update", payload);
 }
 
-export async function deleteQuestion(id: string) {
-  return api.delete<void>(`/question/${id}`);
+export async function deleteQuestion(id: string): Promise<void> {
+  return api.delete<void, void>(`/question/${id}`);
 }
 
-export async function createInterviewSession(userId: string, positionId: string) {
+export async function createInterviewSession(
+  userId: string,
+  positionId: string
+): Promise<InterviewSession> {
   const query = new URLSearchParams({ userId, positionId });
-  return api.post<InterviewSession>(`/interview/create-session?${query.toString()}`);
+  return api.post<InterviewSession, InterviewSession>(
+    `/interview/create-session?${query.toString()}`
+  );
 }
 
 export async function createInterviewSessionWithOptions(
   userId: string,
   positionId: string,
   options?: { timeLimit?: number; totalQuestions?: number }
-) {
+): Promise<InterviewSession> {
   const query = new URLSearchParams({ userId, positionId });
   if (options?.timeLimit) {
     query.set("timeLimit", String(options.timeLimit));
@@ -135,80 +202,216 @@ export async function createInterviewSessionWithOptions(
   if (options?.totalQuestions) {
     query.set("totalQuestions", String(options.totalQuestions));
   }
-  return api.post<InterviewSession>(`/interview/create-session-with-options?${query.toString()}`);
+  return api.post<InterviewSession, InterviewSession>(
+    `/interview/create-session-with-options?${query.toString()}`
+  );
 }
 
-export async function startInterviewSession(sessionId: string) {
+export async function startInterviewSession(
+  sessionId: string
+): Promise<InterviewSession> {
   const query = new URLSearchParams({ sessionId });
-  return api.post<InterviewSession>(`/interview/start-session?${query.toString()}`);
+  return api.post<InterviewSession, InterviewSession>(
+    `/interview/start-session?${query.toString()}`
+  );
 }
 
-export async function getInterviewQuestion(sessionId: string, difficulty?: number) {
+export async function getInterviewQuestion(
+  sessionId: string,
+  difficulty?: number
+): Promise<Question> {
   const query = new URLSearchParams({ sessionId });
   if (typeof difficulty === "number") {
     query.set("difficulty", String(difficulty));
   }
-  return api.get<Question>(`/interview/get-question?${query.toString()}`);
+  return api.get<Question, Question>(`/interview/get-question?${query.toString()}`);
 }
 
-export async function submitInterviewAnswer(sessionId: string, questionId: string, userAnswer: string) {
+export async function submitInterviewAnswer(
+  sessionId: string,
+  questionId: string,
+  userAnswer: string,
+  speechAnalysis?: SpeechAnalysis | null
+): Promise<AnswerEvaluation> {
   const query = new URLSearchParams({ sessionId, questionId });
-  return api.post<AnswerEvaluation>(`/interview/submit-answer?${query.toString()}`, userAnswer, {
+  return api.post<AnswerEvaluation, AnswerEvaluation>(
+    `/interview/submit-answer?${query.toString()}`,
+    {
+      content: userAnswer,
+      speechAnalysis: speechAnalysis ?? undefined
+    },
+    {
+      headers: {
+        "Content-Type": "application/json;charset=UTF-8"
+      }
+    }
+  );
+}
+
+export function streamInterviewAnswer(
+  sessionId: string,
+  questionId: string,
+  userAnswer: string,
+  speechAnalysis: SpeechAnalysis | null | undefined,
+  handlers: StreamHandlers
+) {
+  const query = new URLSearchParams({ sessionId, questionId });
+  const token = storage.getToken();
+  return createStreamResponse(
+    {
+      url: `${API_BASE_URL}/interview/submit-answer/stream?${query.toString()}`,
+      method: "POST",
+      body: JSON.stringify({
+        content: userAnswer,
+        speechAnalysis: speechAnalysis ?? undefined
+      }),
+      headers: {
+        "Content-Type": "application/json;charset=UTF-8",
+        ...(token ? { Authorization: token } : {})
+      },
+      retryCount: 0
+    },
+    handlers
+  );
+}
+
+export async function askFollowUpQuestion(
+  sessionId: string,
+  questionId: string,
+  userAnswer: string
+): Promise<Question> {
+  const query = new URLSearchParams({ sessionId, questionId });
+  return api.post<Question, Question>(
+    `/interview/ask-follow-up?${query.toString()}`,
+    userAnswer,
+    {
     headers: {
       "Content-Type": "text/plain;charset=UTF-8"
     }
-  });
-}
-
-export async function askFollowUpQuestion(sessionId: string, questionId: string, userAnswer: string) {
-  const query = new URLSearchParams({ sessionId, questionId });
-  return api.post<Question>(`/interview/ask-follow-up?${query.toString()}`, userAnswer, {
-    headers: {
-      "Content-Type": "text/plain;charset=UTF-8"
     }
-  });
+  );
 }
 
-export async function completeInterviewSession(sessionId: string) {
+export function streamFollowUpQuestion(
+  sessionId: string,
+  questionId: string,
+  userAnswer: string,
+  handlers: StreamHandlers
+) {
+  const query = new URLSearchParams({ sessionId, questionId });
+  const token = storage.getToken();
+  return createStreamResponse(
+    {
+      url: `${API_BASE_URL}/interview/ask-follow-up/stream?${query.toString()}`,
+      method: "POST",
+      body: userAnswer,
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        ...(token ? { Authorization: token } : {})
+      },
+      retryCount: 0
+    },
+    handlers
+  );
+}
+
+export async function completeInterviewSession(
+  sessionId: string
+): Promise<InterviewSession> {
   const query = new URLSearchParams({ sessionId });
-  return api.post<InterviewSession>(`/interview/complete-session?${query.toString()}`);
+  return api.post<InterviewSession, InterviewSession>(
+    `/interview/complete-session?${query.toString()}`
+  );
 }
 
-export async function listInterviewHistory(userId: string) {
-  const query = new URLSearchParams({ userId });
-  return api.get<InterviewSession[]>(`/interview/history?${query.toString()}`);
-}
-
-export async function getInterviewSessionDetail(sessionId: string) {
+export function streamCompleteInterviewSession(
+  sessionId: string,
+  handlers: StreamHandlers
+) {
   const query = new URLSearchParams({ sessionId });
-  return api.get<SessionDetail>(`/interview/session-detail?${query.toString()}`);
+  const token = storage.getToken();
+  return createStreamResponse(
+    {
+      url: `${API_BASE_URL}/interview/complete-session/stream?${query.toString()}`,
+      method: "POST",
+      headers: token ? { Authorization: token } : undefined,
+      retryCount: 0
+    },
+    handlers
+  );
 }
 
-export async function listInterviewSessionsByUser(userId: string) {
+export async function listInterviewHistory(
+  userId: string
+): Promise<InterviewSession[]> {
   const query = new URLSearchParams({ userId });
-  return api.get<InterviewSession[]>(`/interview/history?${query.toString()}`);
+  return api.get<InterviewSession[], InterviewSession[]>(
+    `/interview/history?${query.toString()}`
+  );
 }
 
-export async function getUserProfile() {
-  return api.get<UserProfile>("/user/profile");
+export async function getInterviewSessionDetail(
+  sessionId: string
+): Promise<SessionDetail> {
+  const query = new URLSearchParams({ sessionId });
+  return api.get<SessionDetail, SessionDetail>(
+    `/interview/session-detail?${query.toString()}`
+  );
 }
 
-export async function getGrowthCurve(limit = 10) {
-  return api.get<GrowthCurvePoint[]>("/user/growth-curve", {
+export async function listInterviewSessionsByUser(
+  userId: string
+): Promise<InterviewSession[]> {
+  const query = new URLSearchParams({ userId });
+  return api.get<InterviewSession[], InterviewSession[]>(
+    `/interview/history?${query.toString()}`
+  );
+}
+
+export async function getUserProfile(): Promise<UserProfile> {
+  return api.get<UserProfile, UserProfile>("/user/profile");
+}
+
+export async function getGrowthCurve(
+  limit = 10
+): Promise<GrowthCurvePoint[]> {
+  return api.get<GrowthCurvePoint[], GrowthCurvePoint[]>("/user/growth-curve", {
     params: { limit }
   });
 }
 
-export async function getUserRecommendation() {
-  return api.get<Recommendation>("/user/recommendation");
+export async function getUserRecommendation(): Promise<Recommendation> {
+  return api.get<Recommendation, Recommendation>("/user/recommendation");
+}
+
+function normalizeSpeechRecognitionText(payload: unknown) {
+  if (typeof payload === "string") {
+    return payload.trim();
+  }
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+
+  const candidate = payload as Record<string, unknown>;
+  const nestedValue = candidate.data ?? candidate.text ?? candidate.result;
+  if (typeof nestedValue === "string") {
+    return nestedValue.trim();
+  }
+
+  return "";
 }
 
 export async function recognizeSpeechBase64(audioBase64: string, format = "pcm", sampleRate = 16000, language = "zh_cn") {
-  const query = new URLSearchParams({
+  const payload = new URLSearchParams({
     audio: audioBase64,
     format,
     sampleRate: String(sampleRate),
     language
   });
-  return api.post<string>(`/speech/recognize/base64?${query.toString()}`);
+  const response = await api.post<unknown>("/speech/recognize/base64", payload, {
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+    }
+  });
+  return normalizeSpeechRecognitionText(response);
 }

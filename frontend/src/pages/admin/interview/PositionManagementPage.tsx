@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -62,7 +62,7 @@ export function PositionManagementPage() {
       const data = await listPositions();
       setPositions(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载岗位失败"));
+      feedback.error(getErrorMessage(error, "加载岗位失败"));
     } finally {
       setLoading(false);
     }
@@ -102,7 +102,7 @@ export function PositionManagementPage() {
 
   const handleSubmit = async () => {
     if (!form.name.trim()) {
-      toast.error("岗位名称不能为空");
+      feedback.error("岗位名称不能为空");
       return;
     }
     const payload = {
@@ -114,15 +114,15 @@ export function PositionManagementPage() {
     try {
       if (dialogState.mode === "create") {
         await createPosition(payload);
-        toast.success("岗位创建成功");
+        feedback.success("岗位创建成功");
       } else if (dialogState.item?.id) {
         await updatePosition({ id: dialogState.item.id, ...payload });
-        toast.success("岗位更新成功");
+        feedback.success("岗位更新成功");
       }
       setDialogState({ open: false, mode: "create", item: null });
       await loadPositions();
     } catch (error) {
-      toast.error(getErrorMessage(error, "保存岗位失败"));
+      feedback.error(getErrorMessage(error, "保存岗位失败"));
     }
   };
 
@@ -130,11 +130,11 @@ export function PositionManagementPage() {
     if (!deleteTarget?.id) return;
     try {
       await deletePosition(deleteTarget.id);
-      toast.success("岗位删除成功");
+      feedback.success("岗位删除成功");
       setDeleteTarget(null);
       await loadPositions();
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除岗位失败"));
+      feedback.error(getErrorMessage(error, "删除岗位失败"));
     }
   };
 
@@ -179,6 +179,7 @@ export function PositionManagementPage() {
                   <TableHead className="w-[240px]">岗位名称</TableHead>
                   <TableHead>岗位描述</TableHead>
                   <TableHead className="w-[220px]">面试重点</TableHead>
+                  <TableHead className="w-[220px]">评分权重</TableHead>
                   <TableHead className="w-[170px] text-left">操作</TableHead>
                 </TableRow>
               </TableHeader>
@@ -191,6 +192,17 @@ export function PositionManagementPage() {
                     </TableCell>
                     <TableCell className="max-w-[220px] truncate" title={item.interviewFocus || ""}>
                       {item.interviewFocus || "-"}
+                    </TableCell>
+                    <TableCell>
+                      {item.evaluationWeights ? (
+                        <div className="text-xs leading-5 text-muted-foreground">
+                          <div>技术 {item.evaluationWeights.technical}%</div>
+                          <div>岗位 {item.evaluationWeights.positionMatch}%</div>
+                          <div>逻辑 {item.evaluationWeights.logic}% · 知识 {item.evaluationWeights.knowledge}%</div>
+                        </div>
+                      ) : (
+                        "-"
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
@@ -227,6 +239,11 @@ export function PositionManagementPage() {
             <DialogDescription>用于面试流程中的岗位选择</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {dialogState.item?.evaluationWeights ? (
+              <div className="rounded-2xl border border-[#E5E7EB] bg-[#F8FAFC] p-3 text-sm text-[#475467]">
+                当前岗位默认评分权重：技术 {dialogState.item.evaluationWeights.technical}% / 岗位匹配 {dialogState.item.evaluationWeights.positionMatch}% / 逻辑 {dialogState.item.evaluationWeights.logic}% / 知识 {dialogState.item.evaluationWeights.knowledge}%
+              </div>
+            ) : null}
             <div className="space-y-2">
               <label className="text-sm font-medium">岗位名称</label>
               <Input

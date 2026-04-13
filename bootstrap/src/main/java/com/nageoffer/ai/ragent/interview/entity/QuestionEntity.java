@@ -18,10 +18,12 @@
 package com.nageoffer.ai.ragent.interview.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @TableName("t_question")
@@ -38,4 +40,12 @@ public class QuestionEntity {
     private LocalDateTime updateTime;
     private Integer deleted;
     private String parentQuestionId; // 新增
+    @TableField(exist = false)
+    private List<String> keywordList;
+    @TableField(exist = false)
+    private String knowledgeSource;
+    @TableField(exist = false)
+    private String recommendationReason;
+    @TableField(exist = false)
+    private String referenceAnswerPreview;
 }

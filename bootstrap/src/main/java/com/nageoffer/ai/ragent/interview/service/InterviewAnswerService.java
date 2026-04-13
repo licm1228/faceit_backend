@@ -22,6 +22,7 @@ import com.nageoffer.ai.ragent.interview.mapper.InterviewAnswerMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -35,6 +36,10 @@ public class InterviewAnswerService {
         return interviewAnswerMapper.getAnswersBySessionId(sessionId);
     }
 
+    public InterviewAnswerEntity getLatestAnswer(String sessionId, String questionId) {
+        return interviewAnswerMapper.getLatestAnswer(sessionId, questionId);
+    }
+
     @Transactional
     public InterviewAnswerEntity saveAnswer(String sessionId, String questionId, String userAnswer) {
         InterviewAnswerEntity entity = new InterviewAnswerEntity();
@@ -45,6 +50,24 @@ public class InterviewAnswerService {
         entity.setUpdateTime(LocalDateTime.now());
         entity.setDeleted(0);
         interviewAnswerMapper.insert(entity);
+        return entity;
+    }
+
+    @Transactional
+    public InterviewAnswerEntity saveOrUpdateAnswer(String sessionId, String questionId, String userAnswer) {
+        InterviewAnswerEntity entity = getLatestAnswer(sessionId, questionId);
+        if (entity == null) {
+            return saveAnswer(sessionId, questionId, userAnswer);
+        }
+        String merged = entity.getUserAnswer() == null ? "" : entity.getUserAnswer();
+        if (!merged.isBlank()) {
+            merged = merged + "\n\n追问补充：" + userAnswer;
+        } else {
+            merged = userAnswer;
+        }
+        entity.setUserAnswer(merged);
+        entity.setUpdateTime(LocalDateTime.now());
+        interviewAnswerMapper.updateById(entity);
         return entity;
     }
 
@@ -88,5 +111,10 @@ public class InterviewAnswerService {
         entity.setDeleted(1);
         entity.setUpdateTime(LocalDateTime.now());
         interviewAnswerMapper.updateById(entity);
+    }
+
+    @Transactional
+    public void deleteAnswersBySessionId(String sessionId) {
+        getAnswersBySessionId(sessionId).forEach(answer -> deleteAnswer(answer.getId()));
     }
 }

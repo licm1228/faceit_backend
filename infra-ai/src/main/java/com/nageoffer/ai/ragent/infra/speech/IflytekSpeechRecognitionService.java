@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -51,6 +52,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class IflytekSpeechRecognitionService implements SpeechRecognitionService {
 
     private static final Logger logger = LoggerFactory.getLogger(IflytekSpeechRecognitionService.class);
+    private static final String CONFIG_MISSING_MESSAGE = "语音识别服务未配置，请先设置讯飞语音识别密钥";
 
     @Value("${ai.providers.iflytek.app-id}")
     private String appId;
@@ -83,6 +85,7 @@ public class IflytekSpeechRecognitionService implements SpeechRecognitionService
     @Override
     public String recognize(InputStream audioInputStream, String audioFormat, int sampleRate, String language) {
         try {
+            validateConfiguration();
             byte[] originalAudioBytes = audioInputStream.readAllBytes();
             logger.info("Audio data: format={}, sampleRate={}, length={}", audioFormat, sampleRate, originalAudioBytes.length);
 
@@ -274,6 +277,12 @@ public class IflytekSpeechRecognitionService implements SpeechRecognitionService
         } catch (Exception e) {
             logger.error("Speech recognition failed", e);
             throw new RuntimeException("Speech recognition failed", e);
+        }
+    }
+
+    private void validateConfiguration() {
+        if (!StringUtils.hasText(appId) || !StringUtils.hasText(apiKey) || !StringUtils.hasText(apiSecret)) {
+            throw new UnsupportedOperationException(CONFIG_MISSING_MESSAGE);
         }
     }
 

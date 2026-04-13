@@ -173,16 +173,16 @@ public class InterviewRetrieveService {
         question.setQuestionType("技术问题");
         question.setDifficulty(difficulty != null ? difficulty : 3);
 
-        // 根据不同的岗位ID创建不同的默认题目
-        if (positionId.equals("pos_python_001")) {
+        // 兼容旧 demo 岗位 ID，并优先适配当前真实岗位 ID
+        if (matchesPosition(positionId, "8", "pos_python_001")) {
             question.setQuestionText("请介绍一下Python中的生成器（Generator）是什么，以及它的使用场景？");
             question.setReferenceAnswer("生成器是Python中一种特殊的迭代器，它使用yield语句来产生值，而不是一次性返回所有值。生成器的主要特点：\n1. 惰性求值：只在需要时生成值，节省内存\n2. 状态保存：每次调用next()时，从上次yield的位置继续执行\n3. 语法简洁：使用yield语句，比普通迭代器更简洁\n\n使用场景：\n1. 处理大数据集：避免一次性加载所有数据到内存\n2. 无限序列：如斐波那契数列\n3. 协程：实现简单的协程功能\n4. 管道处理：数据处理的流水线\n\n生成器的优点是内存效率高，缺点是不能随机访问元素，只能顺序遍历。");
             question.setKeywords("{\"Python\", \"生成器\", \"yield\", \"迭代器\"}");
-        } else if (positionId.equals("pos_java_001")) {
+        } else if (matchesPosition(positionId, "1", "pos_java_001")) {
             question.setQuestionText("请介绍一下Java中的线程池，以及它的工作原理？");
             question.setReferenceAnswer("线程池是一种线程管理技术，它通过预先创建一定数量的线程，然后在需要时重用这些线程，而不是每次都创建新线程。线程池的主要优点：\n1. 减少线程创建和销毁的开销\n2. 控制并发线程的数量，避免资源耗尽\n3. 提高响应速度，因为线程已经预先创建\n\nJava中的线程池实现：\n1. ExecutorService：线程池的核心接口\n2. ThreadPoolExecutor：线程池的主要实现类\n3. Executors：提供创建线程池的工厂方法\n\n线程池的工作原理：\n1. 当提交任务时，首先检查核心线程数是否已满\n2. 如果核心线程数未满，创建新线程执行任务\n3. 如果核心线程数已满，将任务放入工作队列\n4. 如果工作队列已满，检查最大线程数是否已满\n5. 如果最大线程数未满，创建新线程执行任务\n6. 如果最大线程数已满，执行拒绝策略");
             question.setKeywords("{\"Java\", \"线程池\", \"ExecutorService\", \"ThreadPoolExecutor\"}");
-        } else if (positionId.equals("pos_web_001")) {
+        } else if (matchesPosition(positionId, "2", "pos_web_001")) {
             question.setQuestionText("请介绍一下前端中的闭包（Closure）是什么，以及它的使用场景？");
             question.setReferenceAnswer("闭包是指有权访问另一个函数作用域中变量的函数。闭包的主要特点：\n1. 可以访问外部函数的变量\n2. 即使外部函数执行完毕，闭包仍然可以访问其变量\n3. 可以保护变量不被外部访问\n\n使用场景：\n1. 数据私有化：创建私有变量和方法\n2. 函数工厂：根据参数创建不同行为的函数\n3. 模块化：实现模块模式，避免全局变量污染\n4. 事件处理：保存事件处理函数的上下文\n5. 异步操作：在异步操作中访问外部变量\n\n闭包的优点是可以创建私有变量和方法，缺点是可能导致内存泄漏，因为闭包会引用外部函数的变量，导致这些变量无法被垃圾回收。");
             question.setKeywords("{\"前端\", \"JavaScript\", \"闭包\", \"作用域\"}");
@@ -193,5 +193,9 @@ public class InterviewRetrieveService {
         }
 
         return question;
+    }
+
+    private boolean matchesPosition(String positionId, String currentId, String legacyId) {
+        return currentId.equals(positionId) || legacyId.equals(positionId);
     }
 }

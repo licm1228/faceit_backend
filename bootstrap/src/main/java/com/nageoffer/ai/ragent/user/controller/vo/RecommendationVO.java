@@ -39,4 +39,8 @@ public class RecommendationVO {
     private double averageScore;
 
     private int completedSessions;
+
+    private List<String> learningSuggestions;
+
+    private List<RecommendedPracticeVO> recommendedPractices;
 }

@@ -101,6 +101,17 @@ public class InterviewSessionService {
     }
 
     @Transactional
+    public InterviewSessionEntity updateEvaluationReport(String sessionId, String evaluationReport) {
+        InterviewSessionEntity entity = interviewSessionMapper.selectById(sessionId);
+        if (entity != null) {
+            entity.setEvaluationReport(evaluationReport);
+            entity.setUpdateTime(LocalDateTime.now());
+            interviewSessionMapper.updateById(entity);
+        }
+        return entity;
+    }
+
+    @Transactional
     public void incrementQuestionCount(String sessionId) {
         InterviewSessionEntity entity = interviewSessionMapper.selectById(sessionId);
         if (entity != null) {

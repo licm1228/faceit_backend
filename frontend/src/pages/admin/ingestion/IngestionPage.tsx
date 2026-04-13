@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Trash2
 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -250,7 +250,7 @@ export function IngestionPage() {
       const data = await getIngestionPipelines(pageNo, PIPELINE_PAGE_SIZE, keyword || undefined);
       setPipelinePage(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载流水线失败"));
+      feedback.error(getErrorMessage(error, "加载流水线失败"));
       console.error(error);
     } finally {
       setPipelineLoading(false);
@@ -272,7 +272,7 @@ export function IngestionPage() {
       const data = await getIngestionTasks(pageNo, TASK_PAGE_SIZE, status);
       setTaskPage(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载任务失败"));
+      feedback.error(getErrorMessage(error, "加载任务失败"));
       console.error(error);
     } finally {
       setTaskLoading(false);
@@ -325,12 +325,12 @@ export function IngestionPage() {
     if (!pipelineDeleteTarget) return;
     try {
       await deleteIngestionPipeline(pipelineDeleteTarget.id);
-      toast.success("删除成功");
+      feedback.success("删除成功");
       setPipelineDeleteTarget(null);
       await loadPipelines(1, pipelineKeyword);
       await loadPipelineOptions();
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除失败"));
+      feedback.error(getErrorMessage(error, "删除失败"));
       console.error(error);
     }
   };
@@ -340,7 +340,7 @@ export function IngestionPage() {
       const detail = await getIngestionPipeline(pipeline.id);
       setPipelineNodesDialog({ open: true, pipeline: detail });
     } catch (error) {
-      toast.error(getErrorMessage(error, "获取流水线详情失败"));
+      feedback.error(getErrorMessage(error, "获取流水线详情失败"));
       console.error(error);
     }
   };
@@ -587,10 +587,10 @@ export function IngestionPage() {
         onSubmit={async (payload, mode) => {
           if (mode === "create") {
             await createIngestionPipeline(payload);
-            toast.success("创建成功");
+            feedback.success("创建成功");
           } else if (pipelineDialog.pipeline) {
             await updateIngestionPipeline(pipelineDialog.pipeline.id, payload);
-            toast.success("更新成功");
+            feedback.success("更新成功");
           }
           setPipelineDialog({ open: false, mode: "create", pipeline: null });
           await loadPipelines(1, pipelineKeyword);
@@ -627,13 +627,13 @@ export function IngestionPage() {
         onOpenChange={setTaskDialogOpen}
         onSubmit={async (payload) => {
           const result = await createIngestionTask(payload);
-          toast.success(`任务已创建：${result.taskId}`);
+          feedback.success(`任务已创建：${result.taskId}`);
           setTaskDialogOpen(false);
           await loadTasks(1, taskStatus);
         }}
         onUpload={async (pipelineId, file) => {
           const result = await uploadIngestionTask(pipelineId, file);
-          toast.success(`上传成功：${result.taskId}`);
+          feedback.success(`上传成功：${result.taskId}`);
           setTaskDialogOpen(false);
           await loadTasks(1, taskStatus);
         }}
@@ -645,7 +645,7 @@ export function IngestionPage() {
         onOpenChange={setUploadDialogOpen}
         onSubmit={async (pipelineId, file) => {
           const result = await uploadIngestionTask(pipelineId, file);
-          toast.success(`上传成功：${result.taskId}`);
+          feedback.success(`上传成功：${result.taskId}`);
           setUploadDialogOpen(false);
           await loadTasks(1, taskStatus);
         }}
@@ -811,18 +811,22 @@ function PipelineDialog({ open, mode, pipeline, onOpenChange, onSubmit }: Pipeli
     return source.map(buildNodeForm);
   };
 
-  const parseCondition = (raw: string) => {
+  const parseCondition = (
+    raw: string
+  ): Record<string, unknown> | null => {
     const trimmed = raw.trim();
     if (!trimmed) return null;
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      return JSON.parse(trimmed);
+      return JSON.parse(trimmed) as Record<string, unknown>;
     }
-    return trimmed;
+    return { expression: trimmed };
   };
 
-  const parseParserRules = (raw: string) => {
+  const parseParserRules = (
+    raw: string
+  ): Record<string, unknown> | undefined => {
     const trimmed = raw.trim();
-    if (!trimmed) return null;
+    if (!trimmed) return undefined;
     const parsed = JSON.parse(trimmed);
     if (Array.isArray(parsed)) {
       return { rules: parsed };
@@ -833,7 +837,9 @@ function PipelineDialog({ open, mode, pipeline, onOpenChange, onSubmit }: Pipeli
     throw new Error("解析规则必须是数组或包含 rules 字段的对象");
   };
 
-  const buildSettings = (node: PipelineNodeForm) => {
+  const buildSettings = (
+    node: PipelineNodeForm
+  ): Record<string, unknown> | undefined => {
     switch (node.nodeType) {
       case "chunker": {
         if (!node.chunker.strategy) {
@@ -929,9 +935,9 @@ function PipelineDialog({ open, mode, pipeline, onOpenChange, onSubmit }: Pipeli
         return { ok: false as const, message: "节点类型不能为空" };
       }
       let settings: Record<string, unknown> | undefined;
-      let condition: unknown;
+      let condition: Record<string, unknown> | null = null;
       try {
-        settings = buildSettings(node) as Record<string, unknown> | undefined;
+        settings = buildSettings(node);
         condition = parseCondition(node.condition);
       } catch (error) {
         return { ok: false as const, message: error instanceof Error ? error.message : "节点配置错误" };
@@ -939,7 +945,7 @@ function PipelineDialog({ open, mode, pipeline, onOpenChange, onSubmit }: Pipeli
       result.push({
         nodeId,
         nodeType: node.nodeType,
-        settings: settings ?? null,
+        settings: settings ? { ...settings } : null,
         condition: condition ?? null,
         nextNodeId: node.nextNodeId.trim() || null
       });
@@ -968,7 +974,7 @@ function PipelineDialog({ open, mode, pipeline, onOpenChange, onSubmit }: Pipeli
     if (nextMode === "json") {
       const result = buildNodesPayload(nodes);
       if (!result.ok) {
-        toast.error(result.message);
+        feedback.error(result.message);
         return;
       }
       form.setValue("nodesJson", JSON.stringify(result.nodes, null, 2));
@@ -977,7 +983,7 @@ function PipelineDialog({ open, mode, pipeline, onOpenChange, onSubmit }: Pipeli
     }
     const parsed = parseNodesJson(form.getValues("nodesJson"));
     if (!parsed.ok) {
-      toast.error(parsed.message);
+      feedback.error(parsed.message);
       return;
     }
     setNodes(parsed.nodes);
@@ -1026,7 +1032,7 @@ function PipelineDialog({ open, mode, pipeline, onOpenChange, onSubmit }: Pipeli
     } else {
       const result = buildNodesPayload(nodes);
       if (!result.ok) {
-        toast.error(result.message);
+        feedback.error(result.message);
         return;
       }
       nodesPayload = result.nodes;
@@ -1041,7 +1047,7 @@ function PipelineDialog({ open, mode, pipeline, onOpenChange, onSubmit }: Pipeli
       };
       await onSubmit(payload, mode);
     } catch (error) {
-      toast.error(getErrorMessage(error, mode === "create" ? "创建失败" : "更新失败"));
+      feedback.error(getErrorMessage(error, mode === "create" ? "创建失败" : "更新失败"));
       console.error(error);
     } finally {
       setSaving(false);
@@ -1919,19 +1925,19 @@ function TaskDialog({ open, pipelineOptions, onOpenChange, onSubmit, onUpload }:
   const handleSubmit = async (values: TaskFormValues) => {
     if (values.sourceType === "file") {
       if (!localFile) {
-        toast.error("请选择文件");
+        feedback.error("请选择文件");
         return;
       }
       if (localFile.size > maxFileSize) {
         const sizeMB = Math.floor(maxFileSize / 1024 / 1024);
-        toast.error(`上传文件大小超过限制，最大允许 ${sizeMB}MB`);
+        feedback.error(`上传文件大小超过限制，最大允许 ${sizeMB}MB`);
         return;
       }
       setSaving(true);
       try {
         await onUpload(values.pipelineId, localFile);
       } catch (error) {
-        toast.error(getErrorMessage(error, "上传失败"));
+        feedback.error(getErrorMessage(error, "上传失败"));
         console.error(error);
       } finally {
         setSaving(false);
@@ -1970,7 +1976,7 @@ function TaskDialog({ open, pipelineOptions, onOpenChange, onSubmit, onUpload }:
       };
       await onSubmit(payload);
     } catch (error) {
-      toast.error(getErrorMessage(error, "创建失败"));
+      feedback.error(getErrorMessage(error, "创建失败"));
       console.error(error);
     } finally {
       setSaving(false);
@@ -2154,23 +2160,23 @@ function UploadDialog({ open, pipelineOptions, onOpenChange, onSubmit }: UploadD
 
   const handleSubmit = async () => {
     if (!pipelineId) {
-      toast.error("请选择流水线");
+      feedback.error("请选择流水线");
       return;
     }
     if (!file) {
-      toast.error("请选择文件");
+      feedback.error("请选择文件");
       return;
     }
     if (file.size > maxFileSize) {
       const sizeMB = Math.floor(maxFileSize / 1024 / 1024);
-      toast.error(`上传文件大小超过限制，最大允许 ${sizeMB}MB`);
+      feedback.error(`上传文件大小超过限制，最大允许 ${sizeMB}MB`);
       return;
     }
     setSaving(true);
     try {
       await onSubmit(pipelineId, file);
     } catch (error) {
-      toast.error(getErrorMessage(error, "上传失败"));
+      feedback.error(getErrorMessage(error, "上传失败"));
       console.error(error);
     } finally {
       setSaving(false);
@@ -2247,7 +2253,7 @@ function TaskDetailDialog({ open, taskId, onOpenChange }: TaskDetailDialogProps)
         setTask(detail);
         setNodes(nodeLogs || []);
       } catch (error) {
-        toast.error(getErrorMessage(error, "加载任务详情失败"));
+        feedback.error(getErrorMessage(error, "加载任务详情失败"));
         console.error(error);
       } finally {
         if (active) setLoading(false);

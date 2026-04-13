@@ -67,6 +67,11 @@ public class AIModelProperties {
     private Stream stream = new Stream();
 
     /**
+     * 功能开关配置
+     */
+    private Features features = new Features();
+
+    /**
      * 模型组配置类
      * 包含默认模型、深度思考模型以及候选模型列表
      */
@@ -197,5 +202,18 @@ public class AIModelProperties {
          * 消息分块大小
          */
         private Integer messageChunkSize = 5;
+    }
+
+    @Data
+    public static class Features {
+        /**
+         * 是否启用 GPT 聊天模型
+         */
+        private Boolean useGpt = false;
+
+        /**
+         * GPT 候选模型 ID
+         */
+        private String gptModelId = "gpt-5.4";
     }
 }

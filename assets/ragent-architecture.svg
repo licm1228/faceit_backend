@@ -37,7 +37,7 @@
   <g>
     <rect x="340" y="120" width="900" height="824" rx="24" fill="#0B1628" stroke="#32507B"/>
     <text x="372" y="166" fill="#DCEBFF" font-family="PingFang SC, Microsoft YaHei, Source Han Sans CN, sans-serif" font-size="24" font-weight="700">应用编排层</text>
-    <text x="372" y="194" fill="#8DA3BF" font-family="PingFang SC, Microsoft YaHei, Source Han Sans CN, sans-serif" font-size="15">统一入口：/api/ragent</text>
+    <text x="372" y="194" fill="#8DA3BF" font-family="PingFang SC, Microsoft YaHei, Source Han Sans CN, sans-serif" font-size="15">统一入口：/api/faceit</text>
     <rect x="370" y="220" width="840" height="80" rx="14" fill="#10223A" stroke="#496FA0"/>
     <text x="398" y="252" fill="#BED6FF" font-family="PingFang SC, Microsoft YaHei, Source Han Sans CN, sans-serif" font-size="17" font-weight="600">接口层</text>
     <text x="398" y="282" fill="#E8F2FF" font-family="PingFang SC, Microsoft YaHei, Source Han Sans CN, sans-serif" font-size="14">对话、会话、知识库、入库任务、管理后台</text>

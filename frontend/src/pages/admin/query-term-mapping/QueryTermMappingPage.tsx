@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -83,7 +83,7 @@ export function QueryTermMappingPage() {
       const data = await getQueryTermMappingsPage(current, PAGE_SIZE, keywordValue || undefined);
       setPageData(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载映射规则失败"));
+      feedback.error(getErrorMessage(error, "加载映射规则失败"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -147,28 +147,28 @@ export function QueryTermMappingPage() {
     };
 
     if (!payload.sourceTerm) {
-      toast.error("请输入原始词");
+      feedback.error("请输入原始词");
       return;
     }
     if (!payload.targetTerm) {
-      toast.error("请输入目标词");
+      feedback.error("请输入目标词");
       return;
     }
 
     try {
       if (dialogState.mode === "create") {
         await createQueryTermMapping(payload);
-        toast.success("创建成功");
+        feedback.success("创建成功");
         setPageNo(1);
         await loadData(1, keyword);
       } else if (dialogState.item) {
         await updateQueryTermMapping(dialogState.item.id, payload);
-        toast.success("更新成功");
+        feedback.success("更新成功");
         await loadData(pageNo, keyword);
       }
       setDialogState({ open: false, mode: "create", item: null });
     } catch (error) {
-      toast.error(getErrorMessage(error, "保存失败"));
+      feedback.error(getErrorMessage(error, "保存失败"));
       console.error(error);
     }
   };
@@ -178,12 +178,12 @@ export function QueryTermMappingPage() {
 
     try {
       await deleteQueryTermMapping(deleteTarget.id);
-      toast.success("删除成功");
+      feedback.success("删除成功");
       setDeleteTarget(null);
       setPageNo(1);
       await loadData(1, keyword);
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除失败"));
+      feedback.error(getErrorMessage(error, "删除失败"));
       console.error(error);
     } finally {
       setDeleteTarget(null);

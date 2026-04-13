@@ -1,8 +1,8 @@
 import * as React from "react";
 import { differenceInCalendarDays, isValid } from "date-fns";
 import {
-  MessageSquare,
   MoreHorizontal,
+  MessageSquare,
   Pencil,
   Plus,
   Search,
@@ -59,10 +59,10 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const renameInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
-    if (sessions.length === 0) {
+    if (!sessionsLoaded && !isLoading) {
       fetchSessions().catch(() => null);
     }
-  }, [fetchSessions, sessions.length]);
+  }, [fetchSessions, isLoading, sessionsLoaded]);
 
   const filteredSessions = React.useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -155,15 +155,22 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         )}
       >
         <div className="border-b border-[#F0F0F0] pb-3">
-          <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="flex items-center gap-3 text-left transition-opacity hover:opacity-85"
+            onClick={() => {
+              navigate("/");
+              onClose();
+            }}
+          >
             <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#BFDBFE] bg-white shadow-[0_6px_16px_rgba(37,99,235,0.08)]">
               <FaceItMark className="h-5 w-5" />
             </div>
             <div className="font-poppins">
-              <p className="text-base font-semibold text-[#1A1A1A]">Face It Assistant</p>
+              <p className="text-base font-semibold text-[#1A1A1A]">Face It 面试官</p>
               <p className="text-xs text-[#999999]">Chat · Knowledge · Interview</p>
             </div>
-          </div>
+          </button>
         </div>
         <div className="py-3 space-y-4">
           <div className="relative overflow-hidden rounded-2xl border border-[#E6EEF6] bg-gradient-to-br from-[#EFF6FF] via-white to-[#DBEAFE] p-3 shadow-[0_14px_30px_rgba(15,23,42,0.08)]">
@@ -195,24 +202,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   <Plus className="h-4 w-4" />
                 </span>
                 <span className="font-poppins flex-1">
-                  <span className="block text-sm font-semibold text-[#1F2937]">New Chat 新建对话</span>
+                  <span className="block text-sm font-semibold text-[#1F2937]">新建对话</span>
                   <span className="block text-xs text-[#94A3B8]">Start from scratch</span>
-                </span>
-              </button>
-              <button
-                type="button"
-                className="mt-2 flex w-full items-center gap-3 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-left transition-colors hover:bg-[#DBEAFE]"
-                onClick={() => {
-                  navigate("/interview");
-                  onClose();
-                }}
-              >
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-[0_6px_14px_rgba(37,99,235,0.3)]">
-                  <MessageSquare className="h-4 w-4" />
-                </span>
-                <span className="font-poppins flex-1">
-                  <span className="block text-sm font-semibold text-[#1F2937]">Mock Interview 模拟面试</span>
-                  <span className="block text-xs text-[#64748B]">Role-based practice & review</span>
                 </span>
               </button>
             </div>
@@ -309,9 +300,21 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                             className="h-6 flex-1 rounded-md border border-[#E5E5E5] bg-white px-2 text-[14px] leading-[22px] text-[#333333] focus:border-[#2563EB] focus:outline-none"
                           />
                         ) : (
-                          <span className="min-w-0 flex-1 truncate font-normal">
-                            {session.title || "新对话"}
-                          </span>
+                          <div className="min-w-0 flex-1">
+                            {session.type === "interview" ? (
+                              <div className="mb-1 flex items-center gap-2">
+                                <span className="rounded-full bg-[#EFF6FF] px-2 py-0.5 text-[10px] font-semibold text-[#2563EB]">
+                                  {session.status === "completed" ? "面试完成" : "模拟面试"}
+                                </span>
+                                {session.positionName ? (
+                                  <span className="truncate text-[10px] text-[#94A3B8]">{session.positionName}</span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            <span className="block min-w-0 truncate font-normal">
+                              {session.title || "新对话"}
+                            </span>
+                          </div>
                         )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

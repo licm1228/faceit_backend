@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Search } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,7 +25,7 @@ export function InterviewSessionsPage() {
 
   const searchSessions = async () => {
     if (!userId.trim()) {
-      toast.error("请输入用户ID");
+      feedback.error("请输入用户ID");
       return;
     }
     setLoading(true);
@@ -34,10 +34,10 @@ export function InterviewSessionsPage() {
       const data = await listInterviewSessionsByUser(userId.trim());
       setSessions(data);
       if (data.length === 0) {
-        toast.info("该用户暂无面试会话");
+        feedback.info("该用户暂无面试会话");
       }
     } catch (error) {
-      toast.error(getErrorMessage(error, "查询会话失败"));
+      feedback.error(getErrorMessage(error, "查询会话失败"));
     } finally {
       setLoading(false);
     }
@@ -49,7 +49,7 @@ export function InterviewSessionsPage() {
       const data = await getInterviewSessionDetail(sessionId);
       setDetail(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载会话详情失败"));
+      feedback.error(getErrorMessage(error, "加载会话详情失败"));
     } finally {
       setLoading(false);
     }

@@ -1,17 +1,26 @@
 import * as React from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import "@/styles/login-template.css";
 import { useAuthStore } from "@/stores/authStore";
 
 export function LoginPage() {
+  const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { login, register, isLoading } = useAuthStore();
-  const [active, setActive] = React.useState(false);
+  const registerMode = searchParams.get("mode") === "register";
+  const [active, setActive] = React.useState(registerMode);
   const [loginForm, setLoginForm] = React.useState({ username: "admin", password: "admin" });
   const [registerForm, setRegisterForm] = React.useState({ username: "", password: "" });
   const [loginError, setLoginError] = React.useState<string | null>(null);
   const [registerError, setRegisterError] = React.useState<string | null>(null);
+  const redirectState = location.state as { redirectTo?: string; redirectState?: unknown } | null;
+  const redirectTo = redirectState?.redirectTo || "/chat";
+
+  React.useEffect(() => {
+    setActive(registerMode);
+  }, [registerMode]);
 
   const handleLoginSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -23,7 +32,7 @@ export function LoginPage() {
 
     try {
       await login(loginForm.username.trim(), loginForm.password.trim());
-      navigate("/chat");
+      navigate(redirectTo, { state: redirectState?.redirectState });
     } catch (error) {
       setLoginError((error as Error).message || "Login failed. Please try again.");
     }
@@ -39,7 +48,7 @@ export function LoginPage() {
 
     try {
       await register(registerForm.username.trim(), registerForm.password.trim());
-      navigate("/chat");
+      navigate(redirectTo, { state: redirectState?.redirectState });
     } catch (error) {
       setRegisterError((error as Error).message || "Sign up failed. Please try again.");
     }
@@ -152,7 +161,14 @@ export function LoginPage() {
           <div className="toggle-panel toggle-left">
             <h1>Hello, Welcome!</h1>
             <p>Don't have an account yet?</p>
-            <button type="button" className="btn register-btn" onClick={() => setActive(true)}>
+            <button
+              type="button"
+              className="btn register-btn"
+              onClick={() => {
+                setActive(true);
+                setSearchParams({ mode: "register" });
+              }}
+            >
               Register
             </button>
           </div>
@@ -160,7 +176,14 @@ export function LoginPage() {
           <div className="toggle-panel toggle-right">
             <h1>Welcome Back!</h1>
             <p>Already have an account?</p>
-            <button type="button" className="btn login-btn" onClick={() => setActive(false)}>
+            <button
+              type="button"
+              className="btn login-btn"
+              onClick={() => {
+                setActive(false);
+                setSearchParams({ mode: "login" });
+              }}
+            >
               Login
             </button>
           </div>
