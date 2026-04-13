@@ -272,7 +272,7 @@ export function ChatInput() {
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-[#0F172A]">聊天式模拟面试</p>
-              <p className="text-xs text-[#64748B]">在聊天区直接开始面试，AI 会继续追问，不按对话轮数限制。</p>
+              <p className="text-xs text-[#64748B]">在聊天区直接开始面试，AI 会先给即时反馈，再决定是否继续追问，单题最多追问 3 次。</p>
             </div>
             <button
               type="button"
@@ -340,8 +340,8 @@ export function ChatInput() {
             <p className="font-semibold text-[#111827]">
               正在进行 {currentInterviewState.positionName || "模拟面试"}
             </p>
-            <p className="text-[#6B7280]">
-              难度 {currentInterviewState.difficulty} · {currentInterviewState.questionLimit} 题 · {currentInterviewState.timeLimitMinutes} 分钟
+              <p className="text-[#6B7280]">
+              当前难度 {currentInterviewState.difficulty} · {currentInterviewState.questionLimit} 题 · {currentInterviewState.timeLimitMinutes} 分钟
             </p>
           </div>
           <span className="rounded-full bg-[#DBEAFE] px-3 py-1 text-xs font-medium text-[#2563EB]">
@@ -389,7 +389,7 @@ export function ChatInput() {
               isRecognizingSpeech
                 ? "语音识别中，请稍候..."
                 : currentSessionType === "interview" && currentInterviewState?.status !== "completed"
-                  ? "直接回答当前问题，AI 会根据你的回答继续追问..."
+                  ? "直接回答当前问题，AI 会先给简短反馈，再决定追问或进入下一题..."
                   : deepThinkingEnabled
                     ? "输入更需要深入分析的问题，或直接说出你的面试要求..."
                     : "输入你的问题，或者直接说“来一场 Java 后端 30 分钟 5 题的面试”..."

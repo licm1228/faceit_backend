@@ -396,7 +396,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           <p className="mt-4 text-base text-[#4B5563] sm:text-lg">
             {disabled
               ? "Preview the chat experience first. 登录后即可发送消息、保存会话并使用完整能力。"
-              : "围绕模拟面试场景，帮你梳理思路、打磨表达，并通过追问与反馈持续提升。"}
+              : "围绕模拟面试场景，帮你梳理思路、打磨表达，并通过即时反馈、追问和动态难度持续提升。"}
           </p>
         </div>
 
