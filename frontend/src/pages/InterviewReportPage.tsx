@@ -169,6 +169,28 @@ export function InterviewReportPage() {
                         <p className="mt-2 text-xs text-[#64748B]">
                           {practice.questionType || "面试题"} · 难度 {practice.difficulty || "-"}
                         </p>
+                        {practice.recommendationReason ? (
+                          <p className="mt-2 text-xs leading-5 text-[#334155]">{practice.recommendationReason}</p>
+                        ) : null}
+                        {practice.knowledgeTags?.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {practice.knowledgeTags.map((tag) => (
+                              <span key={`${practice.id}-${tag}`} className="rounded-full border border-[#D6E4FF] bg-white px-2.5 py-1 text-[11px] text-[#475467]">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {practice.knowledgeSource ? (
+                          <p className="mt-3 rounded-2xl bg-white px-3 py-3 text-xs leading-5 text-[#475467]">
+                            知识来源：{practice.knowledgeSource}
+                          </p>
+                        ) : null}
+                        {practice.referenceAnswerPreview ? (
+                          <p className="mt-2 text-xs leading-5 text-[#64748B]">
+                            参考答题方向：{practice.referenceAnswerPreview}
+                          </p>
+                        ) : null}
                       </div>
                     ))
                   )}

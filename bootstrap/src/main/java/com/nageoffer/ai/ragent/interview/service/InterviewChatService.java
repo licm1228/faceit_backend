@@ -519,18 +519,7 @@ public class InterviewChatService {
         int expressionScore = average(validAnswers.stream().map(InterviewAnswerEntity::getExpressionScore).toList());
         int positionMatchScore = Math.max(0, Math.min(100, overallScore - technicalScore - logicScore - knowledgeScore));
 
-        List<Map<String, Object>> recommendedPractices = questionService.getQuestionsByPosition(session.getPositionId()).stream()
-                .filter(question -> !runtimeState.getAskedQuestionIds().contains(question.getId()))
-                .limit(3)
-                .map(question -> {
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("id", question.getId());
-                    item.put("questionText", question.getQuestionText());
-                    item.put("difficulty", question.getDifficulty());
-                    item.put("questionType", question.getQuestionType());
-                    return item;
-                })
-                .collect(Collectors.toList());
+        List<Map<String, Object>> recommendedPractices = buildRecommendedPractices(session, runtimeState, validAnswers);
 
         List<String> highlights = validAnswers.stream()
                 .sorted(Comparator.comparing(answer -> Optional.ofNullable(answer.getScore()).orElse(0), Comparator.reverseOrder()))
@@ -1185,6 +1174,86 @@ public class InterviewChatService {
             text = text.substring(0, 60) + "...";
         }
         return text;
+    }
+
+    private List<Map<String, Object>> buildRecommendedPractices(
+            InterviewSessionEntity session,
+            RuntimeState runtimeState,
+            List<InterviewAnswerEntity> validAnswers
+    ) {
+        Set<String> weakTypes = new LinkedHashSet<>();
+        Set<String> weakKeywords = new LinkedHashSet<>();
+        for (InterviewAnswerEntity answer : validAnswers) {
+            if (Optional.ofNullable(answer.getScore()).orElse(0) >= 75 || answer.getQuestionId() == null) {
+                continue;
+            }
+            QuestionEntity question = questionService.getQuestionById(answer.getQuestionId());
+            if (question == null) {
+                continue;
+            }
+            if (StrUtil.isNotBlank(question.getQuestionType())) {
+                weakTypes.add(question.getQuestionType());
+            }
+            if (question.getKeywordList() != null) {
+                weakKeywords.addAll(question.getKeywordList().stream().limit(3).toList());
+            }
+        }
+
+        return questionService.getQuestionsByPosition(session.getPositionId()).stream()
+                .filter(question -> !runtimeState.getAskedQuestionIds().contains(question.getId()))
+                .sorted(Comparator.comparingInt((QuestionEntity question) -> recommendationPriority(question, weakTypes, weakKeywords)).reversed())
+                .limit(3)
+                .map(question -> {
+                    question.setRecommendationReason(buildPracticeReason(question, weakTypes, weakKeywords));
+                    questionService.enrichQuestion(question);
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", question.getId());
+                    item.put("questionText", question.getQuestionText());
+                    item.put("difficulty", question.getDifficulty());
+                    item.put("questionType", question.getQuestionType());
+                    item.put("knowledgeTags", question.getKeywordList());
+                    item.put("knowledgeSource", question.getKnowledgeSource());
+                    item.put("recommendationReason", question.getRecommendationReason());
+                    item.put("referenceAnswerPreview", question.getReferenceAnswerPreview());
+                    return item;
+                })
+                .collect(Collectors.toList());
+    }
+
+    private int recommendationPriority(QuestionEntity question, Set<String> weakTypes, Set<String> weakKeywords) {
+        int score = 0;
+        if (question == null) {
+            return score;
+        }
+        if (weakTypes.contains(question.getQuestionType())) {
+            score += 4;
+        }
+        if (question.getKeywordList() != null) {
+            for (String keyword : question.getKeywordList()) {
+                if (weakKeywords.contains(keyword)) {
+                    score += 2;
+                }
+            }
+        }
+        score += Math.max(0, 6 - Optional.ofNullable(question.getDifficulty()).orElse(3));
+        return score;
+    }
+
+    private String buildPracticeReason(QuestionEntity question, Set<String> weakTypes, Set<String> weakKeywords) {
+        if (question == null) {
+            return "建议继续进行专项训练。";
+        }
+        if (weakTypes.contains(question.getQuestionType())) {
+            return "这道题和你本次表现较弱的题型一致，适合做针对性补强。";
+        }
+        if (question.getKeywordList() != null) {
+            for (String keyword : question.getKeywordList()) {
+                if (weakKeywords.contains(keyword)) {
+                    return "这道题覆盖了你本次回答中暴露出的薄弱知识点，适合立即复练。";
+                }
+            }
+        }
+        return "这道题仍属于当前岗位高频考点，可用于巩固核心知识框架。";
     }
 
     private int average(List<Integer> values) {

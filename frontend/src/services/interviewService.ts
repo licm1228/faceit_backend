@@ -24,6 +24,10 @@ export interface Question {
   questionText: string;
   referenceAnswer?: string;
   keywords?: string[];
+  keywordList?: string[];
+  knowledgeSource?: string;
+  recommendationReason?: string;
+  referenceAnswerPreview?: string;
 }
 
 export interface InterviewSession {

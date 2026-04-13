@@ -34,12 +34,15 @@ import java.util.List;
 public class QuestionService {
 
     private final QuestionMapper questionMapper;
+    private final PositionProfileService positionProfileService;
 
     public List<QuestionEntity> getAllQuestions() {
         LambdaQueryWrapper<QuestionEntity> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(QuestionEntity::getDeleted, 0)
                 .orderByDesc(QuestionEntity::getCreateTime);
-        return questionMapper.selectList(wrapper);
+        return questionMapper.selectList(wrapper).stream()
+                .map(this::enrichQuestion)
+                .toList();
     }
 
     public List<QuestionEntity> getQuestionsByPosition(String positionId) {
@@ -47,7 +50,9 @@ public class QuestionService {
         wrapper.eq(QuestionEntity::getPositionId, positionId)
                 .eq(QuestionEntity::getDeleted, 0)
                 .orderByAsc(QuestionEntity::getDifficulty);
-        return questionMapper.selectList(wrapper);
+        return questionMapper.selectList(wrapper).stream()
+                .map(this::enrichQuestion)
+                .toList();
     }
 
     public List<QuestionEntity> getQuestionsByType(String positionId, String questionType) {
@@ -55,11 +60,13 @@ public class QuestionService {
         wrapper.eq(QuestionEntity::getPositionId, positionId)
                 .eq(QuestionEntity::getQuestionType, questionType)
                 .eq(QuestionEntity::getDeleted, 0);
-        return questionMapper.selectList(wrapper);
+        return questionMapper.selectList(wrapper).stream()
+                .map(this::enrichQuestion)
+                .toList();
     }
 
     public QuestionEntity getQuestionById(String id) {
-        return questionMapper.selectById(id);
+        return enrichQuestion(questionMapper.selectById(id));
     }
 
     public QuestionEntity selectRandomQuestion(String positionId, Integer difficulty) {
@@ -84,7 +91,7 @@ public class QuestionService {
             question = questionMapper.selectOne(fallbackWrapper);
         }
 
-        return question;
+        return enrichQuestion(question);
     }
 
     public QuestionEntity selectRandomQuestionExcluding(String positionId, Integer difficulty, List<String> excludedQuestionIds) {
@@ -109,7 +116,7 @@ public class QuestionService {
             filtered = new ArrayList<>(candidates);
         }
         Collections.shuffle(filtered);
-        return filtered.get(0);
+        return enrichQuestion(filtered.get(0));
     }
 
     @Transactional
@@ -125,7 +132,7 @@ public class QuestionService {
     public QuestionEntity updateQuestion(QuestionEntity entity) {
         entity.setUpdateTime(LocalDateTime.now());
         questionMapper.updateById(entity);
-        return entity;
+        return enrichQuestion(questionMapper.selectById(entity.getId()));
     }
 
     @Transactional
@@ -135,5 +142,51 @@ public class QuestionService {
         entity.setDeleted(1);
         entity.setUpdateTime(LocalDateTime.now());
         questionMapper.updateById(entity);
+    }
+
+    public QuestionEntity enrichQuestion(QuestionEntity entity) {
+        if (entity == null) {
+            return null;
+        }
+        entity.setKeywordList(parseKeywords(entity.getKeywords()));
+        entity.setKnowledgeSource(positionProfileService.resolveInterviewFocus(entity.getPositionId(), null, "当前岗位核心知识点"));
+        entity.setReferenceAnswerPreview(buildReferenceAnswerPreview(entity.getReferenceAnswer()));
+        if (entity.getRecommendationReason() == null || entity.getRecommendationReason().isBlank()) {
+            entity.setRecommendationReason("建议围绕当前岗位核心能力继续完成同类型专项训练。");
+        }
+        return entity;
+    }
+
+    private List<String> parseKeywords(String rawKeywords) {
+        if (rawKeywords == null || rawKeywords.isBlank()) {
+            return List.of();
+        }
+        String normalized = rawKeywords
+                .replace("{", "")
+                .replace("}", "")
+                .replace("[", "")
+                .replace("]", "")
+                .replace("\"", "")
+                .replace("'", "");
+        String[] items = normalized.split("[,，]");
+        List<String> keywords = new ArrayList<>();
+        for (String item : items) {
+            String keyword = item.trim();
+            if (!keyword.isEmpty()) {
+                keywords.add(keyword);
+            }
+        }
+        return keywords;
+    }
+
+    private String buildReferenceAnswerPreview(String referenceAnswer) {
+        if (referenceAnswer == null || referenceAnswer.isBlank()) {
+            return "";
+        }
+        String text = referenceAnswer.replace("\n", " ").trim();
+        if (text.length() <= 80) {
+            return text;
+        }
+        return text.substring(0, 80) + "...";
     }
 }

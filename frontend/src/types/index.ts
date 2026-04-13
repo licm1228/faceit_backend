@@ -121,5 +121,9 @@ export interface InterviewReport {
     questionText: string;
     difficulty?: number;
     questionType?: string;
+    knowledgeTags?: string[];
+    knowledgeSource?: string;
+    recommendationReason?: string;
+    referenceAnswerPreview?: string;
   }>;
 }

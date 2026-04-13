@@ -263,6 +263,7 @@ export function QuestionManagementPage() {
                   <TableHead className="w-[170px]">岗位</TableHead>
                   <TableHead className="w-[92px]">类型</TableHead>
                   <TableHead className="w-[74px]">难度</TableHead>
+                  <TableHead className="w-[180px]">知识标签</TableHead>
                   <TableHead>题目内容</TableHead>
                   <TableHead className="w-[170px] text-left">操作</TableHead>
                 </TableRow>
@@ -273,6 +274,9 @@ export function QuestionManagementPage() {
                     <TableCell>{positionNameMap.get(item.positionId) || item.positionId}</TableCell>
                     <TableCell>{item.questionType || "-"}</TableCell>
                     <TableCell>{item.difficulty ?? "-"}</TableCell>
+                    <TableCell className="max-w-[180px] truncate" title={(item.keywordList || item.keywords || []).join(", ")}>
+                      {(item.keywordList || item.keywords || []).join(", ") || "-"}
+                    </TableCell>
                     <TableCell className="max-w-[560px] truncate" title={item.questionText}>
                       {item.questionText}
                     </TableCell>
