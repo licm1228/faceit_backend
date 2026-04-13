@@ -13,6 +13,7 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { recognizeSpeechBase64, type Position, type SpeechAnalysis } from "@/services/interviewService";
 import { useAuthStore } from "@/stores/authStore";
 import { useInterviewStore } from "@/stores/interviewStore";
+import { resolveInterviewPresetPosition, type InterviewPresetState } from "@/utils/interviewPreset";
 import { analyzeSpeechFromSamples } from "@/utils/speechAnalysis";
 
 const QUESTION_LIMIT = 5;
@@ -51,15 +52,6 @@ type SpeechWindow = Window & {
 
 type RecordingMode = "backend" | "browser" | null;
 
-type InterviewPresetState = {
-  positionId?: string;
-  positionKeywords?: string[];
-  difficulty?: number;
-  timeLimitMinutes?: number;
-  questionLimit?: number;
-  autoStart?: boolean;
-};
-
 type PendingAutoStartPreset = {
   key: string;
   positionId: string;
@@ -85,23 +77,6 @@ function getSessionStatusLabel(status?: string) {
 function getSessionTitle(sessionId: string) {
   const suffix = sessionId?.slice(-6) || sessionId;
   return `面试 #${suffix}`;
-}
-
-function matchPositionKeywords(position: Position, keywords: string[]) {
-  if (keywords.length === 0) {
-    return false;
-  }
-  const searchText = [
-    position.name,
-    position.description,
-    position.requiredSkills,
-    position.interviewFocus
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return keywords.some((keyword) => searchText.includes(keyword));
 }
 
 function TypewriterCursor() {
@@ -229,12 +204,13 @@ export function InterviewPage() {
     const hasPreset = Boolean(preset && Object.keys(preset).length > 0);
 
     if (hasPreset && appliedPresetRef.current !== presetKey) {
-      const keywords = (preset?.positionKeywords ?? []).map((keyword) => keyword.trim().toLowerCase());
-      const matchedPositionById = preset?.positionId
-        ? positions.find((position) => position.id === preset.positionId)
-        : null;
-      const matchedPositionByKeywords = positions.find((position) => matchPositionKeywords(position, keywords));
-      const matchedPosition = matchedPositionById ?? matchedPositionByKeywords ?? positions[0];
+      const matchedPosition = resolveInterviewPresetPosition(positions, preset);
+      if (!matchedPosition) {
+        feedback.error("未找到与预设对应的岗位配置，请先在管理端检查岗位数据");
+        appliedPresetRef.current = presetKey;
+        navigate(location.pathname, { replace: true, state: null });
+        return;
+      }
 
       setSelectedPositionId(matchedPosition.id);
 
@@ -660,6 +636,7 @@ export function InterviewPage() {
   const visibleSuggestionsText = currentEvaluation ? typedSuggestionsText.displayText : "";
   const visibleFollowUpText = followUpQuestion ? typedFollowUpText.displayText : "";
   const visibleReportText = currentSession?.evaluationReport ? typedReportText.displayText : "";
+  const visibleStreamingEvaluationText = streamingEvaluationResponse.trim();
 
   return (
     <MainLayout>
@@ -973,20 +950,15 @@ export function InterviewPage() {
                     <ThinkingIndicator content={streamingEvaluationThinking} />
                   </div>
                 ) : null}
-                {isStreamingEvaluation && streamingEvaluationResponse ? (
-                  <div className="mt-3 rounded-xl bg-white/70 p-3">
-                    <p className="text-xs font-semibold text-[#4D7C0F]">实时输出</p>
-                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
-                      {streamingEvaluationResponse}
-                      <TypewriterCursor />
-                    </p>
-                  </div>
-                ) : null}
                 <div className="mt-3 rounded-xl bg-white/70 p-3">
                   <p className="text-xs font-semibold text-[#4D7C0F]">反馈</p>
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#3F6212]">
-                    {visibleFeedbackText || "暂无反馈"}
-                    {!isStreamingEvaluation && currentEvaluation?.feedback && typedFeedbackText.isAnimating ? <TypewriterCursor /> : null}
+                    {isStreamingEvaluation
+                      ? (visibleStreamingEvaluationText || "评估生成中...")
+                      : (visibleFeedbackText || currentEvaluation?.feedback || "暂无反馈")}
+                    {isStreamingEvaluation
+                      ? <TypewriterCursor />
+                      : (!isStreamingEvaluation && currentEvaluation?.feedback && typedFeedbackText.isAnimating ? <TypewriterCursor /> : null)}
                   </p>
                 </div>
                 <div className="mt-3 rounded-xl bg-white/70 p-3">

@@ -36,7 +36,7 @@ public class PositionService {
     public List<PositionEntity> getAllPositions() {
         LambdaQueryWrapper<PositionEntity> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PositionEntity::getDeleted, 0)
-                .orderByDesc(PositionEntity::getCreateTime);
+                .orderByAsc(PositionEntity::getId);
         return positionMapper.selectList(wrapper).stream()
                 .map(positionProfileService::enrich)
                 .toList();

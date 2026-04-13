@@ -351,13 +351,13 @@ public class RAGChatServiceImpl implements RAGChatService {
     private String extractPositionId(String question) {
         String lowerQuestion = question.toLowerCase();
         if (lowerQuestion.contains("python") && lowerQuestion.contains("算法")) {
-            return "pos_python_001";
+            return "8";
         } else if (lowerQuestion.contains("java")) {
-            return "pos_java_001";
+            return "1";
         } else if (lowerQuestion.contains("前端") || lowerQuestion.contains("web")) {
-            return "pos_web_001";
+            return "2";
         } else {
-            return "pos_java_001";
+            return "1";
         }
     }
 }
