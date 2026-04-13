@@ -695,14 +695,15 @@ public class AIEvaluationService {
         if (index == -1) {
             return;
         }
-        int endIndex = nextPrefix == null ? -1 : result.indexOf(nextPrefix, index);
+        int contentStart = index + prefix.length();
+        int endIndex = nextPrefix == null ? -1 : result.indexOf(nextPrefix, contentStart);
         if (endIndex == -1) {
-            endIndex = result.indexOf("\n", index);
+            endIndex = result.indexOf("\n", contentStart);
         }
         if (endIndex == -1) {
             endIndex = result.length();
         }
-        String value = result.substring(index + prefix.length(), endIndex).trim();
+        String value = result.substring(contentStart, endIndex).trim();
         evaluation.put(key, value);
     }
 
