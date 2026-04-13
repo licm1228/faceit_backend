@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BookOpen, Brain, ChevronRight, Lightbulb, MessageCircle, Mic, MicOff, Send, Square } from "lucide-react";
+import { BookOpen, Brain, Lightbulb, MessageCircle, Mic, MicOff, Send, Square } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { FaceItMark } from "@/components/common/FaceItMark";
@@ -658,15 +658,6 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                       <p className="text-base font-semibold text-[#0F172A]">{preset.title}</p>
                       <p className="mt-1 text-sm leading-6 text-[#64748B]">{preset.description}</p>
                     </div>
-                  </div>
-                  <div className="mt-6 flex items-center justify-end border-t border-[#F1F5F9] pt-4">
-                    <ChevronRight
-                      className={cn(
-                        "h-4.5 w-4.5 transition-colors",
-                        isActive ? "text-[#3B82F6]" : "text-[#94A3B8] group-hover:text-[#3B82F6]"
-                      )}
-                      aria-hidden="true"
-                    />
                   </div>
                 </button>
               );
