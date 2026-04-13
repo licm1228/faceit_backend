@@ -25,6 +25,7 @@ import {
   resolveInterviewConfig,
   startInterviewChat
 } from "@/services/interviewChatService";
+import type { SpeechAnalysis } from "@/services/interviewService";
 import { buildQuery } from "@/utils/helpers";
 import { createStreamResponse } from "@/hooks/useStreamResponse";
 import { storage } from "@/utils/storage";
@@ -59,7 +60,7 @@ interface ChatState {
   updateSessionTitle: (sessionId: string, title: string) => void;
   setDeepThinkingEnabled: (enabled: boolean) => void;
   setInterviewDraftConfig: (patch: Partial<InterviewDraftConfig>) => void;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, speechAnalysis?: SpeechAnalysis | null) => Promise<void>;
   cancelGeneration: () => void;
   appendStreamContent: (delta: string) => void;
   appendThinkingContent: (delta: string) => void;
@@ -372,7 +373,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }));
   },
-  sendMessage: async (content) => {
+  sendMessage: async (content, speechAnalysis) => {
     const trimmed = content.trim();
     if (!trimmed) return;
     if (get().isStreaming) return;
@@ -488,7 +489,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         {
           url: `${API_BASE_URL}/interview/chat/sessions/${encodeURIComponent(sessionId)}/turn/stream`,
           method: "POST",
-          body: JSON.stringify({ content: trimmed }),
+          body: JSON.stringify({
+            content: trimmed,
+            speechAnalysis: speechAnalysis ?? undefined
+          }),
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: token } : {})

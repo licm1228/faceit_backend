@@ -38,11 +38,28 @@ export interface InterviewSession {
 export interface AnswerEvaluation {
   score: number;
   technicalScore?: number;
+  positionMatchScore?: number;
   expressionScore?: number;
   logicScore?: number;
   knowledgeScore?: number;
+  instantFeedback?: string;
+  expressionFeedback?: string;
+  expressionAnalysis?: SpeechAnalysis | null;
   feedback: string;
   suggestions: string;
+}
+
+export interface SpeechAnalysis {
+  durationSeconds?: number;
+  wordsPerMinute?: number;
+  averageVolume?: number;
+  peakVolume?: number;
+  pauseRatio?: number;
+  clarityScore?: number;
+  confidenceScore?: number;
+  fluencyScore?: number;
+  expressionScore?: number;
+  summary?: string;
 }
 
 export interface InterviewStreamMessagePayload {
@@ -60,9 +77,11 @@ export interface SessionDetail {
     userAnswer: string;
     score?: number;
     technicalScore?: number;
+    positionMatchScore?: number;
     expressionScore?: number;
     logicScore?: number;
     knowledgeScore?: number;
+    expressionFeedback?: string;
     feedback?: string;
     suggestions?: string;
   }>;
@@ -192,16 +211,20 @@ export async function getInterviewQuestion(
 export async function submitInterviewAnswer(
   sessionId: string,
   questionId: string,
-  userAnswer: string
+  userAnswer: string,
+  speechAnalysis?: SpeechAnalysis | null
 ): Promise<AnswerEvaluation> {
   const query = new URLSearchParams({ sessionId, questionId });
   return api.post<AnswerEvaluation, AnswerEvaluation>(
     `/interview/submit-answer?${query.toString()}`,
-    userAnswer,
     {
-    headers: {
-      "Content-Type": "text/plain;charset=UTF-8"
-    }
+      content: userAnswer,
+      speechAnalysis: speechAnalysis ?? undefined
+    },
+    {
+      headers: {
+        "Content-Type": "application/json;charset=UTF-8"
+      }
     }
   );
 }
@@ -210,6 +233,7 @@ export function streamInterviewAnswer(
   sessionId: string,
   questionId: string,
   userAnswer: string,
+  speechAnalysis: SpeechAnalysis | null | undefined,
   handlers: StreamHandlers
 ) {
   const query = new URLSearchParams({ sessionId, questionId });
@@ -218,9 +242,12 @@ export function streamInterviewAnswer(
     {
       url: `${API_BASE_URL}/interview/submit-answer/stream?${query.toString()}`,
       method: "POST",
-      body: userAnswer,
+      body: JSON.stringify({
+        content: userAnswer,
+        speechAnalysis: speechAnalysis ?? undefined
+      }),
       headers: {
-        "Content-Type": "text/plain;charset=UTF-8",
+        "Content-Type": "application/json;charset=UTF-8",
         ...(token ? { Authorization: token } : {})
       },
       retryCount: 0

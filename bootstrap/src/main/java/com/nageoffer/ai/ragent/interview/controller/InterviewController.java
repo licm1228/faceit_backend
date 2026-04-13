@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.interview.controller;
 
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
+import com.nageoffer.ai.ragent.interview.controller.request.InterviewAnswerSubmitRequest;
 import com.nageoffer.ai.ragent.interview.entity.InterviewAnswerEntity;
 import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
@@ -31,6 +32,7 @@ import com.nageoffer.ai.ragent.rag.dto.MessageDelta;
 import com.nageoffer.ai.ragent.rag.enums.SSEEventType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -180,7 +182,15 @@ public class InterviewController {
     public Map<String, Object> submitAnswer(
             @RequestParam String sessionId,
             @RequestParam String questionId,
-            @RequestBody String userAnswer) {
+            @RequestBody InterviewAnswerSubmitRequest request) {
+
+        String userAnswer = request == null ? null : request.getContent();
+        if (!StringUtils.hasText(userAnswer)) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", "回答内容不能为空");
+            return result;
+        }
 
         // 保存回答
         InterviewAnswerEntity answer = interviewAnswerService.saveAnswer(sessionId, questionId, userAnswer);
@@ -189,7 +199,7 @@ public class InterviewController {
         QuestionEntity question = questionService.getQuestionById(questionId);
 
         // AI评估回答
-        Map<String, Object> evaluation = aiEvaluationService.evaluateAnswer(question, userAnswer);
+        Map<String, Object> evaluation = aiEvaluationService.evaluateAnswer(question, userAnswer, request == null ? null : request.getSpeechAnalysis());
 
         // 更新评估结果
         interviewAnswerService.evaluateAnswer(answer.getId(),
@@ -211,10 +221,10 @@ public class InterviewController {
     public SseEmitter submitAnswerStream(
             @RequestParam String sessionId,
             @RequestParam String questionId,
-            @RequestBody String userAnswer) {
+            @RequestBody InterviewAnswerSubmitRequest request) {
 
         SseEmitter emitter = new SseEmitter(0L);
-        CompletableFuture.runAsync(() -> doSubmitAnswerStream(sessionId, questionId, userAnswer, emitter), modelStreamExecutor);
+        CompletableFuture.runAsync(() -> doSubmitAnswerStream(sessionId, questionId, request, emitter), modelStreamExecutor);
         return emitter;
     }
 
@@ -274,9 +284,15 @@ public class InterviewController {
             Map<String, Object> eval = new HashMap<>();
             eval.put("score", answer.getScore());
             eval.put("technicalScore", answer.getTechnicalScore());
+            int positionMatchScore = Math.max(0, (answer.getScore() == null ? 0 : answer.getScore())
+                    - (answer.getTechnicalScore() == null ? 0 : answer.getTechnicalScore())
+                    - (answer.getLogicScore() == null ? 0 : answer.getLogicScore())
+                    - (answer.getKnowledgeScore() == null ? 0 : answer.getKnowledgeScore()));
+            eval.put("positionMatchScore", positionMatchScore);
             eval.put("expressionScore", answer.getExpressionScore());
             eval.put("logicScore", answer.getLogicScore());
             eval.put("knowledgeScore", answer.getKnowledgeScore());
+            eval.put("expressionFeedback", buildExpressionFeedback(answer.getExpressionScore()));
             eval.put("feedback", answer.getFeedback());
             eval.put("suggestions", answer.getSuggestions());
             answerEvaluations.add(eval);
@@ -350,9 +366,15 @@ public class InterviewController {
             answerDetail.put("userAnswer", answer.getUserAnswer());
             answerDetail.put("score", answer.getScore());
             answerDetail.put("technicalScore", answer.getTechnicalScore());
+            int positionMatchScore = Math.max(0, (answer.getScore() == null ? 0 : answer.getScore())
+                    - (answer.getTechnicalScore() == null ? 0 : answer.getTechnicalScore())
+                    - (answer.getLogicScore() == null ? 0 : answer.getLogicScore())
+                    - (answer.getKnowledgeScore() == null ? 0 : answer.getKnowledgeScore()));
+            answerDetail.put("positionMatchScore", positionMatchScore);
             answerDetail.put("expressionScore", answer.getExpressionScore());
             answerDetail.put("logicScore", answer.getLogicScore());
             answerDetail.put("knowledgeScore", answer.getKnowledgeScore());
+            answerDetail.put("expressionFeedback", buildExpressionFeedback(answer.getExpressionScore()));
             answerDetail.put("feedback", answer.getFeedback());
             answerDetail.put("suggestions", answer.getSuggestions());
             answerDetails.add(answerDetail);
@@ -405,14 +427,19 @@ public class InterviewController {
         return response;
     }
 
-    private void doSubmitAnswerStream(String sessionId, String questionId, String userAnswer, SseEmitter emitter) {
+    private void doSubmitAnswerStream(String sessionId, String questionId, InterviewAnswerSubmitRequest request, SseEmitter emitter) {
         SseEmitterSender sender = new SseEmitterSender(emitter);
         try {
+            String userAnswer = request == null ? null : request.getContent();
+            if (!StringUtils.hasText(userAnswer)) {
+                throw new IllegalArgumentException("回答内容不能为空");
+            }
             InterviewAnswerEntity answer = interviewAnswerService.saveAnswer(sessionId, questionId, userAnswer);
             QuestionEntity question = questionService.getQuestionById(questionId);
             AIEvaluationService.StreamExecution<Map<String, Object>> execution = aiEvaluationService.streamEvaluateAnswer(
                     question,
                     userAnswer,
+                    request == null ? null : request.getSpeechAnalysis(),
                     0,
                     "",
                     "",
@@ -473,9 +500,15 @@ public class InterviewController {
                 Map<String, Object> eval = new LinkedHashMap<>();
                 eval.put("score", answer.getScore());
                 eval.put("technicalScore", answer.getTechnicalScore());
+                int positionMatchScore = Math.max(0, (answer.getScore() == null ? 0 : answer.getScore())
+                        - (answer.getTechnicalScore() == null ? 0 : answer.getTechnicalScore())
+                        - (answer.getLogicScore() == null ? 0 : answer.getLogicScore())
+                        - (answer.getKnowledgeScore() == null ? 0 : answer.getKnowledgeScore()));
+                eval.put("positionMatchScore", positionMatchScore);
                 eval.put("expressionScore", answer.getExpressionScore());
                 eval.put("logicScore", answer.getLogicScore());
                 eval.put("knowledgeScore", answer.getKnowledgeScore());
+                eval.put("expressionFeedback", buildExpressionFeedback(answer.getExpressionScore()));
                 eval.put("feedback", answer.getFeedback());
                 eval.put("suggestions", answer.getSuggestions());
                 answerEvaluations.add(eval);
@@ -510,5 +543,19 @@ public class InterviewController {
             }
             throw ex;
         }
+    }
+
+    private String buildExpressionFeedback(Integer expressionScore) {
+        int score = expressionScore == null ? 0 : expressionScore;
+        if (score >= 85) {
+            return "表达清晰且稳定，语速和停顿控制较好。";
+        }
+        if (score >= 70) {
+            return "表达整体顺畅，但还可以继续加强重点强调与节奏控制。";
+        }
+        if (score >= 55) {
+            return "表达基本清楚，但紧张感和停顿分配还有优化空间。";
+        }
+        return "表达连贯性偏弱，建议降低语速并强化关键词输出。";
     }
 }

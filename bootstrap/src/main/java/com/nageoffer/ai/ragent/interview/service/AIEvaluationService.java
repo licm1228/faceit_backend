@@ -21,6 +21,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
+import com.nageoffer.ai.ragent.interview.controller.request.SpeechAnalysisRequest;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
@@ -34,6 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -56,23 +58,37 @@ public class AIEvaluationService {
      * @return 评估结果
      */
     public Map<String, Object> evaluateAnswer(QuestionEntity question, String userAnswer) {
-        return evaluateAnswer(question, userAnswer, 0);
+        return evaluateAnswer(question, userAnswer, null, 0);
     }
 
     public Map<String, Object> evaluateAnswer(QuestionEntity question, String userAnswer, int followUpCount) {
-        return evaluateAnswer(question, userAnswer, followUpCount, "", "", List.of());
+        return evaluateAnswer(question, userAnswer, null, followUpCount, "", "", List.of());
+    }
+
+    public Map<String, Object> evaluateAnswer(QuestionEntity question, String userAnswer, SpeechAnalysisRequest speechAnalysis) {
+        return evaluateAnswer(question, userAnswer, speechAnalysis, 0);
     }
 
     public Map<String, Object> evaluateAnswer(
             QuestionEntity question,
             String userAnswer,
+            SpeechAnalysisRequest speechAnalysis,
+            int followUpCount
+    ) {
+        return evaluateAnswer(question, userAnswer, speechAnalysis, followUpCount, "", "", List.of());
+    }
+
+    public Map<String, Object> evaluateAnswer(
+            QuestionEntity question,
+            String userAnswer,
+            SpeechAnalysisRequest speechAnalysis,
             int followUpCount,
             String lastFollowUpIntent,
             String lastFollowUpFocus,
             List<String> followUpHistory
     ) {
         // 构建评估提示词
-        String prompt = buildEvaluationPrompt(question, userAnswer, followUpCount, lastFollowUpIntent, lastFollowUpFocus, followUpHistory);
+        String prompt = buildEvaluationPrompt(question, userAnswer, speechAnalysis, followUpCount, lastFollowUpIntent, lastFollowUpFocus, followUpHistory);
 
         try {
             // 调用LLM服务进行评估
@@ -80,32 +96,17 @@ public class AIEvaluationService {
             System.out.println("LLM Evaluation Result: " + evaluationResult);
 
             // 解析评估结果
-            return parseEvaluationResult(evaluationResult);
+            return enrichEvaluationResult(parseEvaluationResult(evaluationResult), userAnswer, speechAnalysis);
         } catch (Exception e) {
             System.err.println("Evaluation error: " + e.getMessage());
-            // 返回默认评估结果
-            Map<String, Object> defaultEvaluation = new HashMap<>();
-            defaultEvaluation.put("score", 0);
-            defaultEvaluation.put("technicalScore", 0);
-            defaultEvaluation.put("expressionScore", 0);
-            defaultEvaluation.put("logicScore", 0);
-            defaultEvaluation.put("knowledgeScore", 0);
-            defaultEvaluation.put("feedback", "评估服务暂时不可用");
-            defaultEvaluation.put("suggestions", "请稍后再试");
-            defaultEvaluation.put("shouldFollowUp", false);
-            defaultEvaluation.put("followUpQuestion", "");
-            defaultEvaluation.put("followUpIntent", "");
-            defaultEvaluation.put("followUpFocus", "");
-            defaultEvaluation.put("answeredPoints", List.of());
-            defaultEvaluation.put("missingPoints", List.of());
-            defaultEvaluation.put("avoidRepeat", List.of());
-            return defaultEvaluation;
+            return enrichEvaluationResult(buildDefaultEvaluation(), userAnswer, speechAnalysis);
         }
     }
 
     public StreamExecution<Map<String, Object>> streamEvaluateAnswer(
             QuestionEntity question,
             String userAnswer,
+            SpeechAnalysisRequest speechAnalysis,
             int followUpCount,
             String lastFollowUpIntent,
             String lastFollowUpFocus,
@@ -113,7 +114,7 @@ public class AIEvaluationService {
             Consumer<String> contentConsumer,
             Consumer<String> thinkingConsumer
     ) {
-        String prompt = buildEvaluationPrompt(question, userAnswer, followUpCount, lastFollowUpIntent, lastFollowUpFocus, followUpHistory);
+        String prompt = buildEvaluationPrompt(question, userAnswer, speechAnalysis, followUpCount, lastFollowUpIntent, lastFollowUpFocus, followUpHistory);
         StringBuilder content = new StringBuilder();
         CompletableFuture<Map<String, Object>> resultFuture = new CompletableFuture<>();
 
@@ -142,7 +143,7 @@ public class AIEvaluationService {
 
                     @Override
                     public void onComplete() {
-                        resultFuture.complete(parseEvaluationResult(content.toString()));
+                        resultFuture.complete(enrichEvaluationResult(parseEvaluationResult(content.toString()), userAnswer, speechAnalysis));
                     }
 
                     @Override
@@ -366,6 +367,7 @@ public class AIEvaluationService {
     private String buildEvaluationPrompt(
             QuestionEntity question,
             String userAnswer,
+            SpeechAnalysisRequest speechAnalysis,
             int followUpCount,
             String lastFollowUpIntent,
             String lastFollowUpFocus,
@@ -375,6 +377,7 @@ public class AIEvaluationService {
                 "题目：" + question.getQuestionText() + "\n" +
                 "参考答案：" + question.getReferenceAnswer() + "\n" +
                 "学生回答：" + userAnswer + "\n" +
+                "语音表达补充：" + buildSpeechPromptFragment(speechAnalysis) + "\n" +
                 "当前追问轮次：" + followUpCount + "\n" +
                 "上一轮追问意图：" + blankDefault(lastFollowUpIntent, "无") + "\n" +
                 "上一轮追问聚焦点：" + blankDefault(lastFollowUpFocus, "无") + "\n" +
@@ -425,9 +428,11 @@ public class AIEvaluationService {
             prompt.append("问题").append(i + 1).append("：\n");
             prompt.append("评分：").append(answer.get("score")).append("\n");
             prompt.append("技术准确性：").append(answer.get("technicalScore")).append("\n");
-            prompt.append("表达能力：").append(answer.get("expressionScore")).append("\n");
+            prompt.append("岗位匹配度：").append(answer.get("positionMatchScore")).append("\n");
             prompt.append("逻辑清晰度：").append(answer.get("logicScore")).append("\n");
             prompt.append("知识覆盖度：").append(answer.get("knowledgeScore")).append("\n");
+            prompt.append("表达表现：").append(answer.get("expressionScore")).append("\n");
+            prompt.append("表达分析：").append(answer.get("expressionFeedback")).append("\n");
             prompt.append("反馈：").append(answer.get("feedback")).append("\n");
             prompt.append("建议：").append(answer.get("suggestions")).append("\n\n");
         }
@@ -460,9 +465,11 @@ public class AIEvaluationService {
             prompt.append("问题").append(i + 1).append("：\n");
             prompt.append("评分：").append(answer.get("score")).append("\n");
             prompt.append("技术正确性：").append(answer.get("technicalScore")).append("\n");
-            prompt.append("岗位匹配度：").append(answer.get("expressionScore")).append("\n");
+            prompt.append("岗位匹配度：").append(answer.get("positionMatchScore")).append("\n");
             prompt.append("逻辑清晰度：").append(answer.get("logicScore")).append("\n");
             prompt.append("知识覆盖度：").append(answer.get("knowledgeScore")).append("\n");
+            prompt.append("表达表现：").append(answer.get("expressionScore")).append("\n");
+            prompt.append("表达分析：").append(answer.get("expressionFeedback")).append("\n");
             prompt.append("反馈：").append(answer.get("feedback")).append("\n");
             prompt.append("建议：").append(answer.get("suggestions")).append("\n\n");
         }
@@ -476,8 +483,10 @@ public class AIEvaluationService {
         prompt.append("\"technicalCorrectness\": number,");
         prompt.append("\"knowledgeDepth\": number,");
         prompt.append("\"logicRigor\": number,");
-        prompt.append("\"positionMatch\": number");
+        prompt.append("\"positionMatch\": number,");
+        prompt.append("\"expressionDelivery\": number");
         prompt.append("},");
+        prompt.append("\"expressionSummary\": string,");
         prompt.append("\"highlights\": string[],");
         prompt.append("\"weaknesses\": string[],");
         prompt.append("\"improvementSuggestions\": string[]");
@@ -559,8 +568,10 @@ public class AIEvaluationService {
                             "technicalCorrectness", clampNumber(dimensionScores.get("technicalCorrectness")),
                             "knowledgeDepth", clampNumber(dimensionScores.get("knowledgeDepth")),
                             "logicRigor", clampNumber(dimensionScores.get("logicRigor")),
-                            "positionMatch", clampNumber(dimensionScores.get("positionMatch"))
+                            "positionMatch", clampNumber(dimensionScores.get("positionMatch")),
+                            "expressionDelivery", clampNumber(dimensionScores.get("expressionDelivery"))
                     ),
+                    "expressionSummary", toSafeText(payload.get("expressionSummary"), "表达整体稳定，但还可以继续优化语速控制、停顿节奏和重点强调。"),
                     "highlights", toStringList(payload.get("highlights")),
                     "weaknesses", toStringList(payload.get("weaknesses")),
                     "improvementSuggestions", toStringList(payload.get("improvementSuggestions"))
@@ -572,24 +583,7 @@ public class AIEvaluationService {
     }
 
     private Map<String, Object> parseEvaluationResult(String result) {
-        Map<String, Object> evaluation = new HashMap<>();
-
-        // 设置默认值，防止空结果
-        evaluation.put("score", 0);
-        evaluation.put("technicalScore", 0);
-        evaluation.put("expressionScore", 0);
-        evaluation.put("logicScore", 0);
-        evaluation.put("knowledgeScore", 0);
-        evaluation.put("instantFeedback", "");
-        evaluation.put("feedback", "");
-        evaluation.put("suggestions", "");
-        evaluation.put("shouldFollowUp", false);
-        evaluation.put("followUpQuestion", "");
-        evaluation.put("followUpIntent", "");
-        evaluation.put("followUpFocus", "");
-        evaluation.put("answeredPoints", List.of());
-        evaluation.put("missingPoints", List.of());
-        evaluation.put("avoidRepeat", List.of());
+        Map<String, Object> evaluation = buildDefaultEvaluation();
 
         // 检查结果是否为空
         if (result == null || result.isEmpty()) {
@@ -613,7 +607,7 @@ public class AIEvaluationService {
 
             // 提取各维度评分
             extractScore(result, "技术准确性：", "technicalScore", evaluation);
-            extractScore(result, "岗位匹配度：", "expressionScore", evaluation);
+            extractScore(result, "岗位匹配度：", "positionMatchScore", evaluation);
             extractScore(result, "逻辑清晰度：", "logicScore", evaluation);
             extractScore(result, "知识覆盖度：", "knowledgeScore", evaluation);
             extractText(result, "即时反馈：", "instantFeedback", evaluation, "反馈：");
@@ -674,6 +668,139 @@ public class AIEvaluationService {
         }
 
         return evaluation;
+    }
+
+    private Map<String, Object> buildDefaultEvaluation() {
+        Map<String, Object> evaluation = new HashMap<>();
+        evaluation.put("score", 0);
+        evaluation.put("technicalScore", 0);
+        evaluation.put("positionMatchScore", 0);
+        evaluation.put("expressionScore", 0);
+        evaluation.put("logicScore", 0);
+        evaluation.put("knowledgeScore", 0);
+        evaluation.put("instantFeedback", "");
+        evaluation.put("feedback", "");
+        evaluation.put("suggestions", "");
+        evaluation.put("expressionFeedback", "");
+        evaluation.put("expressionAnalysis", Map.of());
+        evaluation.put("shouldFollowUp", false);
+        evaluation.put("followUpQuestion", "");
+        evaluation.put("followUpIntent", "");
+        evaluation.put("followUpFocus", "");
+        evaluation.put("answeredPoints", List.of());
+        evaluation.put("missingPoints", List.of());
+        evaluation.put("avoidRepeat", List.of());
+        return evaluation;
+    }
+
+    private Map<String, Object> enrichEvaluationResult(
+            Map<String, Object> evaluation,
+            String userAnswer,
+            SpeechAnalysisRequest speechAnalysis
+    ) {
+        Map<String, Object> mutable = new LinkedHashMap<>(evaluation == null ? buildDefaultEvaluation() : evaluation);
+        int technicalScore = clampNumber(mutable.get("technicalScore"));
+        int logicScore = clampNumber(mutable.get("logicScore"));
+        int knowledgeScore = clampNumber(mutable.get("knowledgeScore"));
+        int score = clampNumber(mutable.get("score"));
+        int recoveredPositionMatch = clamp(score - technicalScore - logicScore - knowledgeScore, 0, 25);
+        if (clampNumber(mutable.get("positionMatchScore")) <= 0) {
+            mutable.put("positionMatchScore", recoveredPositionMatch);
+        }
+        int expressionScore = computeExpressionScore(userAnswer, speechAnalysis);
+        mutable.put("expressionScore", expressionScore);
+        mutable.put("expressionAnalysis", buildExpressionAnalysisMap(speechAnalysis, expressionScore));
+        mutable.put("expressionFeedback", buildExpressionFeedback(speechAnalysis, expressionScore));
+        return mutable;
+    }
+
+    private int computeExpressionScore(String userAnswer, SpeechAnalysisRequest speechAnalysis) {
+        if (speechAnalysis != null) {
+            int directScore = clamp(numberOrZero(speechAnalysis.getExpressionScore()), 0, 100);
+            if (directScore > 0) {
+                return directScore;
+            }
+            double weighted = numberOrZero(speechAnalysis.getClarityScore()) * 0.4
+                    + numberOrZero(speechAnalysis.getConfidenceScore()) * 0.3
+                    + numberOrZero(speechAnalysis.getFluencyScore()) * 0.3;
+            if (weighted > 0) {
+                return clamp((int) Math.round(weighted), 0, 100);
+            }
+        }
+        int length = userAnswer == null ? 0 : userAnswer.trim().length();
+        if (length >= 180) {
+            return 84;
+        }
+        if (length >= 120) {
+            return 76;
+        }
+        if (length >= 60) {
+            return 68;
+        }
+        if (length > 0) {
+            return 58;
+        }
+        return 0;
+    }
+
+    private Map<String, Object> buildExpressionAnalysisMap(SpeechAnalysisRequest speechAnalysis, int expressionScore) {
+        if (speechAnalysis == null) {
+            return Map.of(
+                    "expressionScore", expressionScore,
+                    "summary", "本次未采集到语音数据，表达表现分基于文本完整度进行估计。"
+            );
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("durationSeconds", safeRound(speechAnalysis.getDurationSeconds()));
+        data.put("wordsPerMinute", safeRound(speechAnalysis.getWordsPerMinute()));
+        data.put("averageVolume", safeRound(speechAnalysis.getAverageVolume()));
+        data.put("peakVolume", safeRound(speechAnalysis.getPeakVolume()));
+        data.put("pauseRatio", safeRound(speechAnalysis.getPauseRatio()));
+        data.put("clarityScore", numberOrZero(speechAnalysis.getClarityScore()));
+        data.put("confidenceScore", numberOrZero(speechAnalysis.getConfidenceScore()));
+        data.put("fluencyScore", numberOrZero(speechAnalysis.getFluencyScore()));
+        data.put("expressionScore", expressionScore);
+        data.put("summary", toSafeText(speechAnalysis.getSummary(), ""));
+        return data;
+    }
+
+    private String buildExpressionFeedback(SpeechAnalysisRequest speechAnalysis, int expressionScore) {
+        if (speechAnalysis == null) {
+            if (expressionScore >= 75) {
+                return "本次未采集到语音原始数据，当前表达表现根据文本完整度估计为较稳定。";
+            }
+            return "本次未采集到语音原始数据，建议后续使用语音回答以获得更完整的表达分析。";
+        }
+        String summary = toSafeText(speechAnalysis.getSummary(), "");
+        if (!summary.isBlank()) {
+            return summary;
+        }
+        if (expressionScore >= 85) {
+            return "语速和停顿控制比较自然，整体表达清晰且状态稳定。";
+        }
+        if (expressionScore >= 70) {
+            return "表达基本清晰，节奏总体稳定，但还可以再加强重点强调和停顿控制。";
+        }
+        if (expressionScore >= 55) {
+            return "能够表达主要内容，但语速、停顿和自信度还有明显提升空间。";
+        }
+        return "当前表达较紧张或不够连贯，建议先放慢语速，再强化关键词的清晰表达。";
+    }
+
+    private String buildSpeechPromptFragment(SpeechAnalysisRequest speechAnalysis) {
+        if (speechAnalysis == null) {
+            return "无语音数据，仅根据文本内容判断。";
+        }
+        return String.format(
+                "时长 %.1f 秒，语速 %.1f 字/分钟，停顿占比 %.2f，清晰度 %d，自信度 %d，流畅度 %d，表达总结：%s",
+                numberOrZero(speechAnalysis.getDurationSeconds()),
+                numberOrZero(speechAnalysis.getWordsPerMinute()),
+                numberOrZero(speechAnalysis.getPauseRatio()),
+                numberOrZero(speechAnalysis.getClarityScore()),
+                numberOrZero(speechAnalysis.getConfidenceScore()),
+                numberOrZero(speechAnalysis.getFluencyScore()),
+                blankDefault(speechAnalysis.getSummary(), "无")
+        );
     }
 
     private void extractScore(String result, String prefix, String key, Map<String, Object> evaluation) {
@@ -788,6 +915,21 @@ public class AIEvaluationService {
             return clamp(parseFirstNumber(text), 0, 100);
         }
         return 0;
+    }
+
+    private int numberOrZero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private double numberOrZero(Double value) {
+        return value == null ? 0D : value;
+    }
+
+    private double safeRound(Double value) {
+        if (value == null) {
+            return 0D;
+        }
+        return Math.round(value * 100.0D) / 100.0D;
     }
 
     private String toSafeText(Object value, String fallback) {

@@ -1,4 +1,5 @@
 import { api } from "@/services/api";
+import type { SpeechAnalysis } from "@/services/interviewService";
 import type { InterviewDraftConfig, InterviewReport, InterviewRuntimeState, InterviewSessionState } from "@/types";
 
 type InterviewChatMessage = {
@@ -39,11 +40,15 @@ export async function startInterviewChat(
 
 export async function sendInterviewChatTurn(
   sessionId: string,
-  content: string
+  content: string,
+  speechAnalysis?: SpeechAnalysis | null
 ): Promise<InterviewSessionResponse> {
   return api.post<InterviewSessionResponse, InterviewSessionResponse>(
     `/interview/chat/sessions/${sessionId}/turn`,
-    { content }
+    {
+      content,
+      speechAnalysis: speechAnalysis ?? undefined
+    }
   );
 }
 

@@ -110,7 +110,9 @@ export interface InterviewReport {
     knowledgeDepth: number;
     logicRigor: number;
     positionMatch: number;
+    expressionDelivery: number;
   };
+  expressionSummary?: string;
   highlights: string[];
   weaknesses: string[];
   improvementSuggestions: string[];

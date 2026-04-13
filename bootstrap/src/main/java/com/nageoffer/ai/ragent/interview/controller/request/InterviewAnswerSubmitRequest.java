@@ -20,7 +20,7 @@ package com.nageoffer.ai.ragent.interview.controller.request;
 import lombok.Data;
 
 @Data
-public class InterviewChatTurnRequest {
+public class InterviewAnswerSubmitRequest {
     private String content;
     private SpeechAnalysisRequest speechAnalysis;
 }

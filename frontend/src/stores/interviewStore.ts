@@ -10,6 +10,7 @@ import type {
   Question,
   Recommendation,
   SessionDetail,
+  SpeechAnalysis,
   UserProfile
 } from "@/services/interviewService";
 import {
@@ -62,7 +63,7 @@ interface InterviewState {
     options?: { timeLimit?: number; totalQuestions?: number }
   ) => Promise<void>;
   fetchQuestion: () => Promise<void>;
-  submitAnswer: (answer: string) => Promise<void>;
+  submitAnswer: (answer: string, speechAnalysis?: SpeechAnalysis | null) => Promise<void>;
   generateFollowUp: (answer: string) => Promise<void>;
   completeSession: () => Promise<void>;
   fetchHistory: (userId: string) => Promise<void>;
@@ -169,7 +170,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       set({ loading: false });
     }
   },
-  submitAnswer: async (answer) => {
+  submitAnswer: async (answer, speechAnalysis) => {
     const { currentSession, currentQuestion } = get();
     if (!currentSession?.id || !currentQuestion?.id) return;
     get().cancelStreaming();
@@ -206,7 +207,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           });
         }
       };
-      const { start, cancel } = streamInterviewAnswer(currentSession.id, currentQuestion.id, answer, handlers);
+      const { start, cancel } = streamInterviewAnswer(currentSession.id, currentQuestion.id, answer, speechAnalysis, handlers);
       set({ streamAbort: cancel });
       await start();
       if (!finished) {
@@ -224,7 +225,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         return;
       }
       try {
-        const evaluation = await submitInterviewAnswer(currentSession.id, currentQuestion.id, answer);
+        const evaluation = await submitInterviewAnswer(currentSession.id, currentQuestion.id, answer, speechAnalysis);
         set({
           currentEvaluation: evaluation,
           streamingEvaluationResponse: "",

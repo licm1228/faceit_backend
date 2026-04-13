@@ -49,13 +49,13 @@ public class InterviewChatController {
 
     @PostMapping("/sessions/{sessionId}/turn")
     public Result<Map<String, Object>> turn(@PathVariable String sessionId, @RequestBody InterviewChatTurnRequest request) {
-        return Results.success(interviewChatService.submitTurn(sessionId, request.getContent()));
+        return Results.success(interviewChatService.submitTurn(sessionId, request.getContent(), request.getSpeechAnalysis()));
     }
 
     @PostMapping(value = "/sessions/{sessionId}/turn/stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter streamTurn(@PathVariable String sessionId, @RequestBody InterviewChatTurnRequest request) {
         SseEmitter emitter = new SseEmitter(0L);
-        interviewChatService.streamTurn(sessionId, request.getContent(), emitter);
+        interviewChatService.streamTurn(sessionId, request.getContent(), request.getSpeechAnalysis(), emitter);
         return emitter;
     }
 

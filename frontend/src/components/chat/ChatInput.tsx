@@ -5,9 +5,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { VoiceEqualizerIcon } from "@/components/common/VoiceInputVisual";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { listPositions, recognizeSpeechBase64, type Position } from "@/services/interviewService";
+import { listPositions, recognizeSpeechBase64, type Position, type SpeechAnalysis } from "@/services/interviewService";
 import { useChatStore } from "@/stores/chatStore";
 import { feedback } from "@/stores/useFeedbackStore";
+import { analyzeSpeechFromSamples } from "@/utils/speechAnalysis";
 
 declare global {
   interface Window {
@@ -25,6 +26,7 @@ export function ChatInput() {
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const pendingSpeechAnalysisRef = React.useRef<SpeechAnalysis | null>(null);
   const isMediaRecorderSupported = React.useMemo(
     () => typeof window !== "undefined" && "MediaRecorder" in window,
     []
@@ -90,7 +92,8 @@ export function ChatInput() {
     const next = value;
     setValue("");
     focusInput();
-    await sendMessage(next);
+    await sendMessage(next, pendingSpeechAnalysisRef.current);
+    pendingSpeechAnalysisRef.current = null;
     focusInput();
   };
 
@@ -161,7 +164,7 @@ export function ChatInput() {
 
         const wavBlob = encodeWav(mergedData, audioContext.sampleRate);
         const base64Audio = await blobToBase64(wavBlob);
-        await recognizeSpeech(base64Audio);
+        await recognizeSpeech(base64Audio, pcmDataRef, audioContext.sampleRate);
 
         stream.getTracks().forEach((track) => track.stop());
         audioContext.close();
@@ -236,11 +239,12 @@ export function ChatInput() {
     return new Blob([buffer], { type: "audio/wav" });
   }, []);
 
-  const recognizeSpeech = async (base64Audio: string) => {
+  const recognizeSpeech = async (base64Audio: string, samples?: Float32Array[], sampleRate = 16000) => {
     setIsRecognizingSpeech(true);
     try {
       const text = await recognizeSpeechBase64(base64Audio, "wav", 16000, "zh_cn");
       if (text) {
+        pendingSpeechAnalysisRef.current = samples ? analyzeSpeechFromSamples(samples, sampleRate, text) : null;
         setValue((prev) => {
           const current = prev.trim();
           return current ? `${current} ${text}` : text;
@@ -384,7 +388,10 @@ export function ChatInput() {
           <Textarea
             ref={textareaRef}
             value={value}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={(event) => {
+              pendingSpeechAnalysisRef.current = null;
+              setValue(event.target.value);
+            }}
             placeholder={
               isRecognizingSpeech
                 ? "语音识别中，请稍候..."

@@ -129,8 +129,22 @@ export function InterviewReportPage() {
                       <span>岗位匹配度</span>
                       <span className="font-semibold">{report.dimensionScores.positionMatch}</span>
                     </div>
+                    <div className="flex items-center justify-between rounded-2xl bg-[#F8FAFC] px-4 py-3">
+                      <span>表达表现</span>
+                      <span className="font-semibold">{report.dimensionScores.expressionDelivery}</span>
+                    </div>
                   </div>
                 </div>
+              </div>
+
+              <div className="rounded-3xl border border-[#E5E7EB] bg-white p-6">
+                <div className="mb-4 flex items-center gap-2 text-[#0F172A]">
+                  <Target className="h-5 w-5 text-[#2563EB]" />
+                  <p className="font-semibold">表达分析</p>
+                </div>
+                <p className="rounded-2xl bg-[#F8FAFC] px-4 py-4 text-sm leading-6 text-[#334155]">
+                  {report.expressionSummary || "本次报告未生成表达分析摘要。"}
+                </p>
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2">

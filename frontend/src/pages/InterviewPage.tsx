@@ -10,9 +10,10 @@ import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { VoiceEqualizerIcon } from "@/components/common/VoiceInputVisual";
 import { useTypewriterText } from "@/hooks/useTypewriterText";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { recognizeSpeechBase64, type Position } from "@/services/interviewService";
+import { recognizeSpeechBase64, type Position, type SpeechAnalysis } from "@/services/interviewService";
 import { useAuthStore } from "@/stores/authStore";
 import { useInterviewStore } from "@/stores/interviewStore";
+import { analyzeSpeechFromSamples } from "@/utils/speechAnalysis";
 
 const QUESTION_LIMIT = 5;
 const QUESTION_TIME_LIMIT_SECONDS = 180;
@@ -107,6 +108,18 @@ function TypewriterCursor() {
   return <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current align-middle" />;
 }
 
+function MetricPill({ label, value, suffix }: { label: string; value?: number; suffix: string }) {
+  const display = typeof value === "number"
+    ? `${Number.isInteger(value) ? value : value.toFixed(2)}${suffix}`
+    : "--";
+  return (
+    <div className="rounded-lg bg-[#F7FEE7] px-3 py-2 text-xs text-[#4D7C0F]">
+      <p>{label}</p>
+      <p className="mt-1 font-semibold text-[#365314]">{display}</p>
+    </div>
+  );
+}
+
 export function InterviewPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -156,6 +169,7 @@ export function InterviewPage() {
   const [answerRecords, setAnswerRecords] = React.useState<
     Array<{ questionText: string; score: number; feedback: string; suggestions: string }>
   >([]);
+  const [lastSpeechAnalysis, setLastSpeechAnalysis] = React.useState<SpeechAnalysis | null>(null);
   const [isRecording, setIsRecording] = React.useState(false);
   const [isProcessingSpeech, setIsProcessingSpeech] = React.useState(false);
   const reportRef = React.useRef<HTMLDivElement | null>(null);
@@ -186,6 +200,7 @@ export function InterviewPage() {
   ) => {
     if (!user?.userId || !positionId) return;
     setAnswerText("");
+    setLastSpeechAnalysis(null);
     setQuestionIndex(1);
     setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
     setAnswerRecords([]);
@@ -282,8 +297,9 @@ export function InterviewPage() {
   const handleSubmitAnswer = React.useCallback(async () => {
     const next = answerText.trim();
     if (!next) return;
-    await submitAnswer(next);
-  }, [answerText, submitAnswer]);
+    await submitAnswer(next, lastSpeechAnalysis);
+    setLastSpeechAnalysis(null);
+  }, [answerText, lastSpeechAnalysis, submitAnswer]);
 
   const handleNextQuestion = React.useCallback(async () => {
     if (questionIndex >= questionLimit) {
@@ -291,6 +307,7 @@ export function InterviewPage() {
       return;
     }
     setAnswerText("");
+    setLastSpeechAnalysis(null);
     setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
     setQuestionIndex((prev) => prev + 1);
     await fetchQuestion();
@@ -455,11 +472,12 @@ export function InterviewPage() {
     const wavBlob = encodeWav(downsampled, RECORDING_SAMPLE_RATE);
     const audioBase64 = await blobToBase64(wavBlob);
     const transcript = await recognizeSpeechBase64(audioBase64, "wav", RECORDING_SAMPLE_RATE, "zh_cn");
-    if (transcript?.trim()) {
-      setAnswerText((prev) => `${prev}${prev ? " " : ""}${transcript.trim()}`);
-      feedback.success("语音识别完成");
-      return;
-    }
+      if (transcript?.trim()) {
+        setAnswerText((prev) => `${prev}${prev ? " " : ""}${transcript.trim()}`);
+        setLastSpeechAnalysis(analyzeSpeechFromSamples([downsampled], RECORDING_SAMPLE_RATE, transcript.trim()));
+        feedback.success("语音识别完成");
+        return;
+      }
     feedback.info("未识别到有效语音内容");
   }, [blobToBase64, downsampleBuffer, encodeWav, mergePcmChunks]);
 
@@ -495,6 +513,7 @@ export function InterviewPage() {
       }
       if (transcript.trim()) {
         setAnswerText((prev) => `${prev}${prev ? " " : ""}${transcript.trim()}`);
+        setLastSpeechAnalysis(null);
       }
     };
     recognition.onerror = () => {
@@ -580,10 +599,11 @@ export function InterviewPage() {
   const progressPercent = Math.min(100, Math.round((progressValue / sessionQuestionLimit) * 100));
   const currentEvaluationMetrics = [
     { label: "技术", value: currentEvaluation?.technicalScore ?? 0, max: 30 },
-    { label: "表达", value: currentEvaluation?.expressionScore ?? 0, max: 25 },
+    { label: "岗位", value: currentEvaluation?.positionMatchScore ?? 0, max: 25 },
     { label: "逻辑", value: currentEvaluation?.logicScore ?? 0, max: 25 },
     { label: "知识", value: currentEvaluation?.knowledgeScore ?? 0, max: 20 }
   ];
+  const currentExpressionMetrics = currentEvaluation?.expressionAnalysis;
   const minutePart = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
   const secondPart = String(secondsLeft % 60).padStart(2, "0");
   const trendData = React.useMemo(() => {
@@ -781,7 +801,10 @@ export function InterviewPage() {
                 <label className="mb-2 block text-sm font-medium text-[#374151]">你的回答</label>
                 <textarea
                   value={answerText}
-                  onChange={(event) => setAnswerText(event.target.value)}
+                  onChange={(event) => {
+                    setAnswerText(event.target.value);
+                    setLastSpeechAnalysis(null);
+                  }}
                   placeholder={
                     isProcessingSpeech
                       ? "语音解析中..."
@@ -853,6 +876,7 @@ export function InterviewPage() {
                         cancelStreaming();
                         resetCurrentFlow();
                         setAnswerText("");
+                        setLastSpeechAnalysis(null);
                         setQuestionIndex(0);
                         setSecondsLeft(QUESTION_TIME_LIMIT_SECONDS);
                         setAnswerRecords([]);
@@ -883,6 +907,26 @@ export function InterviewPage() {
                       </p>
                     </div>
                   ))}
+                </div>
+                <div className="mt-3 rounded-xl border border-[#D9F99D] bg-white/85 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold text-[#4D7C0F]">表达分析</p>
+                      <p className="mt-1 text-lg font-semibold text-[#365314]">
+                        {currentEvaluation?.expressionScore ?? lastSpeechAnalysis?.expressionScore ?? "--"}
+                        <span className="ml-1 text-xs font-normal text-[#65A30D]">/ 100</span>
+                      </p>
+                    </div>
+                    <p className="max-w-[420px] text-xs leading-5 text-[#4D7C0F]">
+                      {currentEvaluation?.expressionFeedback || lastSpeechAnalysis?.summary || "使用语音回答后，这里会展示语速、停顿和表达稳定度分析。"}
+                    </p>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                    <MetricPill label="语速" value={currentExpressionMetrics?.wordsPerMinute ?? lastSpeechAnalysis?.wordsPerMinute} suffix="字/分" />
+                    <MetricPill label="停顿占比" value={currentExpressionMetrics?.pauseRatio ?? lastSpeechAnalysis?.pauseRatio} suffix="" />
+                    <MetricPill label="清晰度" value={currentExpressionMetrics?.clarityScore ?? lastSpeechAnalysis?.clarityScore} suffix="" />
+                    <MetricPill label="自信度" value={currentExpressionMetrics?.confidenceScore ?? lastSpeechAnalysis?.confidenceScore} suffix="" />
+                  </div>
                 </div>
                 {isStreamingEvaluation && streamingEvaluationThinking ? (
                   <div className="mt-3">
@@ -1006,8 +1050,11 @@ export function InterviewPage() {
                       <p className="mt-1 text-xs text-[#6B7280] line-clamp-3">回答：{answer.userAnswer}</p>
                       <p className="mt-1 text-xs text-[#1D4ED8]">总分：{answer.score ?? "-"}</p>
                       <p className="mt-1 text-[11px] text-[#6B7280]">
-                        技术 {answer.technicalScore ?? "-"} · 表达 {answer.expressionScore ?? "-"} · 逻辑 {answer.logicScore ?? "-"} · 知识 {answer.knowledgeScore ?? "-"}
+                        技术 {answer.technicalScore ?? "-"} · 岗位 {answer.positionMatchScore ?? "-"} · 表达 {answer.expressionScore ?? "-"} · 逻辑 {answer.logicScore ?? "-"} · 知识 {answer.knowledgeScore ?? "-"}
                       </p>
+                      {answer.expressionFeedback ? (
+                        <p className="mt-1 line-clamp-2 text-[11px] text-[#4D7C0F]">表达：{answer.expressionFeedback}</p>
+                      ) : null}
                       {answer.feedback ? (
                         <p className="mt-1 line-clamp-2 text-[11px] text-[#2563EB]">反馈：{answer.feedback}</p>
                       ) : null}

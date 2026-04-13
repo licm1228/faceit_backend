@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
+import com.nageoffer.ai.ragent.interview.controller.request.SpeechAnalysisRequest;
 import com.nageoffer.ai.ragent.interview.controller.request.InterviewChatStartRequest;
 import com.nageoffer.ai.ragent.interview.entity.InterviewAnswerEntity;
 import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
@@ -154,7 +155,7 @@ public class InterviewChatService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> submitTurn(String sessionId, String content) {
+    public Map<String, Object> submitTurn(String sessionId, String content, SpeechAnalysisRequest speechAnalysis) {
         String userId = requireUserId();
         if (StrUtil.isBlank(content)) {
             throw new ClientException("请输入回答内容");
@@ -179,6 +180,7 @@ public class InterviewChatService {
         Map<String, Object> evaluation = aiEvaluationService.evaluateAnswer(
                 question,
                 content.trim(),
+                speechAnalysis,
                 runtimeState.getFollowUpCount(),
                 runtimeState.getLastFollowUpIntent(),
                 runtimeState.getLastFollowUpFocus(),
@@ -276,16 +278,16 @@ public class InterviewChatService {
         return buildTurnResponse(interviewSessionService.getSessionById(sessionId), runtimeState);
     }
 
-    public void streamTurn(String sessionId, String content, SseEmitter emitter) {
-        CompletableFuture.runAsync(() -> doStreamTurn(sessionId, content, emitter), modelStreamExecutor);
+    public void streamTurn(String sessionId, String content, SpeechAnalysisRequest speechAnalysis, SseEmitter emitter) {
+        CompletableFuture.runAsync(() -> doStreamTurn(sessionId, content, speechAnalysis, emitter), modelStreamExecutor);
     }
 
-    private void doStreamTurn(String sessionId, String content, SseEmitter emitter) {
+    private void doStreamTurn(String sessionId, String content, SpeechAnalysisRequest speechAnalysis, SseEmitter emitter) {
         SseEmitterSender sender = new SseEmitterSender(emitter);
         try {
             String userId = requireUserId();
             List<Map<String, Object>> beforeMessages = buildMessages(sessionId, userId);
-            Map<String, Object> response = transactionTemplate.execute(status -> submitTurn(sessionId, content));
+            Map<String, Object> response = transactionTemplate.execute(status -> submitTurn(sessionId, content, speechAnalysis));
             List<String> assistantMessages = extractNewAssistantMessages(beforeMessages, response);
 
             if (isGptEnabled()) {
@@ -514,7 +516,8 @@ public class InterviewChatService {
         int technicalScore = average(validAnswers.stream().map(InterviewAnswerEntity::getTechnicalScore).toList());
         int knowledgeScore = average(validAnswers.stream().map(InterviewAnswerEntity::getKnowledgeScore).toList());
         int logicScore = average(validAnswers.stream().map(InterviewAnswerEntity::getLogicScore).toList());
-        int positionMatchScore = average(validAnswers.stream().map(InterviewAnswerEntity::getExpressionScore).toList());
+        int expressionScore = average(validAnswers.stream().map(InterviewAnswerEntity::getExpressionScore).toList());
+        int positionMatchScore = Math.max(0, Math.min(100, overallScore - technicalScore - logicScore - knowledgeScore));
 
         List<Map<String, Object>> recommendedPractices = questionService.getQuestionsByPosition(session.getPositionId()).stream()
                 .filter(question -> !runtimeState.getAskedQuestionIds().contains(question.getId()))
@@ -568,8 +571,10 @@ public class InterviewChatService {
                 "technicalCorrectness", technicalScore,
                 "knowledgeDepth", knowledgeScore,
                 "logicRigor", logicScore,
-                "positionMatch", positionMatchScore
+                "positionMatch", positionMatchScore,
+                "expressionDelivery", expressionScore
         ));
+        report.put("expressionSummary", buildExpressionSummary(expressionScore));
         report.put("highlights", highlights);
         report.put("weaknesses", weaknesses);
         report.put("improvementSuggestions", improvementSuggestions);
@@ -615,9 +620,15 @@ public class InterviewChatService {
                     Map<String, Object> item = new LinkedHashMap<>();
                     item.put("score", answer.getScore());
                     item.put("technicalScore", answer.getTechnicalScore());
+                    int positionMatchScore = Math.max(0, Optional.ofNullable(answer.getScore()).orElse(0)
+                            - Optional.ofNullable(answer.getTechnicalScore()).orElse(0)
+                            - Optional.ofNullable(answer.getLogicScore()).orElse(0)
+                            - Optional.ofNullable(answer.getKnowledgeScore()).orElse(0));
+                    item.put("positionMatchScore", positionMatchScore);
                     item.put("expressionScore", answer.getExpressionScore());
                     item.put("logicScore", answer.getLogicScore());
                     item.put("knowledgeScore", answer.getKnowledgeScore());
+                    item.put("expressionFeedback", buildExpressionSummary(Optional.ofNullable(answer.getExpressionScore()).orElse(0)));
                     item.put("feedback", answer.getFeedback());
                     item.put("suggestions", answer.getSuggestions());
                     return item;
@@ -634,8 +645,10 @@ public class InterviewChatService {
                 "technicalCorrectness", numberOrDefault(dimensionScores.get("technicalCorrectness"), numberOrDefault(baseDimensionScores.get("technicalCorrectness"), 0)),
                 "knowledgeDepth", numberOrDefault(dimensionScores.get("knowledgeDepth"), numberOrDefault(baseDimensionScores.get("knowledgeDepth"), 0)),
                 "logicRigor", numberOrDefault(dimensionScores.get("logicRigor"), numberOrDefault(baseDimensionScores.get("logicRigor"), 0)),
-                "positionMatch", numberOrDefault(dimensionScores.get("positionMatch"), numberOrDefault(baseDimensionScores.get("positionMatch"), 0))
+                "positionMatch", numberOrDefault(dimensionScores.get("positionMatch"), numberOrDefault(baseDimensionScores.get("positionMatch"), 0)),
+                "expressionDelivery", numberOrDefault(dimensionScores.get("expressionDelivery"), numberOrDefault(baseDimensionScores.get("expressionDelivery"), 0))
         ));
+        report.put("expressionSummary", stringOrDefault(llmReport.get("expressionSummary"), stringOrDefault(baseReport.get("expressionSummary"), buildExpressionSummary(numberOrDefault(baseDimensionScores.get("expressionDelivery"), 0)))));
         report.put("highlights", listOrDefault(llmReport.get("highlights"), listOrDefault(baseReport.get("highlights"), List.of())));
         report.put("weaknesses", listOrDefault(llmReport.get("weaknesses"), listOrDefault(baseReport.get("weaknesses"), List.of())));
         report.put("improvementSuggestions", listOrDefault(llmReport.get("improvementSuggestions"), listOrDefault(baseReport.get("improvementSuggestions"), List.of())));
@@ -686,8 +699,10 @@ public class InterviewChatService {
                         "technicalCorrectness", 0,
                         "knowledgeDepth", 0,
                         "logicRigor", 0,
-                        "positionMatch", 0
+                        "positionMatch", 0,
+                        "expressionDelivery", 0
                 ),
+                "expressionSummary", "历史报告格式不包含表达维度，建议重新进行一次语音面试以获得更完整分析。",
                 "highlights", List.of("历史报告格式为旧版文本，暂未结构化。"),
                 "weaknesses", List.of("建议重新完成一次聊天式面试，以获得完整结构化报告。"),
                 "improvementSuggestions", List.of("从当前岗位核心题型开始继续练习。"),
@@ -1115,6 +1130,19 @@ public class InterviewChatService {
             return "整体表现合格，基础知识和表达框架基本具备，但在深度、细节和面试节奏控制上还有明显提升空间。";
         }
         return "当前表现说明你已经开始建立答题框架，但核心知识点覆盖、表达清晰度和问题拆解能力仍需进一步强化。";
+    }
+
+    private String buildExpressionSummary(int expressionScore) {
+        if (expressionScore >= 85) {
+            return "表达节奏自然，语气稳定，关键信息强调比较到位，已经接近真实面试中的成熟作答状态。";
+        }
+        if (expressionScore >= 70) {
+            return "表达整体清晰，语速和停顿大体稳定，但还可以继续加强重点前置和结论先行。";
+        }
+        if (expressionScore >= 55) {
+            return "表达基本能支撑答题，但节奏控制、停顿分配和自信感还有明显提升空间。";
+        }
+        return "表达状态偏紧张或不够连贯，建议先降低语速、缩短无效停顿，再强化关键词的清晰输出。";
     }
 
     @SuppressWarnings("unchecked")
