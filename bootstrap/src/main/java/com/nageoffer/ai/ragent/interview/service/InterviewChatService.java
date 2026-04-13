@@ -72,7 +72,7 @@ public class InterviewChatService {
     private static final int DEFAULT_DIFFICULTY = 3;
     private static final int DEFAULT_TIME_LIMIT_MINUTES = 20;
     private static final int DEFAULT_QUESTION_LIMIT = 5;
-    private static final int MAX_FOLLOW_UPS = 2;
+    private static final int MAX_FOLLOW_UPS = 3;
     private static final Pattern QUESTION_LIMIT_PATTERN = Pattern.compile("(\\d{1,2})\\s*(题|道)");
     private static final Pattern TIME_LIMIT_PATTERN = Pattern.compile("(\\d{1,3})\\s*(分钟|min|mins)");
 
@@ -194,6 +194,7 @@ public class InterviewChatService {
                 (String) evaluation.get("feedback"),
                 (String) evaluation.get("suggestions")
         );
+        addAssistantMessage(sessionId, userId, buildInstantFeedbackMessage(evaluation));
 
         boolean timeoutReached = isTimeoutReached(session);
         boolean shouldAskFollowUp = !timeoutReached
@@ -240,8 +241,10 @@ public class InterviewChatService {
         Integer currentQuestionCount = session.getCurrentQuestionCount() == null ? 0 : session.getCurrentQuestionCount();
         Integer totalQuestions = session.getTotalQuestions() == null ? DEFAULT_QUESTION_LIMIT : session.getTotalQuestions();
         boolean limitReached = currentQuestionCount >= totalQuestions;
+        runtimeState.setDifficulty(adjustDifficulty(runtimeState.getDifficulty(), evaluation));
 
         if (timeoutReached || limitReached) {
+            interviewSessionService.updateEvaluationReport(sessionId, toRuntimePayload(runtimeState));
             completeInterview(session, runtimeState, userId);
             return buildTurnResponse(interviewSessionService.getSessionById(sessionId), runtimeState);
         }
@@ -801,6 +804,38 @@ public class InterviewChatService {
         return score == null || score < 78;
     }
 
+    private Integer adjustDifficulty(Integer currentDifficulty, Map<String, Object> evaluation) {
+        int current = normalizeDifficulty(currentDifficulty);
+        Integer score = evaluation == null ? null : (evaluation.get("score") instanceof Integer value ? value : null);
+        if (score == null) {
+            return current;
+        }
+        if (score >= 85) {
+            return Math.min(5, current + 1);
+        }
+        if (score <= 60) {
+            return Math.max(1, current - 1);
+        }
+        return current;
+    }
+
+    private String buildInstantFeedbackMessage(Map<String, Object> evaluation) {
+        if (evaluation == null) {
+            return "这题先到这里，你的回答有一定基础，但还可以更聚焦关键点。";
+        }
+        String instantFeedback = Objects.toString(evaluation.get("instantFeedback"), "").trim();
+        if (StrUtil.isNotBlank(instantFeedback)) {
+            return instantFeedback;
+        }
+        String feedback = Objects.toString(evaluation.get("feedback"), "").trim();
+        String suggestions = Objects.toString(evaluation.get("suggestions"), "").trim();
+        String merged = (feedback + " " + suggestions).replaceAll("\\s+", " ").trim();
+        if (StrUtil.isNotBlank(merged)) {
+            return merged;
+        }
+        return "这题先到这里，你的回答有一定基础，但还可以更聚焦关键点。";
+    }
+
     private void ensureRuntimeStateDefaults(RuntimeState runtimeState) {
         if (runtimeState == null) {
             return;
@@ -1055,11 +1090,12 @@ public class InterviewChatService {
 
     private String buildOpeningMessage(String positionName, Integer difficulty, Integer timeLimitMinutes, Integer questionLimit) {
         return String.format(
-                "你好，我们开始这场 %s 模拟面试。我会按照难度 %d、总计 %d 题、约 %d 分钟的节奏来推进。每道题我都会先听你的回答，再根据你的内容决定是否继续追问。你不用一次说得很满，先按真实面试状态回答就可以。",
+                "你好，我们开始这场 %s 模拟面试。我会按照难度 %d、总计 %d 题、约 %d 分钟的节奏来推进。每道题我都会先听你的回答，先给你简短反馈，再根据你的内容决定是否继续追问，单题最多追问 %d 次。你不用一次说得很满，先按真实面试状态回答就可以。",
                 positionName,
                 difficulty,
                 questionLimit,
-                timeLimitMinutes
+                timeLimitMinutes,
+                MAX_FOLLOW_UPS
         );
     }
 
