@@ -199,6 +199,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           finished = true;
           set({
             currentEvaluation: evaluation,
+            streamingEvaluationResponse: "",
+            streamingEvaluationThinking: "",
             isStreamingEvaluation: false,
             streamAbort: null
           });
@@ -214,6 +216,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     } catch (error) {
       if ((error as Error).name === "AbortError") {
         set({
+          streamingEvaluationResponse: "",
+          streamingEvaluationThinking: "",
           isStreamingEvaluation: false,
           streamAbort: null
         });
@@ -273,6 +277,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           finished = true;
           set({
             followUpQuestion: followUp,
+            streamingFollowUpResponse: "",
+            streamingFollowUpThinking: "",
             isStreamingFollowUp: false,
             streamAbort: null
           });
@@ -288,6 +294,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     } catch (error) {
       if ((error as Error).name === "AbortError") {
         set({
+          streamingFollowUpResponse: "",
+          streamingFollowUpThinking: "",
           isStreamingFollowUp: false,
           streamAbort: null
         });
@@ -359,6 +367,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
             streamingEvaluationThinking: "",
             streamingFollowUpResponse: "",
             streamingFollowUpThinking: "",
+            streamingReportResponse: "",
+            streamingReportThinking: "",
             isStreamingReport: false,
             streamAbort: null,
             history: history.map((item) => (item.id === completedSession.id ? { ...item, ...completedSession } : item)),
@@ -384,6 +394,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     } catch (error) {
       if ((error as Error).name === "AbortError") {
         set({
+          streamingReportResponse: "",
+          streamingReportThinking: "",
           isStreamingReport: false,
           streamAbort: null
         });
