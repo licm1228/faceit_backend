@@ -48,10 +48,12 @@ interface InterviewState {
   isStreamingEvaluation: boolean;
   isStreamingFollowUp: boolean;
   isStreamingReport: boolean;
-  streamingFeedback: string;
-  streamingSuggestions: string;
-  streamingFollowUpText: string;
-  streamingReport: string;
+  streamingEvaluationResponse: string;
+  streamingEvaluationThinking: string;
+  streamingFollowUpResponse: string;
+  streamingFollowUpThinking: string;
+  streamingReportResponse: string;
+  streamingReportThinking: string;
   streamAbort: (() => void) | null;
   fetchPositions: () => Promise<void>;
   createAndStartSession: (
@@ -88,10 +90,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   isStreamingEvaluation: false,
   isStreamingFollowUp: false,
   isStreamingReport: false,
-  streamingFeedback: "",
-  streamingSuggestions: "",
-  streamingFollowUpText: "",
-  streamingReport: "",
+  streamingEvaluationResponse: "",
+  streamingEvaluationThinking: "",
+  streamingFollowUpResponse: "",
+  streamingFollowUpThinking: "",
+  streamingReportResponse: "",
+  streamingReportThinking: "",
   streamAbort: null,
   fetchPositions: async () => {
     set({ loading: true });
@@ -111,10 +115,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       currentEvaluation: null,
       currentQuestion: null,
       followUpQuestion: null,
-      streamingFeedback: "",
-      streamingSuggestions: "",
-      streamingFollowUpText: "",
-      streamingReport: ""
+      streamingEvaluationResponse: "",
+      streamingEvaluationThinking: "",
+      streamingFollowUpResponse: "",
+      streamingFollowUpThinking: "",
+      streamingReportResponse: "",
+      streamingReportThinking: ""
     });
     try {
       let session: InterviewSession;
@@ -140,9 +146,10 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       loading: true,
       currentEvaluation: null,
       followUpQuestion: null,
-      streamingFeedback: "",
-      streamingSuggestions: "",
-      streamingFollowUpText: ""
+      streamingEvaluationResponse: "",
+      streamingEvaluationThinking: "",
+      streamingFollowUpResponse: "",
+      streamingFollowUpThinking: ""
     });
     try {
       const question = await getInterviewQuestion(currentSession.id, difficulty);
@@ -169,18 +176,22 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     set({
       submitting: true,
       currentEvaluation: null,
-      streamingFeedback: "",
-      streamingSuggestions: "",
+      streamingEvaluationResponse: "",
+      streamingEvaluationThinking: "",
       isStreamingEvaluation: true
     });
     let finished = false;
     try {
       const handlers = {
         onMessage: (payload: InterviewStreamMessagePayload) => {
-          if (payload?.type === "feedback") {
-            set((state) => ({ streamingFeedback: `${state.streamingFeedback}${payload.delta}` }));
-          } else if (payload?.type === "suggestions") {
-            set((state) => ({ streamingSuggestions: `${state.streamingSuggestions}${payload.delta}` }));
+          if (payload?.type === "response") {
+            set((state) => ({
+              streamingEvaluationResponse: `${state.streamingEvaluationResponse}${payload.delta}`
+            }));
+          } else if (payload?.type === "think") {
+            set((state) => ({
+              streamingEvaluationThinking: `${state.streamingEvaluationThinking}${payload.delta}`
+            }));
           }
         },
         onFinish: (payload: unknown) => {
@@ -188,8 +199,6 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           finished = true;
           set({
             currentEvaluation: evaluation,
-            streamingFeedback: evaluation?.feedback || "",
-            streamingSuggestions: evaluation?.suggestions || "",
             isStreamingEvaluation: false,
             streamAbort: null
           });
@@ -214,8 +223,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         const evaluation = await submitInterviewAnswer(currentSession.id, currentQuestion.id, answer);
         set({
           currentEvaluation: evaluation,
-          streamingFeedback: "",
-          streamingSuggestions: "",
+          streamingEvaluationResponse: "",
+          streamingEvaluationThinking: "",
           isStreamingEvaluation: false,
           streamAbort: null
         });
@@ -224,8 +233,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         feedback.error((fallbackError as Error).message || (error as Error).message || "提交回答失败");
         set({
           currentEvaluation: null,
-          streamingFeedback: "",
-          streamingSuggestions: "",
+          streamingEvaluationResponse: "",
+          streamingEvaluationThinking: "",
           isStreamingEvaluation: false,
           streamAbort: null
         });
@@ -241,15 +250,22 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     set({
       loading: true,
       followUpQuestion: null,
-      streamingFollowUpText: "",
+      streamingFollowUpResponse: "",
+      streamingFollowUpThinking: "",
       isStreamingFollowUp: true
     });
     let finished = false;
     try {
       const handlers = {
         onMessage: (payload: InterviewStreamMessagePayload) => {
-          if (payload?.type === "follow_up") {
-            set((state) => ({ streamingFollowUpText: `${state.streamingFollowUpText}${payload.delta}` }));
+          if (payload?.type === "response") {
+            set((state) => ({
+              streamingFollowUpResponse: `${state.streamingFollowUpResponse}${payload.delta}`
+            }));
+          } else if (payload?.type === "think") {
+            set((state) => ({
+              streamingFollowUpThinking: `${state.streamingFollowUpThinking}${payload.delta}`
+            }));
           }
         },
         onFinish: (payload: unknown) => {
@@ -257,7 +273,6 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           finished = true;
           set({
             followUpQuestion: followUp,
-            streamingFollowUpText: followUp?.questionText || "",
             isStreamingFollowUp: false,
             streamAbort: null
           });
@@ -282,7 +297,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         const followUp = await askFollowUpQuestion(currentSession.id, currentQuestion.id, answer);
         set({
           followUpQuestion: followUp,
-          streamingFollowUpText: "",
+          streamingFollowUpResponse: "",
+          streamingFollowUpThinking: "",
           isStreamingFollowUp: false,
           streamAbort: null
         });
@@ -290,7 +306,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       } catch {
         set({
           followUpQuestion: null,
-          streamingFollowUpText: "",
+          streamingFollowUpResponse: "",
+          streamingFollowUpThinking: "",
           isStreamingFollowUp: false,
           streamAbort: null
         });
@@ -307,14 +324,21 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     set({
       loading: true,
       isStreamingReport: true,
-      streamingReport: ""
+      streamingReportResponse: "",
+      streamingReportThinking: ""
     });
     let finished = false;
     try {
       const handlers = {
         onMessage: (payload: InterviewStreamMessagePayload) => {
-          if (payload?.type === "report") {
-            set((state) => ({ streamingReport: `${state.streamingReport}${payload.delta}` }));
+          if (payload?.type === "response") {
+            set((state) => ({
+              streamingReportResponse: `${state.streamingReportResponse}${payload.delta}`
+            }));
+          } else if (payload?.type === "think") {
+            set((state) => ({
+              streamingReportThinking: `${state.streamingReportThinking}${payload.delta}`
+            }));
           }
         },
         onFinish: (payload: unknown) => {
@@ -331,10 +355,10 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
             currentQuestion: null,
             currentEvaluation: null,
             followUpQuestion: null,
-            streamingFeedback: "",
-            streamingSuggestions: "",
-            streamingFollowUpText: "",
-            streamingReport: completedSession.evaluationReport || "",
+            streamingEvaluationResponse: "",
+            streamingEvaluationThinking: "",
+            streamingFollowUpResponse: "",
+            streamingFollowUpThinking: "",
             isStreamingReport: false,
             streamAbort: null,
             history: history.map((item) => (item.id === completedSession.id ? { ...item, ...completedSession } : item)),
@@ -379,10 +403,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           currentQuestion: null,
           currentEvaluation: null,
           followUpQuestion: null,
-          streamingFeedback: "",
-          streamingSuggestions: "",
-          streamingFollowUpText: "",
-          streamingReport: "",
+          streamingEvaluationResponse: "",
+          streamingEvaluationThinking: "",
+          streamingFollowUpResponse: "",
+          streamingFollowUpThinking: "",
+          streamingReportResponse: "",
+          streamingReportThinking: "",
           isStreamingReport: false,
           streamAbort: null,
           history: latestState.history.map((item) => (item.id === completedSession.id ? { ...item, ...completedSession } : item)),
@@ -401,7 +427,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         feedback.error((fallbackError as Error).message || (error as Error).message || "结束面试失败");
         set({
           isStreamingReport: false,
-          streamingReport: "",
+          streamingReportResponse: "",
+          streamingReportThinking: "",
           streamAbort: null
         });
       }
@@ -461,6 +488,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       isStreamingEvaluation: false,
       isStreamingFollowUp: false,
       isStreamingReport: false,
+      streamingEvaluationResponse: "",
+      streamingEvaluationThinking: "",
+      streamingFollowUpResponse: "",
+      streamingFollowUpThinking: "",
+      streamingReportResponse: "",
+      streamingReportThinking: "",
       streamAbort: null
     });
   },
@@ -472,10 +505,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       currentEvaluation: null,
       followUpQuestion: null,
       sessionDetail: null,
-      streamingFeedback: "",
-      streamingSuggestions: "",
-      streamingFollowUpText: "",
-      streamingReport: ""
+      streamingEvaluationResponse: "",
+      streamingEvaluationThinking: "",
+      streamingFollowUpResponse: "",
+      streamingFollowUpThinking: "",
+      streamingReportResponse: "",
+      streamingReportThinking: ""
     });
   }
 }));

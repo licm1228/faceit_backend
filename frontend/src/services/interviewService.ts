@@ -46,7 +46,7 @@ export interface AnswerEvaluation {
 }
 
 export interface InterviewStreamMessagePayload {
-  type: "feedback" | "suggestions" | "follow_up" | "report";
+  type: "response" | "think";
   delta: string;
 }
 
