@@ -16,6 +16,7 @@ type JobPreset = {
   title: string;
   description: string;
   iconPath: string;
+  preferredPositionNames: string[];
   positionKeywords: string[];
 };
 
@@ -34,6 +35,7 @@ const JOB_PRESETS: JobPreset[] = [
     title: "Web前端开发",
     description: "偏重 React、工程化、性能优化与浏览器基础",
     iconPath: "/icons/web-frontend.svg",
+    preferredPositionNames: ["前端开发工程师"],
     positionKeywords: ["web前端", "前端", "react", "vue", "javascript", "typescript"]
   },
   {
@@ -41,6 +43,7 @@ const JOB_PRESETS: JobPreset[] = [
     title: "Java后端开发",
     description: "覆盖 Java、Spring、数据库、并发与系统设计",
     iconPath: "/icons/java-backend.svg",
+    preferredPositionNames: ["Java开发工程师"],
     positionKeywords: ["java后端", "java", "后端", "spring", "spring boot"]
   },
   {
@@ -48,6 +51,7 @@ const JOB_PRESETS: JobPreset[] = [
     title: "Python算法开发",
     description: "聚焦 Python、数据结构、算法思维与编码实现",
     iconPath: "/icons/python-algorithm.svg",
+    preferredPositionNames: ["Python算法开发工程师", "Python开发工程师", "算法工程师", "数据工程师"],
     positionKeywords: ["python算法", "python", "算法", "机器学习", "数据"]
   }
 ];
@@ -71,6 +75,14 @@ function matchPositionKeywords(position: Position, keywords: string[]) {
     .toLowerCase();
 
   return keywords.some((keyword) => searchText.includes(keyword));
+}
+
+function matchPositionByName(position: Position, preferredNames: string[]) {
+  if (preferredNames.length === 0) {
+    return false;
+  }
+  const positionName = (position.name || "").trim().toLowerCase();
+  return preferredNames.some((name) => positionName === name.trim().toLowerCase());
 }
 
 export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
@@ -372,6 +384,12 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   const resolvedPosition = React.useMemo(() => {
     if (!selectedJob) {
       return null;
+    }
+    const matchedPositionByName = positions.find((position) =>
+      matchPositionByName(position, selectedJob.preferredPositionNames)
+    );
+    if (matchedPositionByName) {
+      return matchedPositionByName;
     }
     const keywords = selectedJob.positionKeywords.map((keyword) => keyword.trim().toLowerCase());
     return positions.find((position) => matchPositionKeywords(position, keywords)) ?? null;
