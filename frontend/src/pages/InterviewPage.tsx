@@ -120,6 +120,15 @@ function MetricPill({ label, value, suffix }: { label: string; value?: number; s
   );
 }
 
+function WeightCard({ label, value }: { label: string; value?: number }) {
+  return (
+    <div className="rounded-2xl border border-[#E6ECF5] bg-white px-4 py-3">
+      <p className="text-xs text-[#667085]">{label}</p>
+      <p className="mt-1 text-base font-semibold text-[#111827]">{value ?? "--"}%</p>
+    </div>
+  );
+}
+
 export function InterviewPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -595,6 +604,7 @@ export function InterviewPage() {
   const sessionQuestionLimit = currentSession?.totalQuestions ?? questionLimit;
   const sessionQuestionIndex = currentSession?.currentQuestionCount ?? Math.max(questionIndex, 1);
   const hasActiveSession = Boolean(currentSession && currentSession.status !== "completed");
+  const selectedPosition = positions.find((position) => position.id === selectedPositionId) ?? null;
   const progressValue = hasActiveSession ? sessionQuestionIndex : Math.max(questionIndex, 1);
   const progressPercent = Math.min(100, Math.round((progressValue / sessionQuestionLimit) * 100));
   const currentEvaluationMetrics = [
@@ -778,6 +788,36 @@ export function InterviewPage() {
                 )}
               </div>
             </div>
+
+            {selectedPosition ? (
+              <div className="mt-4 rounded-2xl border border-[#E5EAF1] bg-[#FCFDFF] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="max-w-2xl">
+                    <p className="text-sm font-semibold text-[#111827]">{selectedPosition.name} 岗位画像</p>
+                    <p className="mt-1 text-sm leading-6 text-[#667085]">
+                      {selectedPosition.interviewFocus || selectedPosition.description || "当前岗位暂未配置详细侧重点说明。"}
+                    </p>
+                  </div>
+                  <div className="grid min-w-[260px] gap-2 sm:grid-cols-2">
+                    <WeightCard label="技术" value={selectedPosition.evaluationWeights?.technical} />
+                    <WeightCard label="岗位匹配" value={selectedPosition.evaluationWeights?.positionMatch} />
+                    <WeightCard label="逻辑" value={selectedPosition.evaluationWeights?.logic} />
+                    <WeightCard label="知识" value={selectedPosition.evaluationWeights?.knowledge} />
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(selectedPosition.requiredSkills || "")
+                    .split(/[,，]/)
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+                    .map((item) => (
+                      <span key={item} className="rounded-full border border-[#D6E4FF] bg-white px-3 py-1 text-xs text-[#475467]">
+                        {item}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            ) : null}
 
             {currentQuestion ? (
               <div className="mt-5 rounded-2xl border border-[#E6EEF6] bg-[#FCFEFF] p-4">

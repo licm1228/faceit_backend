@@ -8,6 +8,12 @@ export interface Position {
   description?: string;
   requiredSkills?: string;
   interviewFocus?: string;
+  evaluationWeights?: {
+    technical: number;
+    positionMatch: number;
+    logic: number;
+    knowledge: number;
+  };
 }
 
 export interface Question {

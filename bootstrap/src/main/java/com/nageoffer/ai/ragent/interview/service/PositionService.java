@@ -31,32 +31,37 @@ import java.util.List;
 public class PositionService {
 
     private final PositionMapper positionMapper;
+    private final PositionProfileService positionProfileService;
 
     public List<PositionEntity> getAllPositions() {
         LambdaQueryWrapper<PositionEntity> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PositionEntity::getDeleted, 0)
                 .orderByDesc(PositionEntity::getCreateTime);
-        return positionMapper.selectList(wrapper);
+        return positionMapper.selectList(wrapper).stream()
+                .map(positionProfileService::enrich)
+                .toList();
     }
 
     public PositionEntity getPositionById(String id) {
-        return positionMapper.selectById(id);
+        return positionProfileService.enrich(positionMapper.selectById(id));
     }
 
     @Transactional
     public PositionEntity createPosition(PositionEntity entity) {
+        normalizePersistFields(entity);
         entity.setCreateTime(LocalDateTime.now());
         entity.setUpdateTime(LocalDateTime.now());
         entity.setDeleted(0);
         positionMapper.insert(entity);
-        return entity;
+        return positionProfileService.enrich(entity);
     }
 
     @Transactional
     public PositionEntity updatePosition(PositionEntity entity) {
+        normalizePersistFields(entity);
         entity.setUpdateTime(LocalDateTime.now());
         positionMapper.updateById(entity);
-        return entity;
+        return positionProfileService.enrich(positionMapper.selectById(entity.getId()));
     }
 
     @Transactional
@@ -66,5 +71,38 @@ public class PositionService {
         entity.setDeleted(1);
         entity.setUpdateTime(LocalDateTime.now());
         positionMapper.updateById(entity);
+    }
+
+    private void normalizePersistFields(PositionEntity entity) {
+        if (entity == null) {
+            return;
+        }
+        entity.setRequiredSkills(normalizeSkillsJson(entity.getRequiredSkills()));
+    }
+
+    private String normalizeSkillsJson(String rawSkills) {
+        if (rawSkills == null || rawSkills.isBlank()) {
+            return rawSkills;
+        }
+        String trimmed = rawSkills.trim();
+        if (trimmed.startsWith("[")) {
+            return trimmed;
+        }
+        String[] items = trimmed.split("[,，]");
+        StringBuilder builder = new StringBuilder("[");
+        boolean first = true;
+        for (String item : items) {
+            String normalized = item.trim();
+            if (normalized.isEmpty()) {
+                continue;
+            }
+            if (!first) {
+                builder.append(',');
+            }
+            builder.append('"').append(normalized.replace("\"", "\\\"")).append('"');
+            first = false;
+        }
+        builder.append(']');
+        return first ? null : builder.toString();
     }
 }

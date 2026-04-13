@@ -47,6 +47,7 @@ public class AIEvaluationService {
 
     private final LLMService llmService;
     private final ObjectMapper objectMapper;
+    private final PositionProfileService positionProfileService;
 
     public record StreamExecution<T>(StreamCancellationHandle handle, CompletableFuture<T> resultFuture) {
     }
@@ -96,10 +97,10 @@ public class AIEvaluationService {
             System.out.println("LLM Evaluation Result: " + evaluationResult);
 
             // 解析评估结果
-            return enrichEvaluationResult(parseEvaluationResult(evaluationResult), userAnswer, speechAnalysis);
+            return enrichEvaluationResult(question, parseEvaluationResult(evaluationResult), userAnswer, speechAnalysis);
         } catch (Exception e) {
             System.err.println("Evaluation error: " + e.getMessage());
-            return enrichEvaluationResult(buildDefaultEvaluation(), userAnswer, speechAnalysis);
+            return enrichEvaluationResult(question, buildDefaultEvaluation(), userAnswer, speechAnalysis);
         }
     }
 
@@ -143,7 +144,7 @@ public class AIEvaluationService {
 
                     @Override
                     public void onComplete() {
-                        resultFuture.complete(enrichEvaluationResult(parseEvaluationResult(content.toString()), userAnswer, speechAnalysis));
+                        resultFuture.complete(enrichEvaluationResult(question, parseEvaluationResult(content.toString()), userAnswer, speechAnalysis));
                     }
 
                     @Override
@@ -378,6 +379,8 @@ public class AIEvaluationService {
                 "参考答案：" + question.getReferenceAnswer() + "\n" +
                 "学生回答：" + userAnswer + "\n" +
                 "语音表达补充：" + buildSpeechPromptFragment(speechAnalysis) + "\n" +
+                "岗位侧重点：" + buildPositionFocusPrompt(question) + "\n" +
+                "岗位评分权重：" + buildWeightPrompt(question) + "\n" +
                 "当前追问轮次：" + followUpCount + "\n" +
                 "上一轮追问意图：" + blankDefault(lastFollowUpIntent, "无") + "\n" +
                 "上一轮追问聚焦点：" + blankDefault(lastFollowUpFocus, "无") + "\n" +
@@ -694,6 +697,7 @@ public class AIEvaluationService {
     }
 
     private Map<String, Object> enrichEvaluationResult(
+            QuestionEntity question,
             Map<String, Object> evaluation,
             String userAnswer,
             SpeechAnalysisRequest speechAnalysis
@@ -704,13 +708,15 @@ public class AIEvaluationService {
         int knowledgeScore = clampNumber(mutable.get("knowledgeScore"));
         int score = clampNumber(mutable.get("score"));
         int recoveredPositionMatch = clamp(score - technicalScore - logicScore - knowledgeScore, 0, 25);
-        if (clampNumber(mutable.get("positionMatchScore")) <= 0) {
-            mutable.put("positionMatchScore", recoveredPositionMatch);
-        }
+        int positionMatchScore = clampNumber(mutable.get("positionMatchScore")) <= 0
+                ? recoveredPositionMatch
+                : clampNumber(mutable.get("positionMatchScore"));
+        mutable.put("positionMatchScore", positionMatchScore);
         int expressionScore = computeExpressionScore(userAnswer, speechAnalysis);
         mutable.put("expressionScore", expressionScore);
         mutable.put("expressionAnalysis", buildExpressionAnalysisMap(speechAnalysis, expressionScore));
         mutable.put("expressionFeedback", buildExpressionFeedback(speechAnalysis, expressionScore));
+        mutable.put("score", recomputeOverallScore(question, technicalScore, positionMatchScore, logicScore, knowledgeScore));
         return mutable;
     }
 
@@ -801,6 +807,43 @@ public class AIEvaluationService {
                 numberOrZero(speechAnalysis.getFluencyScore()),
                 blankDefault(speechAnalysis.getSummary(), "无")
         );
+    }
+
+    private String buildPositionFocusPrompt(QuestionEntity question) {
+        return positionProfileService.resolveInterviewFocus(question.getPositionId(), null, null);
+    }
+
+    private String buildWeightPrompt(QuestionEntity question) {
+        Map<String, Integer> weights = positionProfileService.resolveEvaluationWeights(question.getPositionId(), null);
+        return String.format(
+                "技术准确性 %d%%，岗位匹配度 %d%%，逻辑清晰度 %d%%，知识覆盖度 %d%%",
+                weights.getOrDefault("technical", 30),
+                weights.getOrDefault("positionMatch", 25),
+                weights.getOrDefault("logic", 20),
+                weights.getOrDefault("knowledge", 25)
+        );
+    }
+
+    private int recomputeOverallScore(
+            QuestionEntity question,
+            int technicalScore,
+            int positionMatchScore,
+            int logicScore,
+            int knowledgeScore
+    ) {
+        Map<String, Integer> weights = positionProfileService.resolveEvaluationWeights(question.getPositionId(), null);
+        double weighted = normalize(technicalScore, 30) * weights.getOrDefault("technical", 30)
+                + normalize(positionMatchScore, 25) * weights.getOrDefault("positionMatch", 25)
+                + normalize(logicScore, 25) * weights.getOrDefault("logic", 20)
+                + normalize(knowledgeScore, 20) * weights.getOrDefault("knowledge", 25);
+        return clamp((int) Math.round(weighted), 0, 100);
+    }
+
+    private double normalize(int value, int max) {
+        if (max <= 0) {
+            return 0D;
+        }
+        return clamp(value, 0, max) / (double) max;
     }
 
     private void extractScore(String result, String prefix, String key, Map<String, Object> evaluation) {
