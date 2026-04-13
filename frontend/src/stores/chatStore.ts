@@ -149,7 +149,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ isLoading: true });
       try {
         const data = await listSessions();
-        const sessions = data
+        const fetchedSessions = data
           .map((item) => ({
             id: item.conversationId,
             title: item.title || "新对话",
@@ -163,7 +163,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const timeB = b.lastTime ? new Date(b.lastTime).getTime() : 0;
             return timeB - timeA;
           });
-        set({ sessions });
+        set((state) => {
+          const mergedSessions = fetchedSessions.reduce(
+            (acc, session) => upsertSession(acc, session),
+            state.sessions
+          );
+          return { sessions: mergedSessions };
+        });
       } finally {
         set({ isLoading: false, sessionsLoaded: true });
         fetchSessionsTask = null;
@@ -205,7 +211,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return "";
   },
   startInterviewSession: async (config, rawIntent) => {
-    set({ isLoading: true, isCreatingNew: false });
+    set({ isLoading: true, isCreatingNew: true });
     try {
       const response = await startInterviewChat({ ...config, rawIntent });
       const session: Session = {
@@ -232,14 +238,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         messages: response.messages.map(mapConversationMessage),
         sessions: upsertSession(state.sessions, session),
-        inputFocusKey: Date.now()
+        inputFocusKey: Date.now(),
+        isCreatingNew: false
       }));
       return response.session.id;
     } catch (error) {
       feedbackStore.error((error as Error).message || "启动面试失败");
       throw error;
     } finally {
-      set({ isLoading: false });
+      set((state) => ({
+        isLoading: false,
+        isCreatingNew: state.currentSessionId ? state.isCreatingNew : false
+      }));
     }
   },
   deleteSession: async (sessionId) => {

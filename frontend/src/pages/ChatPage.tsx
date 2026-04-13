@@ -149,6 +149,10 @@ export function ChatPage() {
     if (!sessionId) return false;
     return sessions.some((session) => session.id === sessionId);
   }, [sessionId, sessions]);
+  const hasSelectedSession = React.useMemo(() => {
+    if (!sessionId) return false;
+    return currentSessionId === sessionId;
+  }, [currentSessionId, sessionId]);
   const hasMessages = messages.length > 0;
   const isSelectingSession = Boolean(currentSessionId) && isLoading && !hasMessages;
   const showWelcome = !sessionId && !currentSessionId && !hasMessages;
@@ -177,7 +181,7 @@ export function ChatPage() {
       return;
     }
     if (sessionId) {
-      if (sessionsReady && !sessionExists) {
+      if (sessionsReady && !sessionExists && !hasSelectedSession) {
         navigate("/chat", { replace: true });
         return;
       }
@@ -198,6 +202,7 @@ export function ChatPage() {
     isCreatingNew,
     navigate,
     selectSession,
+    hasSelectedSession,
     sessionExists,
     sessionId,
     sessions,
