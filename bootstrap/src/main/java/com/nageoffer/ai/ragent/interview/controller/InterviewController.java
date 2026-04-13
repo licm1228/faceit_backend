@@ -26,7 +26,7 @@ import com.nageoffer.ai.ragent.interview.service.InterviewAnswerService;
 import com.nageoffer.ai.ragent.interview.service.InterviewRetrieveService;
 import com.nageoffer.ai.ragent.interview.service.InterviewSessionService;
 import com.nageoffer.ai.ragent.interview.service.QuestionService;
-import com.nageoffer.ai.ragent.infra.config.AIModelProperties;
+import com.nageoffer.ai.ragent.infra.chat.StreamCancellationHandle;
 import com.nageoffer.ai.ragent.rag.dto.MessageDelta;
 import com.nageoffer.ai.ragent.rag.enums.SSEEventType;
 import lombok.RequiredArgsConstructor;
@@ -39,7 +39,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.time.LocalDateTime;
@@ -54,9 +53,11 @@ public class InterviewController {
     private final InterviewSessionService interviewSessionService;
     private final InterviewAnswerService interviewAnswerService;
     private final AIEvaluationService aiEvaluationService;
-    private final AIModelProperties aiModelProperties;
     @Qualifier("modelStreamExecutor")
     private final Executor modelStreamExecutor;
+
+    private static final String RESPONSE_TYPE = "response";
+    private static final String THINK_TYPE = "think";
 
     /**
      * 创建面试会话
@@ -409,7 +410,17 @@ public class InterviewController {
         try {
             InterviewAnswerEntity answer = interviewAnswerService.saveAnswer(sessionId, questionId, userAnswer);
             QuestionEntity question = questionService.getQuestionById(questionId);
-            Map<String, Object> evaluation = aiEvaluationService.evaluateAnswer(question, userAnswer);
+            AIEvaluationService.StreamExecution<Map<String, Object>> execution = aiEvaluationService.streamEvaluateAnswer(
+                    question,
+                    userAnswer,
+                    0,
+                    "",
+                    "",
+                    List.of(),
+                    chunk -> sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(RESPONSE_TYPE, chunk)),
+                    chunk -> sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(THINK_TYPE, chunk))
+            );
+            Map<String, Object> evaluation = awaitResult(execution.handle(), execution.resultFuture());
 
             interviewAnswerService.evaluateAnswer(answer.getId(),
                     (Integer) evaluation.get("score"),
@@ -420,8 +431,6 @@ public class InterviewController {
                     (String) evaluation.get("feedback"),
                     (String) evaluation.get("suggestions"));
 
-            sendChunkedText(sender, "feedback", (String) evaluation.get("feedback"));
-            sendChunkedText(sender, "suggestions", (String) evaluation.get("suggestions"));
             sender.sendEvent(SSEEventType.FINISH.value(), evaluation);
             sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
             sender.complete();
@@ -434,8 +443,17 @@ public class InterviewController {
         SseEmitterSender sender = new SseEmitterSender(emitter);
         try {
             QuestionEntity originalQuestion = questionService.getQuestionById(questionId);
-            QuestionEntity followUpQuestion = aiEvaluationService.generateFollowUpQuestion(originalQuestion, userAnswer);
-            sendChunkedText(sender, "follow_up", followUpQuestion == null ? "" : followUpQuestion.getQuestionText());
+            AIEvaluationService.StreamExecution<QuestionEntity> execution = aiEvaluationService.streamGenerateFollowUpQuestion(
+                    originalQuestion,
+                    userAnswer,
+                    0,
+                    "",
+                    "",
+                    List.of(),
+                    chunk -> sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(RESPONSE_TYPE, chunk)),
+                    chunk -> sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(THINK_TYPE, chunk))
+            );
+            QuestionEntity followUpQuestion = awaitResult(execution.handle(), execution.resultFuture());
             sender.sendEvent(SSEEventType.FINISH.value(), followUpQuestion);
             sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
             sender.complete();
@@ -463,17 +481,18 @@ public class InterviewController {
                 answerEvaluations.add(eval);
             }
             int averageScore = answers.isEmpty() ? 0 : Math.round((float) totalScore / answers.size());
-            String evaluationReport = aiEvaluationService.generateEvaluationReport(
-                    sessionId,
-                    answerEvaluations.toArray(new Map[0])
+            AIEvaluationService.StreamExecution<String> execution = aiEvaluationService.streamGenerateEvaluationReport(
+                    answerEvaluations.toArray(new Map[0]),
+                    chunk -> sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(RESPONSE_TYPE, chunk)),
+                    chunk -> sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(THINK_TYPE, chunk))
             );
+            String evaluationReport = awaitResult(execution.handle(), execution.resultFuture());
             InterviewSessionEntity session = interviewSessionService.completeSession(
                     sessionId,
                     averageScore,
                     evaluationReport
             );
 
-            sendChunkedText(sender, "report", evaluationReport);
             sender.sendEvent(SSEEventType.FINISH.value(), session);
             sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
             sender.complete();
@@ -482,29 +501,14 @@ public class InterviewController {
         }
     }
 
-    private void sendChunkedText(SseEmitterSender sender, String type, String content) {
-        if (content == null || content.isBlank()) {
-            return;
-        }
-        int chunkSize = Math.max(1, Optional.ofNullable(aiModelProperties.getStream())
-                .map(AIModelProperties.Stream::getMessageChunkSize)
-                .orElse(5));
-        int idx = 0;
-        int count = 0;
-        StringBuilder buffer = new StringBuilder();
-        while (idx < content.length()) {
-            int codePoint = content.codePointAt(idx);
-            buffer.appendCodePoint(codePoint);
-            idx += Character.charCount(codePoint);
-            count++;
-            if (count >= chunkSize) {
-                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(type, buffer.toString()));
-                buffer.setLength(0);
-                count = 0;
+    private <T> T awaitResult(StreamCancellationHandle handle, CompletableFuture<T> resultFuture) throws Exception {
+        try {
+            return resultFuture.get();
+        } catch (Exception ex) {
+            if (handle != null) {
+                handle.cancel();
             }
-        }
-        if (!buffer.isEmpty()) {
-            sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta(type, buffer.toString()));
+            throw ex;
         }
     }
 }

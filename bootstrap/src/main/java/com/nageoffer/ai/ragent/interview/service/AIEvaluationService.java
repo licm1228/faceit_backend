@@ -19,11 +19,17 @@ package com.nageoffer.ai.ragent.interview.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
+import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
+import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
+import com.nageoffer.ai.ragent.infra.chat.StreamCancellationHandle;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +45,9 @@ public class AIEvaluationService {
 
     private final LLMService llmService;
     private final ObjectMapper objectMapper;
+
+    public record StreamExecution<T>(StreamCancellationHandle handle, CompletableFuture<T> resultFuture) {
+    }
 
     /**
      * 评估学生回答
@@ -94,6 +103,57 @@ public class AIEvaluationService {
         }
     }
 
+    public StreamExecution<Map<String, Object>> streamEvaluateAnswer(
+            QuestionEntity question,
+            String userAnswer,
+            int followUpCount,
+            String lastFollowUpIntent,
+            String lastFollowUpFocus,
+            List<String> followUpHistory,
+            Consumer<String> contentConsumer,
+            Consumer<String> thinkingConsumer
+    ) {
+        String prompt = buildEvaluationPrompt(question, userAnswer, followUpCount, lastFollowUpIntent, lastFollowUpFocus, followUpHistory);
+        StringBuilder content = new StringBuilder();
+        CompletableFuture<Map<String, Object>> resultFuture = new CompletableFuture<>();
+
+        StreamCancellationHandle handle = llmService.streamChat(
+                ChatRequest.builder()
+                        .messages(List.of(ChatMessage.user(prompt)))
+                        .thinking(true)
+                        .build(),
+                new StreamCallback() {
+                    @Override
+                    public void onContent(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        content.append(chunk);
+                        contentConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onThinking(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        thinkingConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        resultFuture.complete(parseEvaluationResult(content.toString()));
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        resultFuture.completeExceptionally(error);
+                    }
+                }
+        );
+        return new StreamExecution<>(handle, resultFuture);
+    }
+
     /**
      * 生成面试评估报告
      * @param sessionId 会话ID
@@ -112,6 +172,52 @@ public class AIEvaluationService {
             // 返回默认报告
             return "## 面试评估报告\n\n### 总体表现概述\n评估服务暂时不可用，请稍后再试。\n\n### 优势分析\n-\n\n### 不足与改进方向\n-\n\n### 技术能力评估\n-\n\n### 综合建议\n-\n";
         }
+    }
+
+    public StreamExecution<String> streamGenerateEvaluationReport(
+            Map<String, Object>[] answers,
+            Consumer<String> contentConsumer,
+            Consumer<String> thinkingConsumer
+    ) {
+        String prompt = buildReportPrompt(answers);
+        StringBuilder content = new StringBuilder();
+        CompletableFuture<String> resultFuture = new CompletableFuture<>();
+
+        StreamCancellationHandle handle = llmService.streamChat(
+                ChatRequest.builder()
+                        .messages(List.of(ChatMessage.user(prompt)))
+                        .thinking(true)
+                        .build(),
+                new StreamCallback() {
+                    @Override
+                    public void onContent(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        content.append(chunk);
+                        contentConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onThinking(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        thinkingConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        resultFuture.complete(content.toString());
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        resultFuture.completeExceptionally(error);
+                    }
+                }
+        );
+        return new StreamExecution<>(handle, resultFuture);
     }
 
     public Map<String, Object> generateStructuredEvaluationReport(
@@ -170,6 +276,65 @@ public class AIEvaluationService {
             System.err.println("Follow-up generation error: " + e.getMessage());
             return null;
         }
+    }
+
+    public StreamExecution<QuestionEntity> streamGenerateFollowUpQuestion(
+            QuestionEntity question,
+            String userAnswer,
+            int followUpCount,
+            String followUpIntent,
+            String followUpFocus,
+            List<String> followUpHistory,
+            Consumer<String> contentConsumer,
+            Consumer<String> thinkingConsumer
+    ) {
+        String prompt = buildFollowUpPrompt(question, userAnswer, followUpCount, followUpIntent, followUpFocus, followUpHistory);
+        StringBuilder content = new StringBuilder();
+        CompletableFuture<QuestionEntity> resultFuture = new CompletableFuture<>();
+
+        StreamCancellationHandle handle = llmService.streamChat(
+                ChatRequest.builder()
+                        .messages(List.of(ChatMessage.user(prompt)))
+                        .thinking(true)
+                        .build(),
+                new StreamCallback() {
+                    @Override
+                    public void onContent(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        content.append(chunk);
+                        contentConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onThinking(String chunk) {
+                        if (chunk == null || chunk.isEmpty()) {
+                            return;
+                        }
+                        thinkingConsumer.accept(chunk);
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        QuestionEntity followUpQuestion = new QuestionEntity();
+                        followUpQuestion.setParentQuestionId(question.getId());
+                        followUpQuestion.setPositionId(question.getPositionId());
+                        followUpQuestion.setQuestionType(question.getQuestionType());
+                        followUpQuestion.setDifficulty(question.getDifficulty());
+                        followUpQuestion.setQuestionText(content.toString().trim());
+                        followUpQuestion.setReferenceAnswer("");
+                        followUpQuestion.setKeywords(question.getKeywords());
+                        resultFuture.complete(followUpQuestion);
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        resultFuture.completeExceptionally(error);
+                    }
+                }
+        );
+        return new StreamExecution<>(handle, resultFuture);
     }
 
     public String rewriteFollowUpQuestion(
