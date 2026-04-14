@@ -23,6 +23,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -39,4 +40,8 @@ public class PositionEntity {
     private Integer deleted;
     @TableField(exist = false)
     private Map<String, Integer> evaluationWeights;
+    @TableField(exist = false)
+    private List<String> questionTypePlan;
+    @TableField(exist = false)
+    private List<String> preferredKnowledgeCollections;
 }

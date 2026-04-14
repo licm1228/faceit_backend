@@ -89,6 +89,7 @@ public class InterviewChatService {
     private final InterviewSessionService interviewSessionService;
     private final InterviewAnswerService interviewAnswerService;
     private final QuestionService questionService;
+    private final PositionProfileService positionProfileService;
     private final PositionMapper positionMapper;
     private final AIEvaluationService aiEvaluationService;
     private final ConversationMapper conversationMapper;
@@ -135,7 +136,13 @@ public class InterviewChatService {
         InterviewSessionEntity session = interviewSessionService.createSession(userId, position.getId(), timeLimitMinutes, questionLimit);
         session = interviewSessionService.startSession(session.getId());
 
-        QuestionEntity question = questionService.selectRandomQuestionExcluding(position.getId(), difficulty, List.of());
+        List<String> questionTypePlan = positionProfileService.resolveQuestionTypePlan(position.getId(), position.getName());
+        QuestionEntity question = questionService.selectRandomQuestionExcluding(
+                position.getId(),
+                difficulty,
+                resolvePreferredQuestionTypes(questionTypePlan, 1),
+                List.of()
+        );
         if (question == null) {
             throw new ClientException("当前岗位暂无可用题目");
         }
@@ -272,6 +279,10 @@ public class InterviewChatService {
         QuestionEntity nextQuestion = questionService.selectRandomQuestionExcluding(
                 session.getPositionId(),
                 runtimeState.getDifficulty(),
+                resolvePreferredQuestionTypes(
+                        positionProfileService.resolveQuestionTypePlan(runtimeState.getPositionId(), runtimeState.getPositionName()),
+                        runtimeState.getQuestionIndex() + 1
+                ),
                 runtimeState.getAskedQuestionIds()
         );
         if (nextQuestion == null) {
@@ -526,6 +537,18 @@ public class InterviewChatService {
         data.put("followUpCount", runtimeState.getFollowUpCount());
         data.put("askedQuestionIds", runtimeState.getAskedQuestionIds());
         return data;
+    }
+
+    private List<String> resolvePreferredQuestionTypes(List<String> questionTypePlan, int questionIndex) {
+        if (questionTypePlan == null || questionTypePlan.isEmpty() || questionIndex <= 0) {
+            return List.of();
+        }
+        int index = Math.floorMod(questionIndex - 1, questionTypePlan.size());
+        String preferredType = questionTypePlan.get(index);
+        if (StrUtil.isBlank(preferredType)) {
+            return List.of();
+        }
+        return List.of(preferredType);
     }
 
     private Map<String, Object> buildBaseReport(InterviewSessionEntity session, RuntimeState runtimeState, List<InterviewAnswerEntity> answers) {

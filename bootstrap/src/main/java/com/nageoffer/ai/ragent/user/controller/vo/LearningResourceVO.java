@@ -22,29 +22,21 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
-
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RecommendationVO {
+public class LearningResourceVO {
 
-    private String summary;
+    private String title;
 
-    private List<String> focusAreas;
+    private String topic;
 
-    private String nextStep;
+    private String resourceType;
 
-    private double averageScore;
+    private String description;
 
-    private int completedSessions;
+    private String referencePath;
 
-    private List<String> learningSuggestions;
-
-    private List<RecommendedPracticeVO> recommendedPractices;
-
-    private List<LearningResourceVO> learningResources;
-
-    private List<PracticePlanItemVO> practicePlan;
+    private String recommendationReason;
 }

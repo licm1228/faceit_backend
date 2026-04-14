@@ -28,6 +28,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -70,53 +72,44 @@ public class QuestionService {
     }
 
     public QuestionEntity selectRandomQuestion(String positionId, Integer difficulty) {
-        LambdaQueryWrapper<QuestionEntity> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(QuestionEntity::getPositionId, positionId)
-                .eq(QuestionEntity::getDeleted, 0);
-        if (difficulty != null) {
-            wrapper.eq(QuestionEntity::getDifficulty, difficulty);
-        }
-        // 不同数据库的随机排序语法不同
-        // MySQL使用ORDER BY RAND()
-        // PostgreSQL使用ORDER BY RANDOM()
-        wrapper.last("ORDER BY RANDOM() LIMIT 1");
-        QuestionEntity question = questionMapper.selectOne(wrapper);
+        return selectRandomQuestion(positionId, difficulty, null);
+    }
 
-        // 如果没有找到题目，尝试不按难度筛选
-        if (question == null && difficulty != null) {
-            LambdaQueryWrapper<QuestionEntity> fallbackWrapper = new LambdaQueryWrapper<>();
-            fallbackWrapper.eq(QuestionEntity::getPositionId, positionId)
-                    .eq(QuestionEntity::getDeleted, 0);
-            fallbackWrapper.last("ORDER BY RANDOM() LIMIT 1");
-            question = questionMapper.selectOne(fallbackWrapper);
-        }
-
-        return enrichQuestion(question);
+    public QuestionEntity selectRandomQuestion(String positionId, Integer difficulty, List<String> preferredQuestionTypes) {
+        return selectRandomQuestionExcluding(positionId, difficulty, preferredQuestionTypes, List.of());
     }
 
     public QuestionEntity selectRandomQuestionExcluding(String positionId, Integer difficulty, List<String> excludedQuestionIds) {
-        LambdaQueryWrapper<QuestionEntity> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(QuestionEntity::getPositionId, positionId)
-                .eq(QuestionEntity::getDeleted, 0);
+        return selectRandomQuestionExcluding(positionId, difficulty, null, excludedQuestionIds);
+    }
+
+    public QuestionEntity selectRandomQuestionExcluding(
+            String positionId,
+            Integer difficulty,
+            List<String> preferredQuestionTypes,
+            List<String> excludedQuestionIds
+    ) {
+        List<QuestionEntity> exactDifficultyCandidates = selectCandidates(positionId, difficulty);
+        List<QuestionEntity> allDifficultyCandidates = difficulty == null ? exactDifficultyCandidates : selectCandidates(positionId, null);
+
+        QuestionEntity question = pickQuestion(exactDifficultyCandidates, preferredQuestionTypes, excludedQuestionIds);
+        if (question != null) {
+            return question;
+        }
         if (difficulty != null) {
-            wrapper.eq(QuestionEntity::getDifficulty, difficulty);
+            question = pickQuestion(allDifficultyCandidates, preferredQuestionTypes, excludedQuestionIds);
+            if (question != null) {
+                return question;
+            }
         }
-        List<QuestionEntity> candidates = questionMapper.selectList(wrapper);
-        if ((candidates == null || candidates.isEmpty()) && difficulty != null) {
-            return selectRandomQuestionExcluding(positionId, null, excludedQuestionIds);
+        question = pickQuestion(exactDifficultyCandidates, null, excludedQuestionIds);
+        if (question != null) {
+            return question;
         }
-        if (candidates == null || candidates.isEmpty()) {
-            return null;
+        if (difficulty != null) {
+            question = pickQuestion(allDifficultyCandidates, null, excludedQuestionIds);
         }
-        List<QuestionEntity> filtered = new ArrayList<>(candidates);
-        if (excludedQuestionIds != null && !excludedQuestionIds.isEmpty()) {
-            filtered.removeIf(item -> excludedQuestionIds.contains(item.getId()));
-        }
-        if (filtered.isEmpty()) {
-            filtered = new ArrayList<>(candidates);
-        }
-        Collections.shuffle(filtered);
-        return enrichQuestion(filtered.get(0));
+        return question;
     }
 
     @Transactional
@@ -188,5 +181,57 @@ public class QuestionService {
             return text;
         }
         return text.substring(0, 80) + "...";
+    }
+
+    private List<QuestionEntity> selectCandidates(String positionId, Integer difficulty) {
+        LambdaQueryWrapper<QuestionEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(QuestionEntity::getPositionId, positionId)
+                .eq(QuestionEntity::getDeleted, 0);
+        if (difficulty != null) {
+            wrapper.eq(QuestionEntity::getDifficulty, difficulty);
+        }
+        return questionMapper.selectList(wrapper);
+    }
+
+    private QuestionEntity pickQuestion(
+            List<QuestionEntity> candidates,
+            List<String> preferredQuestionTypes,
+            List<String> excludedQuestionIds
+    ) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        List<QuestionEntity> filtered = new ArrayList<>(candidates);
+        if (preferredQuestionTypes != null && !preferredQuestionTypes.isEmpty()) {
+            Set<String> preferredTokens = preferredQuestionTypes.stream()
+                    .map(this::normalizeQuestionTypeToken)
+                    .filter(token -> !token.isBlank())
+                    .collect(java.util.stream.Collectors.toSet());
+            filtered.removeIf(item -> !preferredTokens.contains(normalizeQuestionTypeToken(item.getQuestionType())));
+        }
+        if (excludedQuestionIds != null && !excludedQuestionIds.isEmpty()) {
+            filtered.removeIf(item -> excludedQuestionIds.contains(item.getId()));
+        }
+        if (filtered.isEmpty()) {
+            return null;
+        }
+        Collections.shuffle(filtered);
+        return enrichQuestion(filtered.get(0));
+    }
+
+    private String normalizeQuestionTypeToken(String questionType) {
+        if (questionType == null) {
+            return "";
+        }
+        String normalized = questionType.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "technical", "技术题", "技术问题", "技术知识" -> "technical";
+            case "scenario", "场景题" -> "scenario";
+            case "project", "项目题", "项目深挖" -> "project";
+            case "behavior", "行为题" -> "behavior";
+            case "algorithm", "算法题" -> "algorithm";
+            case "advanced", "综合进阶", "综合题" -> "advanced";
+            default -> normalized;
+        };
     }
 }

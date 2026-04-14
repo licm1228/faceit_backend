@@ -36,6 +36,7 @@ public class InterviewRetrieveService {
 
     private final QuestionService questionService;
     private final RetrieverService retrieverService;
+    private final PositionProfileService positionProfileService;
 
     /**
      * 选择题目并检索相关知识库内容
@@ -54,14 +55,7 @@ public class InterviewRetrieveService {
 
             // 2. 根据题目内容构建检索请求
             String query = buildRetrieveQuery(question);
-            RetrieveRequest retrieveRequest = RetrieveRequest.builder()
-                    .query(query)
-                    .topK(5) // 默认返回5个相关文档
-                    .collectionName("rag_default_store") // 使用默认的collectionName
-                    .build();
-
-            // 3. 执行检索
-            List<RetrievedChunk> retrievedChunks = retrieverService.retrieve(retrieveRequest);
+            List<RetrievedChunk> retrievedChunks = retrieveWithPreferredCollections(positionId, query);
 
             // 4. 构建返回结果
             return Map.of(
@@ -158,6 +152,29 @@ public class InterviewRetrieveService {
         }
 
         return queryBuilder.toString().trim();
+    }
+
+    private List<RetrievedChunk> retrieveWithPreferredCollections(String positionId, String query) {
+        List<String> collections = new ArrayList<>(positionProfileService.resolvePreferredKnowledgeCollections(positionId, null));
+        if (!collections.contains("rag_default_store")) {
+            collections.add("rag_default_store");
+        }
+        for (String collection : collections) {
+            try {
+                RetrieveRequest retrieveRequest = RetrieveRequest.builder()
+                        .query(query)
+                        .topK(5)
+                        .collectionName(collection)
+                        .build();
+                List<RetrievedChunk> chunks = retrieverService.retrieve(retrieveRequest);
+                if (chunks != null && !chunks.isEmpty()) {
+                    return chunks;
+                }
+            } catch (Exception ex) {
+                log.warn("面试检索失败，尝试回退知识库 collection={}", collection, ex);
+            }
+        }
+        return List.of();
     }
 
     /**

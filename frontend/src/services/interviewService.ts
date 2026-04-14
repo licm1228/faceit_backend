@@ -8,6 +8,8 @@ export interface Position {
   description?: string;
   requiredSkills?: string;
   interviewFocus?: string;
+  questionTypePlan?: string[];
+  preferredKnowledgeCollections?: string[];
   evaluationWeights?: {
     technical: number;
     positionMatch: number;
@@ -122,6 +124,21 @@ export interface Recommendation {
   averageScore: number;
   completedSessions: number;
   learningSuggestions?: string[];
+  learningResources?: Array<{
+    title: string;
+    topic?: string;
+    resourceType?: string;
+    description?: string;
+    referencePath?: string;
+    recommendationReason?: string;
+  }>;
+  practicePlan?: Array<{
+    day: number;
+    title: string;
+    focus?: string;
+    actions?: string[];
+    expectedOutcome?: string;
+  }>;
   recommendedPractices?: Array<{
     id: string;
     questionText: string;
