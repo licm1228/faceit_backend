@@ -277,6 +277,28 @@ export function InterviewReportPage() {
                                 </div>
                               </div>
                             ) : null}
+                            {practice.relatedResources?.length ? (
+                              <div className="mt-3">
+                                <p className="text-xs font-medium text-[#0F172A]">相关资料</p>
+                                <div className="mt-2 space-y-2">
+                                  {practice.relatedResources.map((resource) => (
+                                    <div key={`${practice.id}-resource-${resource.id}`} className="rounded-xl bg-white px-3 py-3">
+                                      <p className="text-xs font-medium leading-5 text-[#0F172A]">
+                                        {resource.title || "知识库资料"}
+                                      </p>
+                                      <p className="mt-1 text-[11px] text-[#64748B]">
+                                        {resource.knowledgeBaseName || "知识库"}{resource.matchedKeyword ? ` · 命中 ${resource.matchedKeyword}` : ""}
+                                      </p>
+                                      {resource.recommendationReason ? (
+                                        <p className="mt-2 text-xs leading-5 text-[#334155]">
+                                          {resource.recommendationReason}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
                             {practice.referenceAnswerPreview ? (
                               <p className="mt-3 text-xs leading-5 text-[#64748B]">
                                 参考答题方向：{practice.referenceAnswerPreview}

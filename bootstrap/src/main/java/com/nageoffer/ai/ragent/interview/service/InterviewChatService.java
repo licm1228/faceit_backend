@@ -26,6 +26,8 @@ import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.interview.controller.request.SpeechAnalysisRequest;
 import com.nageoffer.ai.ragent.interview.controller.request.InterviewChatStartRequest;
+import com.nageoffer.ai.ragent.knowledge.controller.vo.KnowledgeDocumentSearchVO;
+import com.nageoffer.ai.ragent.knowledge.service.KnowledgeDocumentService;
 import com.nageoffer.ai.ragent.interview.entity.InterviewAnswerEntity;
 import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
 import com.nageoffer.ai.ragent.interview.entity.PositionEntity;
@@ -81,6 +83,7 @@ public class InterviewChatService {
     private final InterviewAnswerService interviewAnswerService;
     private final QuestionService questionService;
     private final PositionProfileService positionProfileService;
+    private final KnowledgeDocumentService knowledgeDocumentService;
     private final PositionMapper positionMapper;
     private final AIEvaluationService aiEvaluationService;
     private final ConversationMapper conversationMapper;
@@ -1289,7 +1292,54 @@ public class InterviewChatService {
         item.put("estimatedMinutes", estimatePracticeMinutes(question.getDifficulty()));
         item.put("practiceMethod", buildPracticeMethod(normalizedType, primaryFocus));
         item.put("answerChecklist", buildAnswerChecklist(normalizedType, primaryFocus));
+        item.put("relatedResources", buildRelatedKnowledgeResources(question, primaryFocus, matchedKeywords));
         return item;
+    }
+
+    private List<Map<String, Object>> buildRelatedKnowledgeResources(
+            QuestionEntity question,
+            String primaryFocus,
+            List<String> matchedKeywords
+    ) {
+        List<String> queries = new ArrayList<>();
+        if (matchedKeywords != null) {
+            queries.addAll(matchedKeywords);
+        }
+        if (StrUtil.isNotBlank(primaryFocus) && !"岗位核心能力".equals(primaryFocus)) {
+            queries.add(primaryFocus);
+        }
+        if (question != null && question.getKeywordList() != null) {
+            queries.addAll(question.getKeywordList().stream().limit(3).toList());
+        }
+        if (question != null && StrUtil.isNotBlank(question.getQuestionType())) {
+            queries.add(positionProfileService.resolveQuestionTypeDisplayName(question.getQuestionType()));
+        }
+
+        Map<String, Map<String, Object>> resources = new LinkedHashMap<>();
+        for (String query : queries.stream().filter(StrUtil::isNotBlank).distinct().limit(4).toList()) {
+            try {
+                for (KnowledgeDocumentSearchVO document : knowledgeDocumentService.search(query, 2)) {
+                    if (document == null || StrUtil.isBlank(document.getId()) || resources.containsKey(document.getId())) {
+                        continue;
+                    }
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", document.getId());
+                    item.put("kbId", document.getKbId());
+                    item.put("title", document.getDocName());
+                    item.put("knowledgeBaseName", document.getKbName());
+                    item.put("matchedKeyword", query);
+                    item.put("resourceType", "知识库资料");
+                    item.put("recommendationReason", "这份资料与推荐题的补强点“" + query + "”相关，建议答题前先快速复习。");
+                    resources.put(document.getId(), item);
+                    if (resources.size() >= 3) {
+                        return new ArrayList<>(resources.values());
+                    }
+                }
+            } catch (Exception ex) {
+                log.debug("关联推荐练习知识库资料失败, query={}", query, ex);
+            }
+        }
+        return new ArrayList<>(resources.values());
     }
 
     private List<Map<String, Object>> buildPracticePlan(

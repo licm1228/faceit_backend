@@ -141,5 +141,14 @@ export interface InterviewReport {
     estimatedMinutes?: number;
     practiceMethod?: string[];
     answerChecklist?: string[];
+    relatedResources?: Array<{
+      id: string;
+      kbId?: string;
+      title?: string;
+      knowledgeBaseName?: string;
+      matchedKeyword?: string;
+      resourceType?: string;
+      recommendationReason?: string;
+    }>;
   }>;
 }
