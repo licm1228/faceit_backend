@@ -287,6 +287,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             }
 
             long embeddingStart = System.currentTimeMillis();
+            KnowledgeBaseDO kbDO = kbMapper.selectById(documentDO.getKbId());
+            attachEmbeddingsIfMissing(chunkResults, kbDO.getEmbeddingModel());
             String collectionName = resolveCollectionName(documentDO.getKbId());
             int savedCount = persistChunksAndVectorsAtomically(collectionName, docId, chunkResults);
             embeddingDuration = System.currentTimeMillis() - embeddingStart;
@@ -645,6 +647,23 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
     private String resolveCollectionName(String kbId) {
         return kbMapper.selectById(kbId).getCollectionName();
+    }
+
+    private void attachEmbeddingsIfMissing(List<VectorChunk> chunks, String embeddingModel) {
+        if (CollUtil.isEmpty(chunks)) {
+            return;
+        }
+
+        chunks.parallelStream().forEach(chunk -> {
+            if (chunk.getEmbedding() != null && chunk.getEmbedding().length > 0) {
+                return;
+            }
+            List<Float> embed = embedContent(chunk.getContent(), embeddingModel);
+            if (CollUtil.isEmpty(embed)) {
+                throw new IllegalStateException("向量化结果为空: chunkId=" + chunk.getChunkId());
+            }
+            chunk.setEmbedding(toArray(embed));
+        });
     }
 
     private List<Float> embedContent(String content, String embeddingModel) {
