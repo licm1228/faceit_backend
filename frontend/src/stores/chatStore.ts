@@ -127,7 +127,6 @@ let fetchSessionsTask: Promise<void> | null = null;
 let selectSessionTask: Promise<void> | null = null;
 let selectingSessionId: string | null = null;
 const CHAT_MODE_SEQUENCE: ChatMode[] = ["interview", "study", "free"];
-const INTERVIEW_FEEDBACK_PLACEHOLDER = "我正在分析你的回答，稍等一下。";
 
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
@@ -409,7 +408,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     if (get().currentSessionType === "interview" && get().currentSessionId && get().currentInterviewState?.status !== "completed") {
       const sessionId = get().currentSessionId as string;
-      const streamPrefix = `interview-assistant-${Date.now()}`;
       const optimisticUserMessage: Message = {
         id: `interview-user-${Date.now()}`,
         role: "user",
@@ -418,7 +416,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         createdAt: new Date().toISOString(),
         sessionType: "interview"
       };
-      const optimisticAssistantId = `${streamPrefix}-1`;
+      const optimisticAssistantId = `interview-assistant-${Date.now()}`;
       const optimisticAssistantMessage: Message = {
         id: optimisticAssistantId,
         role: "assistant",
@@ -464,70 +462,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       const handlers = {
         onMessage: (payload: MessageDeltaPayload) => {
-          if (!payload || typeof payload !== "object") return;
-          if (payload.type === "phase") {
-            const phase = payload.delta;
-            if (phase === "feedback") {
-              set((state) => ({
-                messages: state.messages.map((message) =>
-                  message.id === state.streamingMessageId && !message.content
-                    ? {
-                        ...message,
-                        content: INTERVIEW_FEEDBACK_PLACEHOLDER
-                      }
-                    : message
-                )
-              }));
-              return;
-            }
-            set((state) => {
-              const currentStreamingId = state.streamingMessageId;
-              const nextAssistantId = `${streamPrefix}-2`;
-              const hasNextAssistant = state.messages.some((message) => message.id === nextAssistantId);
-              return {
-                messages: state.messages.map((message) =>
-                  message.id === currentStreamingId && message.status === "streaming"
-                    ? {
-                        ...message,
-                        status: "done"
-                      }
-                    : message
-                ).concat(
-                  hasNextAssistant
-                    ? []
-                    : [
-                        {
-                          id: nextAssistantId,
-                          role: "assistant",
-                          content: "",
-                          status: "streaming",
-                          createdAt: new Date().toISOString(),
-                          sessionType: "interview"
-                        } satisfies Message
-                      ]
-                ),
-                streamingMessageId: nextAssistantId
-              };
-            });
-            return;
-          }
-          if (payload.type !== "response") return;
-          set((state) => ({
-            messages: state.messages.map((message) => {
-              if (message.id !== state.streamingMessageId) return message;
-              if (message.status === "cancelled" || message.status === "error") return message;
-              const shouldReplacePlaceholder = message.content === INTERVIEW_FEEDBACK_PLACEHOLDER;
-              return {
-                ...message,
-                content: shouldReplacePlaceholder ? payload.delta : message.content + payload.delta
-              };
-            })
-          }));
+          if (!payload || payload.type !== "response") return;
+          get().appendStreamContent(payload.delta);
         },
         onFinish: () => {
+          if (get().streamingMessageId !== optimisticAssistantId) return;
           set((state) => ({
             messages: state.messages.map((message) =>
-              message.id === state.streamingMessageId
+              message.id === optimisticAssistantId
                 ? {
                     ...message,
                     status: "done"
@@ -537,6 +479,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }));
         },
         onDone: () => {
+          if (get().streamingMessageId !== optimisticAssistantId) return;
           set({
             isStreaming: false,
             streamAbort: null,
@@ -549,6 +492,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           });
         },
         onError: (error: Error) => {
+          if (get().streamingMessageId !== optimisticAssistantId) return;
           set((state) => ({
             isStreaming: false,
             streamAbort: null,
@@ -556,7 +500,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamingMessageId: null,
             cancelRequested: false,
             messages: state.messages.map((message) =>
-              message.id === state.streamingMessageId
+              message.id === optimisticAssistantId
                 ? {
                     ...message,
                     status: "error",

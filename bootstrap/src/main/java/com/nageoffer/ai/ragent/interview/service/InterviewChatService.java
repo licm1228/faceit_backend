@@ -56,7 +56,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -295,164 +294,15 @@ public class InterviewChatService {
         SseEmitterSender sender = new SseEmitterSender(emitter);
         try {
             String userId = requireUserId();
-            if (StrUtil.isBlank(content)) {
-                throw new ClientException("请输入回答内容");
-            }
-            InterviewSessionEntity session = requireOwnedSession(sessionId, userId);
-            if ("completed".equalsIgnoreCase(session.getStatus())) {
-                throw new ClientException("本场面试已结束");
-            }
-            RuntimeState runtimeState = readRuntimeState(session);
-            ensureRuntimeStateDefaults(runtimeState);
-            if (StrUtil.isBlank(runtimeState.getCurrentQuestionId())) {
-                throw new ClientException("当前面试缺少题目状态，请重新开始");
-            }
+            List<Map<String, Object>> beforeMessages = buildMessages(sessionId, userId);
+            Map<String, Object> response = transactionTemplate.execute(status -> submitTurn(sessionId, content, speechAnalysis));
+            List<String> assistantMessages = extractNewAssistantMessages(beforeMessages, response);
 
-            String trimmedContent = content.trim();
-            addUserMessage(sessionId, userId, trimmedContent);
-            QuestionEntity question = questionService.getQuestionById(runtimeState.getCurrentQuestionId());
-            if (question == null) {
-                throw new ClientException("当前题目不存在");
+            if (isGptEnabled()) {
+                streamAssistantMessages(sender, assistantMessages);
+            } else {
+                sendAssistantMessagesOnce(sender, assistantMessages);
             }
-
-            InterviewAnswerEntity answer = interviewAnswerService.saveOrUpdateAnswer(sessionId, question.getId(), trimmedContent);
-            sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("phase", "feedback"));
-            StringBuilder feedbackStream = new StringBuilder();
-            StringBuilder evaluationStream = new StringBuilder();
-            AIEvaluationService.StreamExecution<Map<String, Object>> evaluationExecution = aiEvaluationService.streamEvaluateAnswer(
-                    question,
-                    trimmedContent,
-                    speechAnalysis,
-                    runtimeState.getFollowUpCount(),
-                    runtimeState.getLastFollowUpIntent(),
-                    runtimeState.getLastFollowUpFocus(),
-                    runtimeState.getFollowUpHistory(),
-                    chunk -> {
-                        evaluationStream.append(chunk);
-                        String feedbackDelta = extractInstantFeedbackDelta(evaluationStream.toString(), feedbackStream.length());
-                        if (StrUtil.isNotBlank(feedbackDelta)) {
-                            feedbackStream.append(feedbackDelta);
-                            sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", feedbackDelta));
-                        }
-                    },
-                    chunk -> { }
-            );
-            Map<String, Object> evaluation = awaitResult(evaluationExecution.resultFuture(), evaluationExecution.handle());
-            String instantFeedback = normalizeStreamedAssistantMessage(buildInstantFeedbackMessage(evaluation), feedbackStream);
-            if (feedbackStream.isEmpty() && StrUtil.isNotBlank(instantFeedback)) {
-                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", instantFeedback));
-            }
-            interviewAnswerService.evaluateAnswer(
-                    answer.getId(),
-                    (Integer) evaluation.get("score"),
-                    (Integer) evaluation.get("technicalScore"),
-                    (Integer) evaluation.get("expressionScore"),
-                    (Integer) evaluation.get("logicScore"),
-                    (Integer) evaluation.get("knowledgeScore"),
-                    (String) evaluation.get("feedback"),
-                    (String) evaluation.get("suggestions")
-            );
-            addAssistantMessage(sessionId, userId, instantFeedback);
-
-            boolean timeoutReached = isTimeoutReached(session);
-            boolean shouldAskFollowUp = !timeoutReached
-                    && runtimeState.getFollowUpCount() < MAX_FOLLOW_UPS
-                    && shouldAskFollowUp(evaluation);
-            if (shouldAskFollowUp) {
-                String followUpIntent = normalizeIntent((String) evaluation.get("followUpIntent"));
-                String followUpFocus = normalizeFocus((String) evaluation.get("followUpFocus"));
-                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("phase", "follow_up"));
-                StringBuilder followUpStream = new StringBuilder();
-                AIEvaluationService.StreamExecution<QuestionEntity> followUpExecution = aiEvaluationService.streamGenerateFollowUpQuestion(
-                        question,
-                        trimmedContent,
-                        runtimeState.getFollowUpCount(),
-                        followUpIntent,
-                        followUpFocus,
-                        runtimeState.getFollowUpHistory(),
-                        chunk -> {
-                            followUpStream.append(chunk);
-                            sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", chunk));
-                        },
-                        chunk -> { }
-                );
-                QuestionEntity followUpQuestion = awaitResult(followUpExecution.resultFuture(), followUpExecution.handle());
-                String followUpQuestionText = normalizeFollowUpQuestion(
-                        followUpQuestion == null ? followUpStream.toString() : followUpQuestion.getQuestionText()
-                );
-                if (shouldRewriteFollowUp(runtimeState, followUpIntent, followUpFocus, followUpQuestionText)) {
-                    String rewrittenFollowUp = aiEvaluationService.rewriteFollowUpQuestion(
-                            question,
-                            trimmedContent,
-                            followUpQuestionText,
-                            runtimeState.getFollowUpCount(),
-                            followUpIntent,
-                            followUpFocus,
-                            runtimeState.getFollowUpHistory()
-                    );
-                    followUpQuestionText = normalizeFollowUpQuestion(rewrittenFollowUp);
-                }
-                if (shouldUseFollowUp(runtimeState, followUpIntent, followUpFocus, followUpQuestionText)) {
-                    runtimeState.setFollowUpCount(runtimeState.getFollowUpCount() + 1);
-                    runtimeState.setLastFollowUpIntent(followUpIntent);
-                    runtimeState.setLastFollowUpFocus(followUpFocus);
-                    runtimeState.getFollowUpHistory().add(buildFollowUpHistoryEntry(followUpIntent, followUpFocus, followUpQuestionText));
-                    interviewSessionService.updateEvaluationReport(sessionId, toRuntimePayload(runtimeState));
-                    addAssistantMessage(sessionId, userId, followUpQuestionText);
-                    sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(null, null));
-                    sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
-                    sender.complete();
-                    return;
-                }
-            }
-
-            Integer currentQuestionCount = session.getCurrentQuestionCount() == null ? 0 : session.getCurrentQuestionCount();
-            Integer totalQuestions = session.getTotalQuestions() == null ? DEFAULT_QUESTION_LIMIT : session.getTotalQuestions();
-            boolean limitReached = currentQuestionCount >= totalQuestions;
-            runtimeState.setDifficulty(adjustDifficulty(runtimeState.getDifficulty(), evaluation));
-
-            if (timeoutReached || limitReached) {
-                interviewSessionService.updateEvaluationReport(sessionId, toRuntimePayload(runtimeState));
-                String completionMessage = buildCompletionMessage(sessionId, completeInterview(session, runtimeState, userId));
-                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("phase", "complete"));
-                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", completionMessage));
-                sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(null, null));
-                sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
-                sender.complete();
-                return;
-            }
-
-            QuestionEntity nextQuestion = questionService.selectRandomQuestionExcluding(
-                    session.getPositionId(),
-                    runtimeState.getDifficulty(),
-                    runtimeState.getAskedQuestionIds()
-            );
-            if (nextQuestion == null) {
-                String completionMessage = buildCompletionMessage(sessionId, completeInterview(session, runtimeState, userId));
-                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("phase", "complete"));
-                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", completionMessage));
-                sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(null, null));
-                sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
-                sender.complete();
-                return;
-            }
-
-            interviewSessionService.incrementQuestionCount(sessionId);
-            runtimeState.getAskedQuestionIds().add(nextQuestion.getId());
-            runtimeState.setCurrentMainQuestionId(nextQuestion.getId());
-            runtimeState.setCurrentQuestionId(nextQuestion.getId());
-            runtimeState.setCurrentQuestionText(nextQuestion.getQuestionText());
-            runtimeState.setQuestionIndex(runtimeState.getQuestionIndex() + 1);
-            runtimeState.setFollowUpCount(0);
-            runtimeState.setLastFollowUpIntent("");
-            runtimeState.setLastFollowUpFocus("");
-            runtimeState.setFollowUpHistory(new ArrayList<>());
-            interviewSessionService.updateEvaluationReport(sessionId, toRuntimePayload(runtimeState));
-
-            String nextQuestionMessage = "我们继续下一题。\n\n" + buildQuestionMessage(runtimeState.getQuestionIndex(), nextQuestion.getQuestionText());
-            sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("phase", "next_question"));
-            sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", nextQuestionMessage));
-            addAssistantMessage(sessionId, userId, nextQuestionMessage);
 
             sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(null, null));
             sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
@@ -534,14 +384,13 @@ public class InterviewChatService {
         }
     }
 
-    private int completeInterview(InterviewSessionEntity session, RuntimeState runtimeState, String userId) {
+    private void completeInterview(InterviewSessionEntity session, RuntimeState runtimeState, String userId) {
         List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(session.getId());
         Map<String, Object> baseReport = buildBaseReport(session, runtimeState, answers);
         int overallScore = ((Number) baseReport.getOrDefault("overallScore", 0)).intValue();
         interviewSessionService.completeSession(session.getId(), overallScore, toPendingReportPayload(baseReport));
         addAssistantMessage(session.getId(), userId, buildCompletionMessage(session.getId(), overallScore));
         generateReportAsync(session.getId(), session.getUserId(), runtimeState, answers, baseReport);
-        return overallScore;
     }
 
     private Map<String, Object> buildStartResponse(InterviewSessionEntity session, RuntimeState runtimeState) {
@@ -562,6 +411,67 @@ public class InterviewChatService {
             result.put("report", readReportPayload(session));
         }
         return result;
+    }
+
+    private List<String> extractNewAssistantMessages(List<Map<String, Object>> beforeMessages, Map<String, Object> response) {
+        Set<String> existingIds = beforeMessages.stream()
+                .map(item -> Objects.toString(item.get("id"), ""))
+                .collect(Collectors.toSet());
+        Object messagesObj = response == null ? null : response.get("messages");
+        if (!(messagesObj instanceof List<?> messages)) {
+            return List.of();
+        }
+        return messages.stream()
+                .filter(Map.class::isInstance)
+                .map(Map.class::cast)
+                .filter(item -> "assistant".equals(Objects.toString(item.get("role"), "")))
+                .filter(item -> !existingIds.contains(Objects.toString(item.get("id"), "")))
+                .map(item -> Objects.toString(item.get("content"), ""))
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toList());
+    }
+
+    private void sendAssistantMessagesOnce(SseEmitterSender sender, List<String> assistantMessages) {
+        if (assistantMessages == null || assistantMessages.isEmpty()) {
+            return;
+        }
+        sender.sendEvent(
+                SSEEventType.MESSAGE.value(),
+                new MessageDelta("response", String.join("\n\n", assistantMessages))
+        );
+    }
+
+    private void streamAssistantMessages(SseEmitterSender sender, List<String> assistantMessages) {
+        if (assistantMessages == null || assistantMessages.isEmpty()) {
+            return;
+        }
+        int chunkSize = Math.max(1, Optional.ofNullable(aiModelProperties.getStream())
+                .map(AIModelProperties.Stream::getMessageChunkSize)
+                .orElse(5));
+        String content = String.join("\n\n", assistantMessages);
+        int idx = 0;
+        int count = 0;
+        StringBuilder buffer = new StringBuilder();
+        while (idx < content.length()) {
+            int codePoint = content.codePointAt(idx);
+            buffer.appendCodePoint(codePoint);
+            idx += Character.charCount(codePoint);
+            count++;
+            if (count >= chunkSize) {
+                sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", buffer.toString()));
+                buffer.setLength(0);
+                count = 0;
+            }
+        }
+        if (!buffer.isEmpty()) {
+            sender.sendEvent(SSEEventType.MESSAGE.value(), new MessageDelta("response", buffer.toString()));
+        }
+    }
+
+    private boolean isGptEnabled() {
+        return Optional.ofNullable(aiModelProperties.getFeatures())
+                .map(AIModelProperties.Features::getUseGpt)
+                .orElse(false);
     }
 
     private List<Map<String, Object>> buildMessages(String conversationId, String userId) {
@@ -942,41 +852,6 @@ public class InterviewChatService {
         return "这题先到这里，你的回答有一定基础，但还可以更聚焦关键点。";
     }
 
-    private String normalizeStreamedAssistantMessage(String fallback, StringBuilder streamedContent) {
-        String streamedText = streamedContent == null ? "" : streamedContent.toString().trim();
-        if (StrUtil.isNotBlank(streamedText)) {
-            return streamedText;
-        }
-        return StrUtil.blankToDefault(fallback, "").trim();
-    }
-
-    private String extractInstantFeedbackDelta(String evaluationText, int emittedLength) {
-        String instantFeedback = extractSectionText(evaluationText, "即时反馈：", List.of("反馈：", "建议：", "已覆盖要点："));
-        if (instantFeedback.length() <= emittedLength) {
-            return "";
-        }
-        return instantFeedback.substring(emittedLength);
-    }
-
-    private String extractSectionText(String source, String startLabel, List<String> endLabels) {
-        if (StrUtil.isBlank(source)) {
-            return "";
-        }
-        int startIndex = source.indexOf(startLabel);
-        if (startIndex < 0) {
-            return "";
-        }
-        int contentStart = startIndex + startLabel.length();
-        int contentEnd = source.length();
-        for (String endLabel : endLabels) {
-            int endIndex = source.indexOf("\n" + endLabel, contentStart);
-            if (endIndex >= 0) {
-                contentEnd = Math.min(contentEnd, endIndex);
-            }
-        }
-        return source.substring(contentStart, contentEnd);
-    }
-
     private void ensureRuntimeStateDefaults(RuntimeState runtimeState) {
         if (runtimeState == null) {
             return;
@@ -1246,27 +1121,6 @@ public class InterviewChatService {
 
     private String buildCompletionMessage(String sessionId, Integer score) {
         return String.format("今天这场面试先到这里。结合整场回答，你当前的综合得分是 %d 分。我已经把本次表现、亮点、不足和后续练习建议整理成报告。\n\n[查看面试报告](/interview-report/%s)", score, sessionId);
-    }
-
-    private <T> T awaitResult(CompletableFuture<T> resultFuture, com.nageoffer.ai.ragent.infra.chat.StreamCancellationHandle handle) throws Exception {
-        try {
-            return resultFuture.get();
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            if (handle != null) {
-                handle.cancel();
-            }
-            throw ex;
-        } catch (ExecutionException ex) {
-            if (handle != null) {
-                handle.cancel();
-            }
-            Throwable cause = ex.getCause();
-            if (cause instanceof Exception exception) {
-                throw exception;
-            }
-            throw new RuntimeException(cause);
-        }
     }
 
     private String buildFallbackSummary(int score) {
