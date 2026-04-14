@@ -357,6 +357,17 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     return resolveInterviewPresetPosition(positions, selectedJob);
   }, [positions, selectedJob]);
 
+  const effectiveTimeLimitMinutes = clampValue(
+    interviewOptions.timeLimitMinutes,
+    INTERVIEW_LIMITS.timeLimitMinutes.min,
+    INTERVIEW_LIMITS.timeLimitMinutes.max
+  );
+  const effectiveQuestionLimit = clampValue(
+    interviewOptions.questionLimit,
+    INTERVIEW_LIMITS.questionLimit.min,
+    INTERVIEW_LIMITS.questionLimit.max
+  );
+
   const startPresetInterview = React.useCallback(() => {
     if (!selectedJob) return;
     if (!resolvedPosition) {
@@ -383,17 +394,6 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     selectedJob,
     startInterviewSession
   ]);
-
-  const effectiveTimeLimitMinutes = clampValue(
-    interviewOptions.timeLimitMinutes,
-    INTERVIEW_LIMITS.timeLimitMinutes.min,
-    INTERVIEW_LIMITS.timeLimitMinutes.max
-  );
-  const effectiveQuestionLimit = clampValue(
-    interviewOptions.questionLimit,
-    INTERVIEW_LIMITS.questionLimit.min,
-    INTERVIEW_LIMITS.questionLimit.max
-  );
 
   return (
     <div className="relative flex min-h-full items-center justify-center overflow-hidden px-4 py-16 sm:px-6">
