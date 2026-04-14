@@ -8,3 +8,5 @@
 - `core-tech-stack.md`
 - `common-interview-points.md`
 - `sample-answers.md`
+- `project-deep-dive.md`
+- `behavior-communication.md`
