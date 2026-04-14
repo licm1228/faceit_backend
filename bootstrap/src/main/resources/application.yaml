@@ -114,6 +114,7 @@ ai:
       endpoints:
         chat: /v1/chat/completions
         embedding: /v1/embeddings
+        rerank: /v1/rerank
     iflytek:
       url: wss://iat.xf-yun.com
       app-id: ${IFLYTEK_APP_ID:}
@@ -176,11 +177,11 @@ ai:
         priority: 2
 
   rerank:
-    default-model: qwen3-rerank
+    default-model: qwen3-rerank-8b
     candidates:
-      - id: qwen3-rerank
-        provider: bailian
-        model: qwen3-rerank
+      - id: qwen3-rerank-8b
+        provider: siliconflow
+        model: Qwen/Qwen3-Reranker-8B
         priority: 1
       - id: rerank-noop
         provider: noop

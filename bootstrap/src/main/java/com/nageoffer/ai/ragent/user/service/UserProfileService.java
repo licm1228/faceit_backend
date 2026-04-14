@@ -23,9 +23,12 @@ import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
 import com.nageoffer.ai.ragent.interview.service.InterviewAnswerService;
 import com.nageoffer.ai.ragent.interview.service.InterviewSessionService;
+import com.nageoffer.ai.ragent.interview.service.PositionProfileService;
 import com.nageoffer.ai.ragent.interview.service.QuestionService;
 import com.nageoffer.ai.ragent.user.controller.vo.GrowthCurvePointVO;
 import com.nageoffer.ai.ragent.user.controller.vo.InterviewHistoryDetailVO;
+import com.nageoffer.ai.ragent.user.controller.vo.LearningResourceVO;
+import com.nageoffer.ai.ragent.user.controller.vo.PracticePlanItemVO;
 import com.nageoffer.ai.ragent.user.controller.vo.RecommendationVO;
 import com.nageoffer.ai.ragent.user.controller.vo.RecommendedPracticeVO;
 import com.nageoffer.ai.ragent.user.controller.vo.UserProfileVO;
@@ -51,6 +54,7 @@ public class UserProfileService {
     private final InterviewSessionService interviewSessionService;
     private final InterviewAnswerService interviewAnswerService;
     private final QuestionService questionService;
+    private final PositionProfileService positionProfileService;
 
     public UserProfileVO getProfile(String userId) {
         List<InterviewSessionEntity> sessions = interviewSessionService.getSessionsByUserId(userId);
@@ -116,6 +120,8 @@ public class UserProfileService {
 
     public RecommendationVO getRecommendation(String userId) {
         UserProfileVO profile = getProfile(userId);
+        InterviewSessionEntity latestCompleted = getLatestCompletedSession(userId);
+        String positionId = latestCompleted == null ? null : latestCompleted.getPositionId();
         List<String> focusAreas = profile.getWeakTopics();
         if (focusAreas == null || focusAreas.isEmpty()) {
             focusAreas = new ArrayList<>();
@@ -128,7 +134,9 @@ public class UserProfileService {
                 : String.format("您当前平均得分 %.1f 分，建议优先练习以下方向。", profile.getAverageScore());
         String nextStep = buildNextStep(profile.getAverageScore(), profile.getCompletedSessions());
         List<String> learningSuggestions = buildLearningSuggestions(focusAreas, profile.getAverageScore());
-        List<RecommendedPracticeVO> recommendedPractices = buildRecommendedPractices(userId, focusAreas);
+        List<RecommendedPracticeVO> recommendedPractices = buildRecommendedPractices(positionId, focusAreas);
+        List<LearningResourceVO> learningResources = buildLearningResources(positionId, focusAreas, profile.getAverageScore());
+        List<PracticePlanItemVO> practicePlan = buildPracticePlan(positionId, focusAreas, profile.getAverageScore());
 
         return RecommendationVO.builder()
                 .summary(summary)
@@ -138,6 +146,8 @@ public class UserProfileService {
                 .completedSessions(profile.getCompletedSessions())
                 .learningSuggestions(learningSuggestions)
                 .recommendedPractices(recommendedPractices)
+                .learningResources(learningResources)
+                .practicePlan(practicePlan)
                 .build();
     }
 
@@ -238,14 +248,7 @@ public class UserProfileService {
         return suggestions.stream().limit(4).toList();
     }
 
-    private List<RecommendedPracticeVO> buildRecommendedPractices(String userId, List<String> focusAreas) {
-        List<InterviewSessionEntity> sessions = interviewSessionService.getSessionsByUserId(userId);
-        InterviewSessionEntity latestCompleted = sessions.stream()
-                .filter(session -> session != null && "completed".equalsIgnoreCase(session.getStatus()))
-                .sorted(Comparator.comparing(InterviewSessionEntity::getUpdateTime, Comparator.nullsLast(Comparator.reverseOrder())))
-                .findFirst()
-                .orElse(null);
-        String positionId = latestCompleted == null ? null : latestCompleted.getPositionId();
+    private List<RecommendedPracticeVO> buildRecommendedPractices(String positionId, List<String> focusAreas) {
         if (positionId == null) {
             return List.of();
         }
@@ -262,6 +265,60 @@ public class UserProfileService {
                         .recommendationReason(buildPracticeReason(question, focusSet))
                         .build())
                 .toList();
+    }
+
+    private List<LearningResourceVO> buildLearningResources(String positionId, List<String> focusAreas, double averageScore) {
+        if (positionId == null) {
+            return List.of();
+        }
+        List<String> topics = new ArrayList<>(positionProfileService.resolveLearningResourceTopics(positionId, null));
+        if (focusAreas != null) {
+            topics.addAll(focusAreas);
+        }
+        String positionCode = positionProfileService.resolvePositionCode(positionId, null);
+        return topics.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .limit(4)
+                .map(topic -> LearningResourceVO.builder()
+                        .title(topic + " 学习资料")
+                        .topic(topic)
+                        .resourceType(averageScore < 70 ? "基础巩固" : "专项突破")
+                        .description(buildLearningResourceDescription(topic, averageScore))
+                        .referencePath(buildKnowledgeDocPath(positionCode, topic))
+                        .recommendationReason(buildLearningResourceReason(topic, focusAreas))
+                        .build())
+                .toList();
+    }
+
+    private List<PracticePlanItemVO> buildPracticePlan(String positionId, List<String> focusAreas, double averageScore) {
+        if (positionId == null) {
+            return List.of();
+        }
+        List<String> topics = new ArrayList<>(positionProfileService.resolveLearningResourceTopics(positionId, null));
+        if (focusAreas != null) {
+            topics.addAll(focusAreas);
+        }
+        List<String> orderedTopics = topics.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .distinct()
+                .limit(3)
+                .toList();
+        if (orderedTopics.isEmpty()) {
+            orderedTopics = List.of("岗位核心考点");
+        }
+        List<PracticePlanItemVO> plan = new ArrayList<>();
+        for (int i = 0; i < orderedTopics.size(); i++) {
+            String topic = orderedTopics.get(i);
+            plan.add(PracticePlanItemVO.builder()
+                    .day(i + 1)
+                    .title("Day " + (i + 1) + " · " + topic)
+                    .focus(topic)
+                    .actions(buildPracticeActions(topic, averageScore, i))
+                    .expectedOutcome(buildExpectedOutcome(topic, averageScore))
+                    .build());
+        }
+        return plan;
     }
 
     private int practicePriority(QuestionEntity question, Set<String> focusAreas) {
@@ -298,6 +355,64 @@ public class UserProfileService {
             }
         }
         return "这道题属于当前岗位的高频考点，可用于继续稳固核心能力。";
+    }
+
+    private InterviewSessionEntity getLatestCompletedSession(String userId) {
+        List<InterviewSessionEntity> sessions = interviewSessionService.getSessionsByUserId(userId);
+        return sessions.stream()
+                .filter(session -> session != null && "completed".equalsIgnoreCase(session.getStatus()))
+                .sorted(Comparator.comparing(InterviewSessionEntity::getUpdateTime, Comparator.nullsLast(Comparator.reverseOrder())))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String buildLearningResourceDescription(String topic, double averageScore) {
+        if (averageScore < 60) {
+            return "先围绕该主题建立标准答题框架，补齐定义、原理、实现和常见追问。";
+        }
+        if (averageScore < 75) {
+            return "建议将该主题与项目经验结合，练习从原理到落地的完整表达。";
+        }
+        return "在已有基础上继续提升该主题的细节深度、对比分析和工程取舍表达。";
+    }
+
+    private String buildLearningResourceReason(String topic, List<String> focusAreas) {
+        if (focusAreas != null && focusAreas.stream().anyMatch(topic::equals)) {
+            return "该主题直接来自您近期的薄弱项，优先级最高。";
+        }
+        return "该主题属于当前岗位画像中的高频能力点，适合作为系统复习主线。";
+    }
+
+    private String buildKnowledgeDocPath(String positionCode, String topic) {
+        String normalized = topic.toLowerCase();
+        String fileName = "common-interview-points.md";
+        if (normalized.contains("项目") || normalized.contains("表达") || normalized.contains("沟通")) {
+            fileName = "sample-answers.md";
+        } else if (normalized.contains("基础") || normalized.contains("原理") || normalized.contains("工程化")
+                || normalized.contains("jvm") || normalized.contains("spring") || normalized.contains("浏览器")
+                || normalized.contains("算法") || normalized.contains("数据结构")) {
+            fileName = "core-tech-stack.md";
+        }
+        return "submission/knowledge/" + positionCode + "/" + fileName;
+    }
+
+    private List<String> buildPracticeActions(String topic, double averageScore, int index) {
+        List<String> actions = new ArrayList<>();
+        actions.add("复盘 " + topic + " 的核心概念与高频追问");
+        actions.add("围绕 " + topic + " 完成 2 道专项题，并记录卡壳点");
+        if (index == 0 || averageScore < 70) {
+            actions.add("用 STAR 或“定义-原理-方案-取舍”结构口述 1 次答案");
+        } else {
+            actions.add("将 " + topic + " 和项目案例绑定，补齐数据、复杂度或工程取舍细节");
+        }
+        return actions;
+    }
+
+    private String buildExpectedOutcome(String topic, double averageScore) {
+        if (averageScore < 70) {
+            return "能够在 2 分钟内结构化说明 " + topic + " 的核心原理和标准解法。";
+        }
+        return "能够把 " + topic + " 讲到实现细节、风险点和项目落地层面。";
     }
 
     private GrowthCurvePointVO toCurvePoint(InterviewSessionEntity session) {

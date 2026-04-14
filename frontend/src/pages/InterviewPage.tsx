@@ -79,6 +79,25 @@ function getSessionTitle(sessionId: string) {
   return `面试 #${suffix}`;
 }
 
+function getQuestionTypeLabel(type?: string) {
+  switch ((type || "").toLowerCase()) {
+    case "technical":
+      return "技术知识";
+    case "scenario":
+      return "场景题";
+    case "project":
+      return "项目深挖";
+    case "behavior":
+      return "行为题";
+    case "algorithm":
+      return "算法题";
+    case "advanced":
+      return "综合进阶";
+    default:
+      return type || "综合题";
+  }
+}
+
 function TypewriterCursor() {
   return <span className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current align-middle" />;
 }
@@ -793,6 +812,30 @@ export function InterviewPage() {
                       </span>
                     ))}
                 </div>
+                {selectedPosition.questionTypePlan?.length ? (
+                  <div className="mt-4 rounded-2xl border border-[#E5EAF1] bg-white p-3">
+                    <p className="text-xs font-semibold text-[#475467]">推荐面试节奏</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {selectedPosition.questionTypePlan.map((item, index) => (
+                        <span key={`${item}-${index}`} className="rounded-full border border-[#DBEAFE] bg-[#EFF6FF] px-3 py-1 text-xs text-[#1D4ED8]">
+                          第 {index + 1} 题 · {getQuestionTypeLabel(item)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {selectedPosition.preferredKnowledgeCollections?.length ? (
+                  <div className="mt-3 rounded-2xl border border-[#E5EAF1] bg-white p-3">
+                    <p className="text-xs font-semibold text-[#475467]">关联知识库</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {selectedPosition.preferredKnowledgeCollections.map((item) => (
+                        <span key={item} className="rounded-full border border-[#D1FAE5] bg-[#ECFDF3] px-3 py-1 text-xs text-[#047857]">
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -1130,6 +1173,51 @@ export function InterviewPage() {
                             </p>
                             {practice.recommendationReason ? (
                               <p className="mt-2 leading-5">{practice.recommendationReason}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {recommendation.learningResources?.length ? (
+                      <div className="mt-3 space-y-2">
+                        {recommendation.learningResources.map((resource, index) => (
+                          <div key={`${resource.title}-${index}`} className="rounded-2xl border border-[#E0E7FF] bg-white px-3 py-3 text-[11px] text-[#334155]">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-medium text-[#0F172A]">{resource.title}</p>
+                              <span className="rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] text-[#4338CA]">
+                                {resource.resourceType || "学习资源"}
+                              </span>
+                            </div>
+                            {resource.description ? (
+                              <p className="mt-2 leading-5 text-[#475467]">{resource.description}</p>
+                            ) : null}
+                            {resource.recommendationReason ? (
+                              <p className="mt-2 leading-5 text-[#1D4ED8]">{resource.recommendationReason}</p>
+                            ) : null}
+                            {resource.referencePath ? (
+                              <p className="mt-2 text-[#64748B]">资料路径：{resource.referencePath}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {recommendation.practicePlan?.length ? (
+                      <div className="mt-3 space-y-2">
+                        {recommendation.practicePlan.map((plan) => (
+                          <div key={`${plan.day}-${plan.title}`} className="rounded-2xl border border-[#FDE68A] bg-white px-3 py-3 text-[11px] text-[#713F12]">
+                            <p className="font-medium text-[#92400E]">{plan.title}</p>
+                            {plan.focus ? (
+                              <p className="mt-1 text-[#A16207]">聚焦方向：{plan.focus}</p>
+                            ) : null}
+                            {plan.actions?.length ? (
+                              <div className="mt-2 rounded-xl bg-[#FFFBEB] px-3 py-2 leading-5">
+                                {plan.actions.map((action, index) => (
+                                  <p key={`${action}-${index}`}>{index + 1}. {action}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                            {plan.expectedOutcome ? (
+                              <p className="mt-2 leading-5 text-[#92400E]">目标：{plan.expectedOutcome}</p>
                             ) : null}
                           </div>
                         ))}

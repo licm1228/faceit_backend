@@ -70,6 +70,15 @@ public class InterviewChatService {
             "请依次回答",
             "请全面分析"
     );
+    private static final List<String> LOW_SIGNAL_PHRASES = List.of(
+            "不知道",
+            "不会",
+            "不太清楚",
+            "不清楚",
+            "不了解",
+            "没了解过",
+            "答不上来"
+    );
     private static final int DEFAULT_DIFFICULTY = 3;
     private static final int DEFAULT_TIME_LIMIT_MINUTES = 20;
     private static final int DEFAULT_QUESTION_LIMIT = 5;
@@ -80,6 +89,7 @@ public class InterviewChatService {
     private final InterviewSessionService interviewSessionService;
     private final InterviewAnswerService interviewAnswerService;
     private final QuestionService questionService;
+    private final PositionProfileService positionProfileService;
     private final PositionMapper positionMapper;
     private final AIEvaluationService aiEvaluationService;
     private final ConversationMapper conversationMapper;
@@ -126,7 +136,13 @@ public class InterviewChatService {
         InterviewSessionEntity session = interviewSessionService.createSession(userId, position.getId(), timeLimitMinutes, questionLimit);
         session = interviewSessionService.startSession(session.getId());
 
-        QuestionEntity question = questionService.selectRandomQuestionExcluding(position.getId(), difficulty, List.of());
+        List<String> questionTypePlan = positionProfileService.resolveQuestionTypePlan(position.getId(), position.getName());
+        QuestionEntity question = questionService.selectRandomQuestionExcluding(
+                position.getId(),
+                difficulty,
+                resolvePreferredQuestionTypes(questionTypePlan, 1),
+                List.of()
+        );
         if (question == null) {
             throw new ClientException("当前岗位暂无可用题目");
         }
@@ -198,14 +214,23 @@ public class InterviewChatService {
         );
         addAssistantMessage(sessionId, userId, buildInstantFeedbackMessage(evaluation));
 
+        String answerSignal = normalizeAnswerSignal(Objects.toString(evaluation.get("answerSignal"), ""));
+        String feedbackMode = normalizeFeedbackMode(Objects.toString(evaluation.get("feedbackMode"), ""));
+        boolean lowSignalAnswer = isLowSignalAnswer(content, answerSignal);
         boolean timeoutReached = isTimeoutReached(session);
         boolean shouldAskFollowUp = !timeoutReached
                 && runtimeState.getFollowUpCount() < MAX_FOLLOW_UPS
-                && shouldAskFollowUp(evaluation);
+                && shouldAskFollowUp(evaluation, runtimeState, lowSignalAnswer, feedbackMode);
         if (shouldAskFollowUp) {
             String followUpIntent = normalizeIntent((String) evaluation.get("followUpIntent"));
             String followUpFocus = normalizeFocus((String) evaluation.get("followUpFocus"));
             String followUpQuestionText = normalizeFollowUpQuestion((String) evaluation.get("followUpQuestion"));
+            if (lowSignalAnswer && StrUtil.isBlank(followUpIntent)) {
+                followUpIntent = "clarify_definition";
+            }
+            if (lowSignalAnswer && StrUtil.isBlank(followUpFocus)) {
+                followUpFocus = "当前题目的最小关键概念";
+            }
             if (StrUtil.isBlank(followUpQuestionText)) {
                 QuestionEntity followUpQuestion = aiEvaluationService.generateFollowUpQuestion(
                         question,
@@ -254,6 +279,10 @@ public class InterviewChatService {
         QuestionEntity nextQuestion = questionService.selectRandomQuestionExcluding(
                 session.getPositionId(),
                 runtimeState.getDifficulty(),
+                resolvePreferredQuestionTypes(
+                        positionProfileService.resolveQuestionTypePlan(runtimeState.getPositionId(), runtimeState.getPositionName()),
+                        runtimeState.getQuestionIndex() + 1
+                ),
                 runtimeState.getAskedQuestionIds()
         );
         if (nextQuestion == null) {
@@ -273,7 +302,7 @@ public class InterviewChatService {
         runtimeState.setFollowUpHistory(new ArrayList<>());
         interviewSessionService.updateEvaluationReport(sessionId, toRuntimePayload(runtimeState));
 
-        addAssistantMessage(sessionId, userId, "我们继续下一题。");
+        addAssistantMessage(sessionId, userId, buildNextQuestionTransition(runtimeState));
         addAssistantMessage(sessionId, userId, buildQuestionMessage(runtimeState.getQuestionIndex(), nextQuestion.getQuestionText()));
         return buildTurnResponse(interviewSessionService.getSessionById(sessionId), runtimeState);
     }
@@ -508,6 +537,18 @@ public class InterviewChatService {
         data.put("followUpCount", runtimeState.getFollowUpCount());
         data.put("askedQuestionIds", runtimeState.getAskedQuestionIds());
         return data;
+    }
+
+    private List<String> resolvePreferredQuestionTypes(List<String> questionTypePlan, int questionIndex) {
+        if (questionTypePlan == null || questionTypePlan.isEmpty() || questionIndex <= 0) {
+            return List.of();
+        }
+        int index = Math.floorMod(questionIndex - 1, questionTypePlan.size());
+        String preferredType = questionTypePlan.get(index);
+        if (StrUtil.isBlank(preferredType)) {
+            return List.of();
+        }
+        return List.of(preferredType);
     }
 
     private Map<String, Object> buildBaseReport(InterviewSessionEntity session, RuntimeState runtimeState, List<InterviewAnswerEntity> answers) {
@@ -793,9 +834,20 @@ public class InterviewChatService {
         }
     }
 
-    private boolean shouldAskFollowUp(Map<String, Object> evaluation) {
+    boolean shouldAskFollowUp(
+            Map<String, Object> evaluation,
+            RuntimeState runtimeState,
+            boolean lowSignalAnswer,
+            String feedbackMode
+    ) {
         if (evaluation == null) {
             return false;
+        }
+        if ("move_on".equals(normalizeFeedbackMode(feedbackMode))) {
+            return false;
+        }
+        if (lowSignalAnswer) {
+            return runtimeState != null && Optional.ofNullable(runtimeState.getFollowUpCount()).orElse(0) < 1;
         }
         Object explicitDecision = evaluation.get("shouldFollowUp");
         if (explicitDecision instanceof Boolean bool) {
@@ -805,7 +857,14 @@ public class InterviewChatService {
             return text.startsWith("是") || "true".equalsIgnoreCase(text);
         }
         Integer score = evaluation.get("score") instanceof Integer value ? value : null;
-        return score == null || score < 78;
+        String answerSignal = normalizeAnswerSignal(Objects.toString(evaluation.get("answerSignal"), ""));
+        if ("good".equals(answerSignal)) {
+            return false;
+        }
+        if ("partial".equals(answerSignal)) {
+            return score == null || score < 70;
+        }
+        return score == null || score < 60;
     }
 
     private Integer adjustDifficulty(Integer currentDifficulty, Map<String, Object> evaluation) {
@@ -823,21 +882,19 @@ public class InterviewChatService {
         return current;
     }
 
-    private String buildInstantFeedbackMessage(Map<String, Object> evaluation) {
+    String buildInstantFeedbackMessage(Map<String, Object> evaluation) {
         if (evaluation == null) {
-            return "这题先到这里，你的回答有一定基础，但还可以更聚焦关键点。";
+            return "这题先记到这里，我们继续。";
+        }
+        String liveFeedback = Objects.toString(evaluation.get("liveFeedback"), "").trim();
+        if (StrUtil.isNotBlank(liveFeedback)) {
+            return liveFeedback;
         }
         String instantFeedback = Objects.toString(evaluation.get("instantFeedback"), "").trim();
         if (StrUtil.isNotBlank(instantFeedback)) {
             return instantFeedback;
         }
-        String feedback = Objects.toString(evaluation.get("feedback"), "").trim();
-        String suggestions = Objects.toString(evaluation.get("suggestions"), "").trim();
-        String merged = (feedback + " " + suggestions).replaceAll("\\s+", " ").trim();
-        if (StrUtil.isNotBlank(merged)) {
-            return merged;
-        }
-        return "这题先到这里，你的回答有一定基础，但还可以更聚焦关键点。";
+        return "这题先记到这里，我们继续。";
     }
 
     private void ensureRuntimeStateDefaults(RuntimeState runtimeState) {
@@ -952,7 +1009,11 @@ public class InterviewChatService {
         }
         String normalized = followUpIntent.trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "missing_fact", "deeper_understanding", "scenario_application", "tradeoff_reasoning", "implementation_detail" -> normalized;
+            case "clarify_definition", "verify_understanding", "scenario", "tradeoff", "implementation_detail" -> normalized;
+            case "missing_fact" -> "clarify_definition";
+            case "deeper_understanding" -> "verify_understanding";
+            case "scenario_application" -> "scenario";
+            case "tradeoff_reasoning" -> "tradeoff";
             default -> "";
         };
     }
@@ -1104,11 +1165,55 @@ public class InterviewChatService {
     }
 
     private String buildQuestionMessage(Integer questionIndex, String questionText) {
-        return String.format("第 %d 题，我们正式开始。\n\n%s", questionIndex, questionText);
+        if (questionIndex != null && questionIndex <= 1) {
+            return String.format("第 %d 题，我们正式开始。\n\n%s", questionIndex, questionText);
+        }
+        return String.format("第 %d 题。\n\n%s", questionIndex, questionText);
     }
 
     private String buildCompletionMessage(String sessionId, Integer score) {
         return String.format("今天这场面试先到这里。结合整场回答，你当前的综合得分是 %d 分。我已经把本次表现、亮点、不足和后续练习建议整理成报告。\n\n[查看面试报告](/interview-report/%s)", score, sessionId);
+    }
+
+    String buildNextQuestionTransition(RuntimeState runtimeState) {
+        int index = Optional.ofNullable(runtimeState)
+                .map(RuntimeState::getQuestionIndex)
+                .orElse(0);
+        List<String> transitions = List.of(
+                "这题先到这里，我们看下一题。",
+                "好，换个方向。",
+                "这个点我先记下，继续下一题。",
+                "先到这里，我们继续。"
+        );
+        return transitions.get(Math.floorMod(index, transitions.size()));
+    }
+
+    boolean isLowSignalAnswer(String userAnswer, String answerSignal) {
+        if ("low".equals(normalizeAnswerSignal(answerSignal))) {
+            return true;
+        }
+        String normalized = StrUtil.blankToDefault(userAnswer, "").replaceAll("\\s+", "");
+        if (normalized.isBlank() || normalized.length() <= 4) {
+            return true;
+        }
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        return LOW_SIGNAL_PHRASES.stream().anyMatch(lower::contains);
+    }
+
+    String normalizeAnswerSignal(String value) {
+        String normalized = StrUtil.blankToDefault(value, "").trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "good", "partial", "low" -> normalized;
+            default -> "";
+        };
+    }
+
+    String normalizeFeedbackMode(String value) {
+        String normalized = StrUtil.blankToDefault(value, "").trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "follow_up", "redirect", "move_on" -> normalized;
+            default -> "";
+        };
     }
 
     private String buildFallbackSummary(int score) {

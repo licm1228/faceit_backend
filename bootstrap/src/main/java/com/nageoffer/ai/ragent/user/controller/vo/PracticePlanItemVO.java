@@ -28,23 +28,15 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RecommendationVO {
+public class PracticePlanItemVO {
 
-    private String summary;
+    private int day;
 
-    private List<String> focusAreas;
+    private String title;
 
-    private String nextStep;
+    private String focus;
 
-    private double averageScore;
+    private List<String> actions;
 
-    private int completedSessions;
-
-    private List<String> learningSuggestions;
-
-    private List<RecommendedPracticeVO> recommendedPractices;
-
-    private List<LearningResourceVO> learningResources;
-
-    private List<PracticePlanItemVO> practicePlan;
+    private String expectedOutcome;
 }
