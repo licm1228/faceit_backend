@@ -45,8 +45,8 @@ public class InterviewMcpController {
      */
     @GetMapping("/mcp/interview/select-question")
     public Result<Map<String, Object>> selectQuestion(
-            @RequestParam String positionId,
-            @RequestParam(required = false) Integer difficulty) {
+            @RequestParam("positionId") String positionId,
+            @RequestParam(value = "difficulty", required = false) Integer difficulty) {
 
         Map<String, Object> result = interviewRetrieveService.selectQuestionAndRetrieve(positionId, difficulty);
         return Results.success(result);

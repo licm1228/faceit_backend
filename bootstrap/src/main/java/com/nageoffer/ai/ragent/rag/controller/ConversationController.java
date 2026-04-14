@@ -59,7 +59,7 @@ public class ConversationController {
      * 重命名会话
      */
     @PutMapping("/conversations/{conversationId}")
-    public Result<Void> rename(@PathVariable String conversationId,
+    public Result<Void> rename(@PathVariable("conversationId") String conversationId,
                                @RequestBody ConversationUpdateRequest request) {
         conversationService.rename(conversationId, request);
         return Results.success();
@@ -69,7 +69,7 @@ public class ConversationController {
      * 删除会话
      */
     @DeleteMapping("/conversations/{conversationId}")
-    public Result<Void> delete(@PathVariable String conversationId) {
+    public Result<Void> delete(@PathVariable("conversationId") String conversationId) {
         conversationService.delete(conversationId);
         return Results.success();
     }
@@ -78,7 +78,7 @@ public class ConversationController {
      * 获取会话消息列表
      */
     @GetMapping("/conversations/{conversationId}/messages")
-    public Result<List<ConversationMessageVO>> listMessages(@PathVariable String conversationId) {
+    public Result<List<ConversationMessageVO>> listMessages(@PathVariable("conversationId") String conversationId) {
         return Results.success(conversationMessageService.listMessages(conversationId, UserContext.getUserId(), null, ConversationMessageOrder.ASC));
     }
 }

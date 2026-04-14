@@ -59,7 +59,7 @@ public class RAGChatController {
      */
     @IdempotentSubmit
     @PostMapping(value = "/rag/v3/stop")
-    public Result<Void> stop(@RequestParam String taskId) {
+    public Result<Void> stop(@RequestParam("taskId") String taskId) {
         ragChatService.stopTask(taskId);
         return Results.success();
     }

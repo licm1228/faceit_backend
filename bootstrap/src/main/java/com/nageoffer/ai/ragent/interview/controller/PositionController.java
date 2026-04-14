@@ -48,7 +48,7 @@ public class PositionController {
      * 获取岗位详情
      */
     @GetMapping("/{id}")
-    public Map<String, Object> getById(@PathVariable String id) {
+    public Map<String, Object> getById(@PathVariable("id") String id) {
         PositionEntity entity = positionService.getPositionById(id);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
@@ -86,7 +86,7 @@ public class PositionController {
      * 删除岗位（软删除）
      */
     @DeleteMapping("/{id}")
-    public Map<String, Object> delete(@PathVariable String id) {
+    public Map<String, Object> delete(@PathVariable("id") String id) {
         positionService.deletePosition(id);
         Map<String, Object> response = new HashMap<>();
         response.put("code", 200);

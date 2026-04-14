@@ -48,35 +48,35 @@ public class InterviewChatController {
     }
 
     @PostMapping("/sessions/{sessionId}/turn")
-    public Result<Map<String, Object>> turn(@PathVariable String sessionId, @RequestBody InterviewChatTurnRequest request) {
+    public Result<Map<String, Object>> turn(@PathVariable("sessionId") String sessionId, @RequestBody InterviewChatTurnRequest request) {
         return Results.success(interviewChatService.submitTurn(sessionId, request.getContent(), request.getSpeechAnalysis()));
     }
 
     @PostMapping(value = "/sessions/{sessionId}/turn/stream", produces = "text/event-stream;charset=UTF-8")
-    public SseEmitter streamTurn(@PathVariable String sessionId, @RequestBody InterviewChatTurnRequest request) {
+    public SseEmitter streamTurn(@PathVariable("sessionId") String sessionId, @RequestBody InterviewChatTurnRequest request) {
         SseEmitter emitter = new SseEmitter(0L);
         interviewChatService.streamTurn(sessionId, request.getContent(), request.getSpeechAnalysis(), emitter);
         return emitter;
     }
 
     @GetMapping("/sessions/{sessionId}")
-    public Result<Map<String, Object>> getSession(@PathVariable String sessionId) {
+    public Result<Map<String, Object>> getSession(@PathVariable("sessionId") String sessionId) {
         return Results.success(interviewChatService.getSessionState(sessionId));
     }
 
     @GetMapping("/sessions/{sessionId}/report")
-    public Result<Map<String, Object>> getReport(@PathVariable String sessionId) {
+    public Result<Map<String, Object>> getReport(@PathVariable("sessionId") String sessionId) {
         return Results.success(interviewChatService.getReport(sessionId));
     }
 
     @PutMapping("/sessions/{sessionId}")
-    public Result<Void> rename(@PathVariable String sessionId, @RequestBody ConversationUpdateRequest request) {
+    public Result<Void> rename(@PathVariable("sessionId") String sessionId, @RequestBody ConversationUpdateRequest request) {
         interviewChatService.renameSession(sessionId, request.getTitle());
         return Results.success();
     }
 
     @DeleteMapping("/sessions/{sessionId}")
-    public Result<Void> delete(@PathVariable String sessionId) {
+    public Result<Void> delete(@PathVariable("sessionId") String sessionId) {
         interviewChatService.deleteSession(sessionId);
         return Results.success();
     }

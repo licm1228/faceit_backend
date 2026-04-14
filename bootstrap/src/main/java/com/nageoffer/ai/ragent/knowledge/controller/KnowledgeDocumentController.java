@@ -89,7 +89,7 @@ public class KnowledgeDocumentController {
      * 查询文档详情
      */
     @GetMapping("/knowledge-base/docs/{docId}")
-    public Result<KnowledgeDocumentVO> get(@PathVariable String docId) {
+    public Result<KnowledgeDocumentVO> get(@PathVariable("docId") String docId) {
         return Results.success(documentService.get(docId));
     }
 
@@ -97,7 +97,7 @@ public class KnowledgeDocumentController {
      * 更新文档信息
      */
     @PutMapping("/knowledge-base/docs/{docId}")
-    public Result<Void> update(@PathVariable String docId,
+    public Result<Void> update(@PathVariable("docId") String docId,
                                @RequestBody KnowledgeDocumentUpdateRequest requestParam) {
         documentService.update(docId, requestParam);
         return Results.success();
@@ -125,7 +125,7 @@ public class KnowledgeDocumentController {
      * 启用/禁用文档
      */
     @PatchMapping("/knowledge-base/docs/{docId}/enable")
-    public Result<Void> enable(@PathVariable String docId,
+    public Result<Void> enable(@PathVariable("docId") String docId,
                                @RequestParam("value") boolean enabled) {
         documentService.enable(docId, enabled);
         return Results.success();
@@ -135,7 +135,7 @@ public class KnowledgeDocumentController {
      * 查询文档分块日志列表
      */
     @GetMapping("/knowledge-base/docs/{docId}/chunk-logs")
-    public Result<IPage<KnowledgeDocumentChunkLogVO>> getChunkLogs(@PathVariable String docId,
+    public Result<IPage<KnowledgeDocumentChunkLogVO>> getChunkLogs(@PathVariable("docId") String docId,
                                                                    Page<KnowledgeDocumentChunkLogVO> page) {
         return Results.success(documentService.getChunkLogs(docId, page));
     }
