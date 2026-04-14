@@ -147,7 +147,7 @@ public class RAGChatServiceImpl implements RAGChatService {
 
         RetrievalContext ctx = retrievalEngine.retrieve(subIntents, DEFAULT_TOP_K);
         if ("study".equals(normalizedChatMode)) {
-            handleStudyMode(question, history, ctx, callback);
+            handleStudyMode(question, history, ctx, thinkingEnabled, callback);
             return;
         }
         if (ctx.isEmpty()) {
@@ -194,7 +194,7 @@ public class RAGChatServiceImpl implements RAGChatService {
         ChatRequest req = ChatRequest.builder()
                 .messages(messages)
                 .temperature(0.7D)
-                .preferredModelId(resolvePreferredStreamModelId())
+                .preferredModelId(resolvePreferredStreamModelId(false))
                 .thinking(false)
                 .build();
         return llmService.streamChat(req, callback);
@@ -203,13 +203,14 @@ public class RAGChatServiceImpl implements RAGChatService {
     private void handleStudyMode(String question,
                                  List<ChatMessage> history,
                                  RetrievalContext retrievalContext,
+                                 boolean deepThinking,
                                  StreamCallback callback) {
         try {
             String reply = studyModeService.buildStudyReply(
                     question,
                     history,
                     retrievalContext,
-                    resolvePreferredStreamModelId()
+                    resolvePreferredStreamModelId(deepThinking)
             );
             if (StrUtil.isBlank(reply)) {
                 callback.onContent("当前没有生成可用的学习内容，请换个知识点或问题再试一次。");
@@ -239,7 +240,7 @@ public class RAGChatServiceImpl implements RAGChatService {
         ChatRequest req = ChatRequest.builder()
                 .messages(messages)
                 .temperature(0.7D)
-                .preferredModelId(resolvePreferredStreamModelId())
+                .preferredModelId(resolvePreferredStreamModelId(deepThinking))
                 .thinking(deepThinking)
                 .build();
         return llmService.streamChat(req, callback);
@@ -276,7 +277,7 @@ public class RAGChatServiceImpl implements RAGChatService {
         );
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(messages)
-                .preferredModelId(resolvePreferredStreamModelId())
+                .preferredModelId(resolvePreferredStreamModelId(deepThinking))
                 .thinking(deepThinking)
                 .temperature(ctx.hasMcp() ? 0.3D : 0D)  // MCP 场景稍微放宽温度
                 .topP(ctx.hasMcp() ? 0.8D : 1D)
@@ -285,7 +286,10 @@ public class RAGChatServiceImpl implements RAGChatService {
         return llmService.streamChat(chatRequest, callback);
     }
 
-    private String resolvePreferredStreamModelId() {
+    private String resolvePreferredStreamModelId(boolean deepThinking) {
+        if (deepThinking) {
+            return null;
+        }
         AIModelProperties.Features features = aiModelProperties.getFeatures();
         if (features == null || !Boolean.TRUE.equals(features.getUseGpt())) {
             return null;
