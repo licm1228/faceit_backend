@@ -45,6 +45,7 @@ import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
 import com.nageoffer.ai.ragent.rag.service.RAGChatService;
 import com.nageoffer.ai.ragent.rag.service.StudyModeService;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamCallbackFactory;
+import com.nageoffer.ai.ragent.rag.service.handler.StreamChatEventHandler;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamTaskManager;
 import com.nageoffer.ai.ragent.interview.service.InterviewRetrieveService;
 import lombok.RequiredArgsConstructor;
@@ -96,7 +97,7 @@ public class RAGChatServiceImpl implements RAGChatService {
         boolean thinkingEnabled = Boolean.TRUE.equals(deepThinking);
         String normalizedChatMode = normalizeChatMode(chatMode);
 
-        StreamCallback callback = callbackFactory.createChatEventHandler(emitter, actualConversationId, taskId);
+        StreamChatEventHandler callback = callbackFactory.createChatEventHandler(emitter, actualConversationId, taskId);
 
         String userId = UserContext.getUserId();
         List<ChatMessage> history = memoryService.loadAndAppend(actualConversationId, userId, ChatMessage.user(question));
@@ -147,7 +148,8 @@ public class RAGChatServiceImpl implements RAGChatService {
 
         RetrievalContext ctx = retrievalEngine.retrieve(subIntents, DEFAULT_TOP_K);
         if ("study".equals(normalizedChatMode)) {
-            handleStudyMode(question, history, ctx, thinkingEnabled, callback);
+            StreamCancellationHandle handle = handleStudyMode(question, history, ctx, thinkingEnabled, callback);
+            taskManager.bindHandle(taskId, handle);
             return;
         }
         if (ctx.isEmpty()) {
@@ -200,29 +202,25 @@ public class RAGChatServiceImpl implements RAGChatService {
         return llmService.streamChat(req, callback);
     }
 
-    private void handleStudyMode(String question,
-                                 List<ChatMessage> history,
-                                 RetrievalContext retrievalContext,
-                                 boolean deepThinking,
-                                 StreamCallback callback) {
+    private StreamCancellationHandle handleStudyMode(String question,
+                                                     List<ChatMessage> history,
+                                                     RetrievalContext retrievalContext,
+                                                     boolean deepThinking,
+                                                     StreamChatEventHandler callback) {
         try {
-            String reply = studyModeService.buildStudyReply(
+            StudyModeService.StudyContext studyContext = studyModeService.buildStudyContext(
                     question,
                     history,
                     retrievalContext,
                     resolvePreferredStreamModelId(deepThinking)
             );
-            if (StrUtil.isBlank(reply)) {
-                callback.onContent("当前没有生成可用的学习内容，请换个知识点或问题再试一次。");
-                callback.onComplete();
-                return;
-            }
-            callback.onContent(reply);
-            callback.onComplete();
+            callback.setCompletionSuffix(studyContext.payloadSuffix());
+            return llmService.streamChat(studyContext.request(), callback);
         } catch (Exception ex) {
             log.error("学习模式生成失败", ex);
             callback.onContent("学习模式暂时不可用，请稍后再试。");
             callback.onComplete();
+            return null;
         }
     }
 

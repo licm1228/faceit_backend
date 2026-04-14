@@ -260,6 +260,7 @@ export const MessageItem = React.memo(function MessageItem({ message, isLast }: 
 function StudyCard({ payload }: { payload: StudyPayload }) {
   const practiceItems = payload.practiceQuestions ?? [];
   const relatedResources = payload.relatedResources ?? [];
+  const nextActions = payload.nextActions ?? [];
 
   return (
     <div className="space-y-3 rounded-3xl border border-[#D6F5DF] bg-[#F6FCF7] p-4">
@@ -271,24 +272,6 @@ function StudyCard({ payload }: { payload: StudyPayload }) {
           <span className="text-xs text-[#64748B]">{payload.positionName}</span>
         ) : null}
       </div>
-
-      {payload.learningSummary ? (
-        <div className="rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-[#334155]">
-          {payload.learningSummary}
-        </div>
-      ) : null}
-
-      {payload.keyPoints?.length ? (
-        <StudySection title="关键点" items={payload.keyPoints} />
-      ) : null}
-
-      {payload.commonMistakes?.length ? (
-        <StudySection title="常见误区" items={payload.commonMistakes} />
-      ) : null}
-
-      {payload.answerFramework?.length ? (
-        <StudySection title="答题骨架" items={payload.answerFramework} />
-      ) : null}
 
       {practiceItems.length ? (
         <div>
@@ -316,8 +299,8 @@ function StudyCard({ payload }: { payload: StudyPayload }) {
         </div>
       ) : null}
 
-      {payload.nextActions?.length ? (
-        <StudySection title="下一步" items={payload.nextActions} />
+      {nextActions.length ? (
+        <StudySection title="下一步" items={nextActions} />
       ) : null}
 
       {relatedResources.length ? (

@@ -24,7 +24,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
-import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.interview.entity.PositionEntity;
 import com.nageoffer.ai.ragent.interview.entity.QuestionEntity;
 import com.nageoffer.ai.ragent.interview.mapper.PositionMapper;
@@ -59,7 +58,6 @@ public class StudyModeService {
     private static final String PAYLOAD_PREFIX = "\n\n<!--FACEIT_STUDY_PAYLOAD_BEGIN\n";
     private static final String PAYLOAD_SUFFIX = "\nFACEIT_STUDY_PAYLOAD_END-->";
 
-    private final LLMService llmService;
     private final QuestionService questionService;
     private final PositionMapper positionMapper;
     private final PositionProfileService positionProfileService;
@@ -67,99 +65,83 @@ public class StudyModeService {
     private final KnowledgeDocumentService knowledgeDocumentService;
     private final ObjectMapper objectMapper;
 
-    public String buildStudyReply(String question,
-                                  List<ChatMessage> history,
-                                  RetrievalContext retrievalContext,
-                                  String preferredModelId) {
+    public StudyContext buildStudyContext(String question,
+                                          List<ChatMessage> history,
+                                          RetrievalContext retrievalContext,
+                                          String preferredModelId) {
         StudyPayload payload = buildPayload(question, retrievalContext);
-        String markdown = buildMarkdownWithModel(question, history, retrievalContext, payload, preferredModelId);
-        return markdown + encodePayload(payload);
+        ChatRequest request = buildStudyStreamRequest(question, history, retrievalContext, payload, preferredModelId);
+        return new StudyContext(request, encodePayload(payload));
     }
 
     private StudyPayload buildPayload(String question, RetrievalContext retrievalContext) {
         PositionEntity position = resolvePosition(question);
         List<QuestionEntity> practiceQuestions = resolvePracticeQuestions(question, position);
         List<Map<String, Object>> resources = buildRelatedResources(question, retrievalContext);
-        List<String> focusKeywords = extractFocusKeywords(question, retrievalContext, practiceQuestions);
+        String topic = extractLearningTopic(question, position, practiceQuestions, retrievalContext);
+        List<String> focusKeywords = extractFocusKeywords(topic, retrievalContext, practiceQuestions);
 
         String positionName = position == null ? "通用技术学习" : position.getName();
-        String learningSummary = "本轮学习聚焦“" + summarizeTopic(question) + "”，目标是先讲清核心概念，再过一轮面试化练习。";
-        String conceptExplanation = buildConceptExplanation(question, retrievalContext);
-        List<String> keyPoints = buildKeyPoints(question, retrievalContext, practiceQuestions);
-        List<String> commonMistakes = buildCommonMistakes(question, focusKeywords);
         List<Map<String, Object>> practiceItems = practiceQuestions.stream()
-                .map(questionEntity -> buildPracticeItem(questionEntity, focusKeywords))
+                .map(questionEntity -> buildPracticeItem(questionEntity, topic, focusKeywords))
                 .toList();
-        List<String> answerFramework = buildAnswerFramework(question, focusKeywords);
-        List<String> nextActions = buildNextActions(positionName, focusKeywords, practiceItems);
+        List<String> nextActions = buildNextActions(positionName, topic, practiceItems);
 
         return new StudyPayload(
                 "study",
                 positionName,
-                learningSummary,
-                conceptExplanation,
-                keyPoints,
-                commonMistakes,
+                focusKeywords,
                 practiceItems,
-                answerFramework,
                 nextActions,
                 resources
         );
     }
 
-    private String buildMarkdownWithModel(String question,
-                                          List<ChatMessage> history,
-                                          RetrievalContext retrievalContext,
-                                          StudyPayload payload,
-                                          String preferredModelId) {
-        try {
-            String kbContext = StrUtil.blankToDefault(retrievalContext == null ? null : retrievalContext.getKbContext(), "暂无直接命中的知识库上下文。");
-            String practiceSummary = payload.practiceQuestions().isEmpty()
-                    ? "当前题库没有完全匹配的练习题，请先按讲解部分做口头复述。"
-                    : payload.practiceQuestions().stream()
-                    .map(item -> "- " + item.get("questionText"))
-                    .collect(Collectors.joining("\n"));
-            String resourceSummary = payload.relatedResources().isEmpty()
-                    ? "暂无直接命中的资料片段。"
-                    : payload.relatedResources().stream()
-                    .map(item -> "- " + item.getOrDefault("title", "知识资料") + "：" + item.getOrDefault("snippet", ""))
-                    .collect(Collectors.joining("\n"));
+    private ChatRequest buildStudyStreamRequest(String question,
+                                                List<ChatMessage> history,
+                                                RetrievalContext retrievalContext,
+                                                StudyPayload payload,
+                                                String preferredModelId) {
+        String kbContext = StrUtil.blankToDefault(retrievalContext == null ? null : retrievalContext.getKbContext(), "暂无直接命中的知识库上下文。");
+        String practiceSummary = payload.practiceQuestions().isEmpty()
+                ? "当前题库没有完全匹配的练习题，请先按讲解部分做口头复述。"
+                : payload.practiceQuestions().stream()
+                .map(item -> "- " + item.get("questionText"))
+                .collect(Collectors.joining("\n"));
+        String resourceSummary = payload.relatedResources().isEmpty()
+                ? "暂无直接命中的资料片段。"
+                : payload.relatedResources().stream()
+                .map(item -> "- " + item.getOrDefault("title", "知识资料") + "：" + item.getOrDefault("snippet", ""))
+                .collect(Collectors.joining("\n"));
 
-            List<ChatMessage> messages = new ArrayList<>();
-            messages.add(ChatMessage.system("""
-                    你是 Face It 的学习教练。你的任务是把用户问题组织成“学练闭环”的学习输出。
-                    请严格使用以下 Markdown 结构：
-                    ## 学习目标
-                    ## 核心讲解
-                    ## 关键点
-                    ## 常见误区
-                    ## 练习建议
-                    ## 答题骨架
-                    ## 下一步
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(ChatMessage.system("""
+                你是 Face It 的学习教练。你的任务是把用户问题组织成一段适合技术面试准备的学习讲解。
+                请严格使用以下 Markdown 结构：
+                ## 学习目标
+                ## 核心讲解
+                ## 关键点
+                ## 常见误区
+                ## 练习建议
+                ## 答题骨架
+                ## 下一步
 
-                    要求：
-                    1. 内容必须贴合用户问题与给定资料，不要编造资料来源。
-                    2. 风格简洁直接，偏技术面试辅导，不要空泛鼓励。
-                    3. 关键点、误区、答题骨架尽量使用 3 条以内的短列表。
-                    4. 如果用户看起来是在回答上一轮练习题，先点评回答，再继续给下一步建议。
-                    """));
-            messages.add(ChatMessage.user(buildPrompt(question, history, kbContext, practiceSummary, resourceSummary, payload)));
+                要求：
+                1. 正文是主内容，写自然、连贯、可朗读，不要像后台数据回显。
+                2. 不要原样输出知识库中的文件名、标题层级、适用知识库、标签等元信息。
+                3. 如果用户像是在回答上一轮练习题，先点评回答，再继续给建议。
+                4. 练习建议要聚焦当前主题，不要泛化到不相关基础题。
+                5. 关键点、误区、答题骨架尽量各 2-3 条。
+                """));
+        messages.add(ChatMessage.user(buildPrompt(question, history, kbContext, practiceSummary, resourceSummary, payload)));
 
-            ChatRequest request = ChatRequest.builder()
-                    .messages(messages)
-                    .preferredModelId(preferredModelId)
-                    .thinking(false)
-                    .temperature(0.3D)
-                    .topP(0.8D)
-                    .build();
-            String content = llmService.chat(request);
-            if (StrUtil.isNotBlank(content)) {
-                return content.trim();
-            }
-        } catch (Exception ex) {
-            log.warn("学习模式调用模型生成讲解失败，使用本地兜底内容", ex);
-        }
-        return buildFallbackMarkdown(payload);
+        return ChatRequest.builder()
+                .messages(messages)
+                .preferredModelId(preferredModelId)
+                .thinking(false)
+                .temperature(0.3D)
+                .topP(0.8D)
+                .build();
     }
 
     private String buildPrompt(String question,
@@ -184,9 +166,6 @@ public class StudyModeService {
                 【近期对话】
                 %s
 
-                【学习摘要】
-                %s
-
                 【知识库上下文】
                 %s
 
@@ -201,57 +180,11 @@ public class StudyModeService {
                 """.formatted(
                 question,
                 StrUtil.blankToDefault(historyText, "无"),
-                payload.learningSummary(),
                 kbContext,
                 practiceSummary,
                 resourceSummary,
-                String.join("；", payload.answerFramework())
+                buildFrameworkHint(payload.focusTags())
         );
-    }
-
-    private String buildFallbackMarkdown(StudyPayload payload) {
-        return """
-                ## 学习目标
-                %s
-
-                ## 核心讲解
-                %s
-
-                ## 关键点
-                %s
-
-                ## 常见误区
-                %s
-
-                ## 练习建议
-                %s
-
-                ## 答题骨架
-                %s
-
-                ## 下一步
-                %s
-                """.formatted(
-                payload.learningSummary(),
-                payload.conceptExplanation(),
-                toMarkdownList(payload.keyPoints()),
-                toMarkdownList(payload.commonMistakes()),
-                toMarkdownList(payload.practiceQuestions().stream()
-                        .map(item -> String.valueOf(item.get("questionText")))
-                        .toList()),
-                toMarkdownList(payload.answerFramework()),
-                toMarkdownList(payload.nextActions())
-        ).trim();
-    }
-
-    private String toMarkdownList(List<String> lines) {
-        if (lines == null || lines.isEmpty()) {
-            return "- 暂无";
-        }
-        return lines.stream()
-                .filter(StrUtil::isNotBlank)
-                .map(line -> "- " + line)
-                .collect(Collectors.joining("\n"));
     }
 
     private PositionEntity resolvePosition(String question) {
@@ -311,27 +244,46 @@ public class StudyModeService {
             return List.of();
         }
         Set<String> tokens = extractQuestionTokens(question);
+        String topic = extractLearningTopic(question, position, candidates, null).toLowerCase(Locale.ROOT);
         return candidates.stream()
                 .sorted(Comparator
-                        .comparingInt((QuestionEntity item) -> practiceMatchScore(item, tokens)).reversed()
+                        .comparingInt((QuestionEntity item) -> practiceMatchScore(item, tokens, topic)).reversed()
                         .thenComparingInt(item -> Math.abs(Optional.ofNullable(item.getDifficulty()).orElse(3) - 3)))
                 .limit(3)
                 .toList();
     }
 
-    private int practiceMatchScore(QuestionEntity question, Set<String> tokens) {
+    private int practiceMatchScore(QuestionEntity question, Set<String> tokens, String topic) {
         int score = 0;
         String questionText = StrUtil.blankToDefault(question.getQuestionText(), "").toLowerCase(Locale.ROOT);
+        String type = StrUtil.blankToDefault(question.getQuestionType(), "").toLowerCase(Locale.ROOT);
         if (question.getKeywordList() != null) {
             for (String keyword : question.getKeywordList()) {
                 if (tokens.contains(keyword.toLowerCase(Locale.ROOT))) {
                     score += 3;
+                }
+                if (topic.contains(keyword.toLowerCase(Locale.ROOT))) {
+                    score += 4;
                 }
             }
         }
         for (String token : tokens) {
             if (questionText.contains(token)) {
                 score += 1;
+            }
+        }
+        if (questionText.contains(topic)) {
+            score += 8;
+        }
+        if (topic.contains("工程化")) {
+            if (type.contains("项目") || type.contains("project")) {
+                score += 8;
+            }
+            if (containsAny(questionText, "架构", "组件", "状态", "性能", "协作", "规范", "工程")) {
+                score += 6;
+            }
+            if (containsAny(questionText, "跨域", "渲染")) {
+                score -= 2;
             }
         }
         return score;
@@ -349,14 +301,13 @@ public class StudyModeService {
 
     private List<Map<String, Object>> buildRelatedResources(String question, RetrievalContext retrievalContext) {
         Map<String, Map<String, Object>> resources = new LinkedHashMap<>();
-        List<String> queries = extractFocusKeywords(question, retrievalContext, List.of());
+        List<String> queries = extractFocusKeywords(extractLearningTopic(question, null, List.of(), retrievalContext), retrievalContext, List.of());
         if (queries.isEmpty()) {
-            queries = List.of(summarizeTopic(question));
+            queries = List.of(extractLearningTopic(question, null, List.of(), retrievalContext));
         }
 
         for (String query : queries.stream().filter(StrUtil::isNotBlank).distinct().limit(4).toList()) {
-            List<RetrievedChunk> chunks = flattenChunks(retrievalContext).stream().limit(2).toList();
-            RetrievedChunk matchedChunk = chunks.isEmpty() ? null : chunks.get(0);
+            RetrievedChunk matchedChunk = findBestChunkForQuery(query, retrievalContext);
             try {
                 for (KnowledgeDocumentSearchVO document : knowledgeDocumentService.search(query, 2)) {
                     if (document == null || StrUtil.isBlank(document.getId())) {
@@ -388,11 +339,15 @@ public class StudyModeService {
         if (resources.isEmpty()) {
             int index = 0;
             for (RetrievedChunk chunk : flattenChunks(retrievalContext).stream().limit(3).toList()) {
+                String snippet = cleanSnippet(chunk.getText());
+                if (StrUtil.isBlank(snippet)) {
+                    continue;
+                }
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("id", "chunk-" + index++);
                 item.put("title", "知识库命中片段");
                 item.put("resourceType", "命中片段");
-                item.put("snippet", toSnippet(chunk.getText(), 140));
+                item.put("snippet", toSnippet(snippet, 140));
                 item.put("score", roundScore(chunk.getScore()));
                 item.put("recommendationReason", "这段内容与当前问题高度相关，建议结合练习题一起复述。");
                 resources.put(String.valueOf(item.get("id")), item);
@@ -401,13 +356,14 @@ public class StudyModeService {
         return new ArrayList<>(resources.values());
     }
 
-    private List<String> extractFocusKeywords(String question,
+    private List<String> extractFocusKeywords(String topic,
                                               RetrievalContext retrievalContext,
                                               List<QuestionEntity> practiceQuestions) {
         LinkedHashSet<String> keywords = new LinkedHashSet<>();
-        keywords.add(summarizeTopic(question));
+        keywords.add(topic);
         for (RetrievedChunk chunk : flattenChunks(retrievalContext).stream().limit(3).toList()) {
-            String snippet = toSnippet(chunk.getText(), 36);
+            String snippet = cleanSnippet(chunk.getText());
+            snippet = toSnippet(snippet, 24);
             if (StrUtil.isNotBlank(snippet)) {
                 keywords.add(snippet);
             }
@@ -436,85 +392,28 @@ public class StudyModeService {
                 .toList();
     }
 
-    private Map<String, Object> buildPracticeItem(QuestionEntity question, List<String> focusKeywords) {
+    private Map<String, Object> buildPracticeItem(QuestionEntity question, String topic, List<String> focusKeywords) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("id", question.getId());
         item.put("questionText", question.getQuestionText());
         item.put("difficulty", question.getDifficulty());
         item.put("questionType", positionProfileService.resolveQuestionTypeDisplayName(question.getQuestionType()));
-        item.put("focus", focusKeywords.isEmpty() ? "核心概念复述" : focusKeywords.get(0));
+        item.put("focus", StrUtil.isBlank(topic) ? (focusKeywords.isEmpty() ? "核心概念复述" : focusKeywords.get(0)) : topic);
         item.put("referenceAnswerPreview", question.getReferenceAnswerPreview());
-        item.put("suggestion", "先用 1 分钟讲结论，再补关键依据和边界条件。");
+        item.put("suggestion", buildPracticeSuggestion(question, topic));
         item.put("source", "question_bank");
         return item;
     }
-
-    private String buildConceptExplanation(String question, RetrievalContext retrievalContext) {
-        List<RetrievedChunk> chunks = flattenChunks(retrievalContext);
-        if (!chunks.isEmpty()) {
-            return "知识库命中内容显示，“" + summarizeTopic(question) + "”相关重点主要集中在：" + toSnippet(chunks.get(0).getText(), 120);
-        }
-        return "当前知识库没有直接命中完整资料，本轮先按题型拆出核心概念、判断条件和常见追问，帮助你建立答题主线。";
-    }
-
-    private List<String> buildKeyPoints(String question, RetrievalContext retrievalContext, List<QuestionEntity> practiceQuestions) {
-        LinkedHashSet<String> items = new LinkedHashSet<>();
-        for (RetrievedChunk chunk : flattenChunks(retrievalContext)) {
-            String snippet = toSnippet(chunk.getText(), 60);
-            if (StrUtil.isNotBlank(snippet)) {
-                items.add(snippet);
-            }
-            if (items.size() >= 3) {
-                break;
-            }
-        }
-        if (items.isEmpty()) {
-            items.add("先用一句话定义“" + summarizeTopic(question) + "”，不要直接进入细节。");
-            items.add("回答时补上适用场景、复杂度/代价，避免只说概念。");
-        }
-        if (!practiceQuestions.isEmpty()) {
-            items.add("结合练习题把知识点转成“结论 + 依据 + 边界”的口头表达。");
-        }
-        return new ArrayList<>(items).stream().limit(3).toList();
-    }
-
-    private List<String> buildCommonMistakes(String question, List<String> focusKeywords) {
-        List<String> mistakes = new ArrayList<>();
-        mistakes.add("只会背定义，但说不清适用条件、代价或边界。");
-        mistakes.add("回答没有结构，容易在追问时跳步骤。");
-        if (!focusKeywords.isEmpty()) {
-            mistakes.add("提到“" + focusKeywords.get(0) + "”时没有结合具体例子或典型场景。");
-        }
-        return mistakes.stream().limit(3).toList();
-    }
-
-    private List<String> buildAnswerFramework(String question, List<String> focusKeywords) {
-        String focus = focusKeywords.isEmpty() ? summarizeTopic(question) : focusKeywords.get(0);
-        return List.of(
-                "先用一句话定义“" + focus + "”和它解决的问题。",
-                "再讲 2-3 个关键机制或判断步骤，最好带上复杂度、约束或 trade-off。",
-                "最后补一个典型场景或常见误区，方便扛住追问。"
-        );
-    }
-
     private List<String> buildNextActions(String positionName,
-                                          List<String> focusKeywords,
+                                          String topic,
                                           List<Map<String, Object>> practiceItems) {
         List<String> actions = new ArrayList<>();
         actions.add("先复述一次本轮讲解，控制在 60-90 秒内。");
         if (!practiceItems.isEmpty()) {
-            actions.add("从推荐练习里先做第 1 题，答完再回来看答题骨架缺了哪一步。");
+            actions.add("从推荐练习里先做第 1 题，答完后检查自己有没有把背景、判断和收益讲完整。");
         }
-        actions.add("再找一条“" + (focusKeywords.isEmpty() ? positionName : focusKeywords.get(0)) + "”相关资料片段，补一个例子或反例。");
+        actions.add("再找一条“" + (StrUtil.isBlank(topic) ? positionName : topic) + "”相关资料片段，补一个例子或反例。");
         return actions;
-    }
-
-    private String summarizeTopic(String question) {
-        String trimmed = StrUtil.blankToDefault(question, "").trim();
-        if (trimmed.length() <= 20) {
-            return trimmed;
-        }
-        return trimmed.substring(0, 20) + "...";
     }
 
     private String toSnippet(String text, int maxLength) {
@@ -554,17 +453,123 @@ public class StudyModeService {
         return content.substring(0, markerIndex).trim();
     }
 
+    private RetrievedChunk findBestChunkForQuery(String query, RetrievalContext retrievalContext) {
+        String normalizedQuery = StrUtil.blankToDefault(query, "").toLowerCase(Locale.ROOT);
+        return flattenChunks(retrievalContext).stream()
+                .sorted(Comparator.comparingInt((RetrievedChunk chunk) -> {
+                    String cleaned = cleanSnippet(chunk.getText()).toLowerCase(Locale.ROOT);
+                    int score = cleaned.contains(normalizedQuery) ? 10 : 0;
+                    score += containsAny(cleaned, "工程化", "架构", "组件", "状态", "性能", "规范", "协作") ? 3 : 0;
+                    return score;
+                }).reversed())
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String extractLearningTopic(String question,
+                                        PositionEntity position,
+                                        List<QuestionEntity> practiceQuestions,
+                                        RetrievalContext retrievalContext) {
+        String normalized = StrUtil.blankToDefault(question, "").trim();
+        for (String topic : List.of("前端工程化", "性能优化", "状态管理", "组件拆分", "页面架构", "接口协作", "项目深挖")) {
+            if (normalized.contains(topic)) {
+                return topic;
+            }
+        }
+        if (containsAny(normalized.toLowerCase(Locale.ROOT), "工程化", "vite", "webpack", "eslint", "ci", "组件", "状态", "性能")) {
+            return "前端工程化";
+        }
+        if (practiceQuestions != null) {
+            for (QuestionEntity practiceQuestion : practiceQuestions) {
+                if (practiceQuestion.getKeywordList() != null) {
+                    for (String keyword : practiceQuestion.getKeywordList()) {
+                        if (StrUtil.isNotBlank(keyword) && normalized.contains(keyword)) {
+                            return keyword;
+                        }
+                    }
+                }
+            }
+        }
+        if (retrievalContext != null) {
+            for (RetrievedChunk chunk : flattenChunks(retrievalContext)) {
+                String cleaned = cleanSnippet(chunk.getText());
+                if (containsAny(cleaned, "工程化", "状态管理", "性能优化", "组件拆分", "项目深挖")) {
+                    for (String topic : List.of("前端工程化", "状态管理", "性能优化", "组件拆分", "项目深挖")) {
+                        if (cleaned.contains(topic)) {
+                            return topic;
+                        }
+                    }
+                }
+            }
+        }
+        if (position != null && StrUtil.isNotBlank(position.getName())) {
+            return position.getName();
+        }
+        return normalized.length() <= 12 ? normalized : normalized.substring(0, 12);
+    }
+
+    private String cleanSnippet(String text) {
+        if (StrUtil.isBlank(text)) {
+            return "";
+        }
+        String cleaned = text.replaceAll("(?m)^#+\\s*", "")
+                .replaceAll("(?m)^[-*]\\s*", "")
+                .replaceAll("(?m)^适用知识库.*$", "")
+                .replaceAll("(?m)^建议文件名.*$", "")
+                .replaceAll("(?m)^主题标签.*$", "")
+                .replaceAll("(?m)^高频问题.*$", "")
+                .replaceAll("(?m)^问题\\d+.*$", "")
+                .replaceAll("(?m)^难度\\s*\\d+.*$", "")
+                .replaceAll("(?m)^类型.*$", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (cleaned.startsWith("web/") || cleaned.startsWith("Web 前端项目深挖与追问")) {
+            cleaned = cleaned.replaceFirst("^Web 前端项目深挖与追问", "").trim();
+        }
+        return cleaned;
+    }
+
+    private String buildPracticeSuggestion(QuestionEntity question, String topic) {
+        String type = StrUtil.blankToDefault(question.getQuestionType(), "").toLowerCase(Locale.ROOT);
+        if (type.contains("项目") || type.contains("project")) {
+            return "先讲业务背景，再讲技术判断、取舍和最终收益。";
+        }
+        if (StrUtil.blankToDefault(topic, "").contains("工程化")) {
+            return "先讲问题，再讲为什么这么设计，最后补落地收益。";
+        }
+        return "先用 1 分钟讲结论，再补关键依据和边界条件。";
+    }
+
+    private String buildFrameworkHint(List<String> focusTags) {
+        String topic = focusTags == null || focusTags.isEmpty() ? "当前主题" : focusTags.get(0);
+        return "先定义“" + topic + "”解决什么问题，再讲设计判断和取舍，最后补收益与复盘。";
+    }
+
+    private boolean containsAny(String text, String... tokens) {
+        if (text == null) {
+            return false;
+        }
+        for (String token : tokens) {
+            if (text.contains(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private record StudyPayload(
             String kind,
             String positionName,
-            String learningSummary,
-            String conceptExplanation,
-            List<String> keyPoints,
-            List<String> commonMistakes,
+            List<String> focusTags,
             List<Map<String, Object>> practiceQuestions,
-            List<String> answerFramework,
             List<String> nextActions,
             List<Map<String, Object>> relatedResources
+    ) {
+    }
+
+    public record StudyContext(
+            ChatRequest request,
+            String payloadSuffix
     ) {
     }
 }
