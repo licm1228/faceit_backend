@@ -55,15 +55,6 @@ public class AIEvaluationService {
             "不了解",
             "答不上来"
     );
-    private static final List<String> INTERNAL_DIALOGUE_PHRASES = List.of(
-            "降阶重问",
-            "切题",
-            "低信号",
-            "回答信号",
-            "下一步动作",
-            "完全不会",
-            "建议切题"
-    );
 
     private final LLMService llmService;
     private final ObjectMapper objectMapper;
@@ -415,7 +406,7 @@ public class AIEvaluationService {
                 "你还需要给候选人一句可以直接说出口的即时反馈，要求只有 1 句，口语化、克制、自然，不要像报告，也不要像老师批改作业。\n" +
                 "你必须像真实技术面试官一样追问，而不是像题库老师出补全题。\n" +
                 "请先判断本次回答信号强弱：good 表示回答基本完整且可继续深挖；partial 表示答到一部分但缺关键点；low 表示信息量很低、明显不会或严重跑偏。\n" +
-                "再判断下一步动作：follow_up 表示值得围绕原题追问一个点；move_on 表示这题不再纠缠，直接切题。\n" +
+                "再判断下一步动作：follow_up 表示值得追问一个点；redirect 表示只适合降阶问一个更小的问题；move_on 表示这题不再纠缠，直接切题。\n" +
                 "追问规则：\n" +
                 "1. 每轮最多只追问一个关键点，只能有一个追问意图和一个追问聚焦点。\n" +
                 "2. 如果候选人已经提到某个点，不得要求其完整复述或重新列举。\n" +
@@ -425,9 +416,7 @@ public class AIEvaluationService {
                 "6. 如果上一轮已经围绕某个聚焦点追问，本轮不得重复同一聚焦点，也不得延续同一追问意图。\n" +
                 "7. 追问语气必须像口头面试，短、自然、针对性强。\n" +
                 "8. 如果回答已经足够完整，就直接进入下一题，不要为了互动而强行追问。\n" +
-                "9. 如果候选人明显不会或只回答“不知道/不太清楚”，不要硬转到无关概念；只有在原题范围内确实存在一个自然的补充追问时才 follow_up，否则直接 move_on。\n" +
-                "10. 追问必须紧扣原题及候选人回答，禁止切换到无关岗位、无关技术栈、无关知识点。\n" +
-                "11. 输出给候选人的内容必须是自然面试对话，禁止出现“降阶重问”“切题”“低信号”“回答信号”这类内部判断标签。\n" +
+                "9. 如果候选人明显不会或只回答“不知道/不太清楚”，最多只允许一次降阶重问，之后应 move_on。\n" +
                 "追问意图只能从以下枚举中选择一个：clarify_definition, verify_understanding, scenario, tradeoff, implementation_detail\n" +
                 "请按照以下格式输出：\n" +
                 "评分：[总分]\n" +
@@ -436,7 +425,7 @@ public class AIEvaluationService {
                 "逻辑清晰度：[分数]\n" +
                 "知识覆盖度：[分数]\n" +
                 "回答信号：[good/partial/low]\n" +
-                "下一步动作：[follow_up/move_on]\n" +
+                "下一步动作：[follow_up/redirect/move_on]\n" +
                 "即时反馈：[1-2句口语化反馈]\n" +
                 "实时反馈：[给聊天界面的1句短反馈]\n" +
                 "反馈：[详细反馈]\n" +
@@ -548,9 +537,8 @@ public class AIEvaluationService {
                 "3. 追问应该简洁明了，像真实口头面试，不要像考试题\n" +
                 "4. 禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”等措辞\n" +
                 "5. 禁止重复历史追问中的主题\n" +
-                "6. 如果指定意图是 clarify_definition，只能澄清原题直接相关的基础定义，不得切换到别的知识点或技术方向\n" +
-                "7. 只输出一句追问内容，不要添加任何其他说明\n" +
-                "8. 禁止输出“降阶重问”“切题”“完全不会”“建议切题”等内部评估话术";
+                "6. 如果指定意图是 clarify_definition，就把问题降到最小定义或判断层，不要继续拷问原题完整解法\n" +
+                "7. 只输出一句追问内容，不要添加任何其他说明";
     }
 
     private String buildFollowUpRewritePrompt(
@@ -769,13 +757,13 @@ public class AIEvaluationService {
         mutable.put("feedbackMode", feedbackMode);
         mutable.put("shouldFollowUp", inferShouldFollowUp(feedbackMode, answerSignal, mutable));
 
-        String liveFeedback = sanitizeCandidateFacingText(toSafeText(mutable.get("liveFeedback"), ""));
+        String liveFeedback = toSafeText(mutable.get("liveFeedback"), "");
         if (liveFeedback.isBlank()) {
             liveFeedback = buildLiveFeedback(answerSignal, feedbackMode, mutable);
         }
         mutable.put("liveFeedback", liveFeedback);
 
-        String instantFeedback = sanitizeCandidateFacingText(toSafeText(mutable.get("instantFeedback"), ""));
+        String instantFeedback = toSafeText(mutable.get("instantFeedback"), "");
         if (instantFeedback.isBlank()) {
             instantFeedback = liveFeedback;
         }
@@ -816,12 +804,12 @@ public class AIEvaluationService {
         if ("partial".equals(normalizedSignal)) {
             return clampNumber(evaluation.get("score")) >= 70 ? "move_on" : "follow_up";
         }
-        return "move_on";
+        return "redirect";
     }
 
     boolean inferShouldFollowUp(String feedbackMode, String answerSignal, Map<String, Object> evaluation) {
         String mode = normalizeFeedbackMode(feedbackMode);
-        if ("follow_up".equals(mode)) {
+        if ("follow_up".equals(mode) || "redirect".equals(mode)) {
             return true;
         }
         if ("move_on".equals(mode)) {
@@ -833,8 +821,8 @@ public class AIEvaluationService {
     String buildLiveFeedback(String answerSignal, String feedbackMode, Map<String, Object> evaluation) {
         String signal = normalizeAnswerSignal(answerSignal);
         String mode = normalizeFeedbackMode(feedbackMode);
-        String feedback = sanitizeCandidateFacingText(firstSentence(toSafeText(evaluation.get("feedback"), "")));
-        String suggestions = sanitizeCandidateFacingText(firstSentence(toSafeText(evaluation.get("suggestions"), "")));
+        String feedback = firstSentence(toSafeText(evaluation.get("feedback"), ""));
+        String suggestions = firstSentence(toSafeText(evaluation.get("suggestions"), ""));
 
         if ("good".equals(signal)) {
             if (!feedback.isBlank()) {
@@ -854,15 +842,13 @@ public class AIEvaluationService {
             }
             return "思路基本对了，我们先切下一题。";
         }
-        return "这题我先记到这里，我们继续下一题。";
-    }
-
-    private String sanitizeCandidateFacingText(String text) {
-        String normalized = toSafeText(text, "").trim();
-        if (normalized.isEmpty()) {
-            return "";
+        if ("redirect".equals(mode)) {
+            if (!suggestions.isBlank()) {
+                return suggestions;
+            }
+            return "先不展开太深，我换个更小的点确认一下。";
         }
-        return INTERNAL_DIALOGUE_PHRASES.stream().anyMatch(normalized::contains) ? "" : normalized;
+        return "这题我先记到这里，我们继续下一题。";
     }
 
     private String normalizeAnswerSignal(String answerSignal) {
@@ -876,7 +862,7 @@ public class AIEvaluationService {
     private String normalizeFeedbackMode(String feedbackMode) {
         String normalized = blankDefault(feedbackMode, "").trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "follow_up", "move_on" -> normalized;
+            case "follow_up", "redirect", "move_on" -> normalized;
             default -> "";
         };
     }

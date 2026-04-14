@@ -79,15 +79,6 @@ public class InterviewChatService {
             "没了解过",
             "答不上来"
     );
-    private static final List<String> INTERNAL_FOLLOW_UP_PHRASES = List.of(
-            "降阶重问",
-            "切题",
-            "低信号",
-            "回答信号",
-            "下一步动作",
-            "完全不会",
-            "建议切题"
-    );
     private static final int DEFAULT_DIFFICULTY = 3;
     private static final int DEFAULT_TIME_LIMIT_MINUTES = 20;
     private static final int DEFAULT_QUESTION_LIMIT = 5;
@@ -98,7 +89,6 @@ public class InterviewChatService {
     private final InterviewSessionService interviewSessionService;
     private final InterviewAnswerService interviewAnswerService;
     private final QuestionService questionService;
-    private final PositionProfileService positionProfileService;
     private final PositionMapper positionMapper;
     private final AIEvaluationService aiEvaluationService;
     private final ConversationMapper conversationMapper;
@@ -145,13 +135,7 @@ public class InterviewChatService {
         InterviewSessionEntity session = interviewSessionService.createSession(userId, position.getId(), timeLimitMinutes, questionLimit);
         session = interviewSessionService.startSession(session.getId());
 
-        List<String> questionTypePlan = positionProfileService.resolveQuestionTypePlan(position.getId(), position.getName());
-        QuestionEntity question = questionService.selectRandomQuestionExcluding(
-                position.getId(),
-                difficulty,
-                resolvePreferredQuestionTypes(questionTypePlan, 1),
-                List.of()
-        );
+        QuestionEntity question = questionService.selectRandomQuestionExcluding(position.getId(), difficulty, List.of());
         if (question == null) {
             throw new ClientException("当前岗位暂无可用题目");
         }
@@ -234,6 +218,12 @@ public class InterviewChatService {
             String followUpIntent = normalizeIntent((String) evaluation.get("followUpIntent"));
             String followUpFocus = normalizeFocus((String) evaluation.get("followUpFocus"));
             String followUpQuestionText = normalizeFollowUpQuestion((String) evaluation.get("followUpQuestion"));
+            if (lowSignalAnswer && StrUtil.isBlank(followUpIntent)) {
+                followUpIntent = "clarify_definition";
+            }
+            if (lowSignalAnswer && StrUtil.isBlank(followUpFocus)) {
+                followUpFocus = "当前题目的最小关键概念";
+            }
             if (StrUtil.isBlank(followUpQuestionText)) {
                 QuestionEntity followUpQuestion = aiEvaluationService.generateFollowUpQuestion(
                         question,
@@ -282,10 +272,6 @@ public class InterviewChatService {
         QuestionEntity nextQuestion = questionService.selectRandomQuestionExcluding(
                 session.getPositionId(),
                 runtimeState.getDifficulty(),
-                resolvePreferredQuestionTypes(
-                        positionProfileService.resolveQuestionTypePlan(runtimeState.getPositionId(), runtimeState.getPositionName()),
-                        runtimeState.getQuestionIndex() + 1
-                ),
                 runtimeState.getAskedQuestionIds()
         );
         if (nextQuestion == null) {
@@ -540,18 +526,6 @@ public class InterviewChatService {
         data.put("followUpCount", runtimeState.getFollowUpCount());
         data.put("askedQuestionIds", runtimeState.getAskedQuestionIds());
         return data;
-    }
-
-    private List<String> resolvePreferredQuestionTypes(List<String> questionTypePlan, int questionIndex) {
-        if (questionTypePlan == null || questionTypePlan.isEmpty() || questionIndex <= 0) {
-            return List.of();
-        }
-        int index = Math.floorMod(questionIndex - 1, questionTypePlan.size());
-        String preferredType = questionTypePlan.get(index);
-        if (StrUtil.isBlank(preferredType)) {
-            return List.of();
-        }
-        return List.of(preferredType);
     }
 
     private Map<String, Object> buildBaseReport(InterviewSessionEntity session, RuntimeState runtimeState, List<InterviewAnswerEntity> answers) {
@@ -849,6 +823,9 @@ public class InterviewChatService {
         if ("move_on".equals(normalizeFeedbackMode(feedbackMode))) {
             return false;
         }
+        if (lowSignalAnswer) {
+            return runtimeState != null && Optional.ofNullable(runtimeState.getFollowUpCount()).orElse(0) < 1;
+        }
         Object explicitDecision = evaluation.get("shouldFollowUp");
         if (explicitDecision instanceof Boolean bool) {
             return bool;
@@ -863,9 +840,6 @@ public class InterviewChatService {
         }
         if ("partial".equals(answerSignal)) {
             return score == null || score < 70;
-        }
-        if (lowSignalAnswer) {
-            return score != null && score >= 60;
         }
         return score == null || score < 60;
     }
@@ -1002,9 +976,6 @@ public class InterviewChatService {
         normalized = normalized.replaceAll("\\s+", " ");
         if (normalized.startsWith("问题：")) {
             normalized = normalized.substring(3).trim();
-        }
-        if (INTERNAL_FOLLOW_UP_PHRASES.stream().anyMatch(normalized::contains)) {
-            return "";
         }
         return normalized;
     }
@@ -1217,7 +1188,7 @@ public class InterviewChatService {
     String normalizeFeedbackMode(String value) {
         String normalized = StrUtil.blankToDefault(value, "").trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "follow_up", "move_on" -> normalized;
+            case "follow_up", "redirect", "move_on" -> normalized;
             default -> "";
         };
     }
