@@ -127,6 +127,7 @@ let fetchSessionsTask: Promise<void> | null = null;
 let selectSessionTask: Promise<void> | null = null;
 let selectingSessionId: string | null = null;
 const CHAT_MODE_SEQUENCE: ChatMode[] = ["interview", "study", "free"];
+const INTERVIEW_FEEDBACK_PLACEHOLDER = "我正在分析你的回答，稍等一下。";
 
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
@@ -467,6 +468,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (payload.type === "phase") {
             const phase = payload.delta;
             if (phase === "feedback") {
+              set((state) => ({
+                messages: state.messages.map((message) =>
+                  message.id === state.streamingMessageId && !message.content
+                    ? {
+                        ...message,
+                        content: INTERVIEW_FEEDBACK_PLACEHOLDER
+                      }
+                    : message
+                )
+              }));
               return;
             }
             set((state) => {
@@ -501,7 +512,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
             return;
           }
           if (payload.type !== "response") return;
-          get().appendStreamContent(payload.delta);
+          set((state) => ({
+            messages: state.messages.map((message) => {
+              if (message.id !== state.streamingMessageId) return message;
+              if (message.status === "cancelled" || message.status === "error") return message;
+              const shouldReplacePlaceholder = message.content === INTERVIEW_FEEDBACK_PLACEHOLDER;
+              return {
+                ...message,
+                content: shouldReplacePlaceholder ? payload.delta : message.content + payload.delta
+              };
+            })
+          }));
         },
         onFinish: () => {
           set((state) => ({
@@ -535,7 +556,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamingMessageId: null,
             cancelRequested: false,
             messages: state.messages.map((message) =>
-              message.id === optimisticAssistantId
+              message.id === state.streamingMessageId
                 ? {
                     ...message,
                     status: "error",
