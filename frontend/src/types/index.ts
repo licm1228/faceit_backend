@@ -107,6 +107,7 @@ export interface InterviewReport {
   questionLimit?: number;
   timeLimitMinutes?: number;
   summary?: string;
+  practiceSummary?: string;
   dimensionScores: {
     technicalCorrectness: number;
     knowledgeDepth: number;
@@ -118,6 +119,13 @@ export interface InterviewReport {
   highlights: string[];
   weaknesses: string[];
   improvementSuggestions: string[];
+  practicePlan?: Array<{
+    day: number;
+    title: string;
+    focus?: string;
+    actions?: string[];
+    expectedOutcome?: string;
+  }>;
   recommendedPractices: Array<{
     id: string;
     questionText: string;
@@ -127,5 +135,11 @@ export interface InterviewReport {
     knowledgeSource?: string;
     recommendationReason?: string;
     referenceAnswerPreview?: string;
+    priorityLabel?: string;
+    focusArea?: string;
+    skillGap?: string;
+    estimatedMinutes?: number;
+    practiceMethod?: string[];
+    answerChecklist?: string[];
   }>;
 }

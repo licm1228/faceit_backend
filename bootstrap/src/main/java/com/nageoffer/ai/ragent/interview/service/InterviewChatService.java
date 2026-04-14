@@ -80,6 +80,7 @@ public class InterviewChatService {
     private final InterviewSessionService interviewSessionService;
     private final InterviewAnswerService interviewAnswerService;
     private final QuestionService questionService;
+    private final PositionProfileService positionProfileService;
     private final PositionMapper positionMapper;
     private final AIEvaluationService aiEvaluationService;
     private final ConversationMapper conversationMapper;
@@ -519,7 +520,7 @@ public class InterviewChatService {
         int expressionScore = average(validAnswers.stream().map(InterviewAnswerEntity::getExpressionScore).toList());
         int positionMatchScore = Math.max(0, Math.min(100, overallScore - technicalScore - logicScore - knowledgeScore));
 
-        List<Map<String, Object>> recommendedPractices = buildRecommendedPractices(session, runtimeState, validAnswers);
+        PracticeRecommendationBundle practiceBundle = buildPracticeRecommendationBundle(session, runtimeState, validAnswers);
 
         List<String> highlights = validAnswers.stream()
                 .sorted(Comparator.comparing(answer -> Optional.ofNullable(answer.getScore()).orElse(0), Comparator.reverseOrder()))
@@ -567,7 +568,9 @@ public class InterviewChatService {
         report.put("highlights", highlights);
         report.put("weaknesses", weaknesses);
         report.put("improvementSuggestions", improvementSuggestions);
-        report.put("recommendedPractices", recommendedPractices);
+        report.put("practiceSummary", practiceBundle.summary());
+        report.put("practicePlan", practiceBundle.plan());
+        report.put("recommendedPractices", practiceBundle.recommendedPractices());
         return report;
     }
 
@@ -680,23 +683,25 @@ public class InterviewChatService {
         } catch (Exception ex) {
             log.warn("解析面试报告失败, sessionId={}", session.getId(), ex);
         }
-        return Map.of(
-                "reportStatus", "ready",
-                "overallScore", Optional.ofNullable(session.getTotalScore()).orElse(0),
-                "summary", "历史报告格式为旧版文本，建议重新完成一场聊天式面试以获得更完整的结构化总结。",
-                "dimensionScores", Map.of(
-                        "technicalCorrectness", 0,
-                        "knowledgeDepth", 0,
-                        "logicRigor", 0,
-                        "positionMatch", 0,
-                        "expressionDelivery", 0
-                ),
-                "expressionSummary", "历史报告格式不包含表达维度，建议重新进行一次语音面试以获得更完整分析。",
-                "highlights", List.of("历史报告格式为旧版文本，暂未结构化。"),
-                "weaknesses", List.of("建议重新完成一次聊天式面试，以获得完整结构化报告。"),
-                "improvementSuggestions", List.of("从当前岗位核心题型开始继续练习。"),
-                "recommendedPractices", List.of()
-        );
+        Map<String, Object> fallback = new LinkedHashMap<>();
+        fallback.put("reportStatus", "ready");
+        fallback.put("overallScore", Optional.ofNullable(session.getTotalScore()).orElse(0));
+        fallback.put("summary", "历史报告格式为旧版文本，建议重新完成一场聊天式面试以获得更完整的结构化总结。");
+        fallback.put("dimensionScores", Map.of(
+                "technicalCorrectness", 0,
+                "knowledgeDepth", 0,
+                "logicRigor", 0,
+                "positionMatch", 0,
+                "expressionDelivery", 0
+        ));
+        fallback.put("expressionSummary", "历史报告格式不包含表达维度，建议重新进行一次语音面试以获得更完整分析。");
+        fallback.put("highlights", List.of("历史报告格式为旧版文本，暂未结构化。"));
+        fallback.put("weaknesses", List.of("建议重新完成一次聊天式面试，以获得完整结构化报告。"));
+        fallback.put("improvementSuggestions", List.of("从当前岗位核心题型开始继续练习。"));
+        fallback.put("practiceSummary", "建议先完成一场新的模拟面试，再根据最新短板生成专项练习。");
+        fallback.put("practicePlan", List.of());
+        fallback.put("recommendedPractices", List.of());
+        return fallback;
     }
 
     private String toRuntimePayload(RuntimeState runtimeState) {
@@ -1176,62 +1181,190 @@ public class InterviewChatService {
         return text;
     }
 
-    private List<Map<String, Object>> buildRecommendedPractices(
+    private PracticeRecommendationBundle buildPracticeRecommendationBundle(
             InterviewSessionEntity session,
             RuntimeState runtimeState,
             List<InterviewAnswerEntity> validAnswers
     ) {
-        Set<String> weakTypes = new LinkedHashSet<>();
-        Set<String> weakKeywords = new LinkedHashSet<>();
+        if (session == null || runtimeState == null) {
+            return new PracticeRecommendationBundle(
+                    "建议先继续完成岗位核心题型练习，再根据最新短板安排专项复练。",
+                    List.of(),
+                    List.of()
+            );
+        }
+        Map<String, Integer> weakTypes = new LinkedHashMap<>();
+        Map<String, Integer> weakKeywords = new LinkedHashMap<>();
+        List<WeakAnswerSnapshot> weakAnswers = new ArrayList<>();
         for (InterviewAnswerEntity answer : validAnswers) {
-            if (Optional.ofNullable(answer.getScore()).orElse(0) >= 75 || answer.getQuestionId() == null) {
+            int score = Optional.ofNullable(answer.getScore()).orElse(0);
+            if (score >= 78 || answer.getQuestionId() == null) {
                 continue;
             }
             QuestionEntity question = questionService.getQuestionById(answer.getQuestionId());
             if (question == null) {
                 continue;
             }
+            int severity = weaknessSeverity(score);
             if (StrUtil.isNotBlank(question.getQuestionType())) {
-                weakTypes.add(question.getQuestionType());
+                weakTypes.merge(normalizeQuestionTypeToken(question.getQuestionType()), severity, Integer::sum);
             }
             if (question.getKeywordList() != null) {
-                weakKeywords.addAll(question.getKeywordList().stream().limit(3).toList());
+                question.getKeywordList().stream()
+                        .filter(StrUtil::isNotBlank)
+                        .limit(4)
+                        .forEach(keyword -> weakKeywords.merge(keyword.trim(), severity, Integer::sum));
             }
+            weakAnswers.add(new WeakAnswerSnapshot(question, answer, score, severity));
         }
 
-        return questionService.getQuestionsByPosition(session.getPositionId()).stream()
-                .filter(question -> !runtimeState.getAskedQuestionIds().contains(question.getId()))
-                .sorted(Comparator.comparingInt((QuestionEntity question) -> recommendationPriority(question, weakTypes, weakKeywords)).reversed())
+        List<String> orderedWeakTypes = weakTypes.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue(Comparator.reverseOrder()))
+                .map(Map.Entry::getKey)
                 .limit(3)
-                .map(question -> {
-                    question.setRecommendationReason(buildPracticeReason(question, weakTypes, weakKeywords));
-                    questionService.enrichQuestion(question);
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("id", question.getId());
-                    item.put("questionText", question.getQuestionText());
-                    item.put("difficulty", question.getDifficulty());
-                    item.put("questionType", question.getQuestionType());
-                    item.put("knowledgeTags", question.getKeywordList());
-                    item.put("knowledgeSource", question.getKnowledgeSource());
-                    item.put("recommendationReason", question.getRecommendationReason());
-                    item.put("referenceAnswerPreview", question.getReferenceAnswerPreview());
-                    return item;
-                })
+                .toList();
+        List<String> orderedWeakKeywords = weakKeywords.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue(Comparator.reverseOrder()))
+                .map(Map.Entry::getKey)
+                .limit(4)
+                .toList();
+        List<WeakAnswerSnapshot> prioritizedWeakAnswers = weakAnswers.stream()
+                .sorted(Comparator.comparingInt(WeakAnswerSnapshot::severity).reversed()
+                        .thenComparingInt(WeakAnswerSnapshot::score))
+                .limit(3)
+                .toList();
+
+        List<Map<String, Object>> recommendedPractices = questionService.getQuestionsByPosition(session.getPositionId()).stream()
+                .filter(question -> !runtimeState.getAskedQuestionIds().contains(question.getId()))
+                .sorted(Comparator.comparingInt((QuestionEntity question) -> recommendationPriority(question, orderedWeakTypes, orderedWeakKeywords)).reversed())
+                .limit(3)
+                .map(question -> buildPracticeItem(question, orderedWeakTypes, orderedWeakKeywords))
                 .collect(Collectors.toList());
+
+        if (recommendedPractices.isEmpty()) {
+            recommendedPractices = questionService.getQuestionsByPosition(session.getPositionId()).stream()
+                    .sorted(Comparator.comparingInt((QuestionEntity question) -> Optional.ofNullable(question.getDifficulty()).orElse(3)))
+                    .limit(3)
+                    .map(question -> buildPracticeItem(question, orderedWeakTypes, orderedWeakKeywords))
+                    .collect(Collectors.toList());
+        }
+
+        List<Map<String, Object>> practicePlan = buildPracticePlan(prioritizedWeakAnswers, orderedWeakTypes, orderedWeakKeywords);
+        String summary = buildPracticeSummary(runtimeState.getPositionName(), orderedWeakTypes, orderedWeakKeywords);
+        return new PracticeRecommendationBundle(summary, practicePlan, recommendedPractices);
     }
 
-    private int recommendationPriority(QuestionEntity question, Set<String> weakTypes, Set<String> weakKeywords) {
+    private Map<String, Object> buildPracticeItem(
+            QuestionEntity question,
+            List<String> weakTypes,
+            List<String> weakKeywords
+    ) {
+        if (question == null) {
+            return Map.of();
+        }
+        question.setRecommendationReason(buildPracticeReason(question, weakTypes, weakKeywords));
+        questionService.enrichQuestion(question);
+        List<String> matchedKeywords = question.getKeywordList() == null ? List.of() : question.getKeywordList().stream()
+                .filter(weakKeywords::contains)
+                .limit(2)
+                .toList();
+        String normalizedType = normalizeQuestionTypeToken(question.getQuestionType());
+        String typeDisplay = positionProfileService.resolveQuestionTypeDisplayName(question.getQuestionType());
+        String primaryFocus = !matchedKeywords.isEmpty()
+                ? matchedKeywords.get(0)
+                : (weakTypes.contains(normalizedType) ? typeDisplay : "岗位核心能力");
+
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", question.getId());
+        item.put("questionText", question.getQuestionText());
+        item.put("difficulty", question.getDifficulty());
+        item.put("questionType", typeDisplay);
+        item.put("knowledgeTags", question.getKeywordList());
+        item.put("knowledgeSource", question.getKnowledgeSource());
+        item.put("recommendationReason", question.getRecommendationReason());
+        item.put("referenceAnswerPreview", question.getReferenceAnswerPreview());
+        item.put("priorityLabel", buildPriorityLabel(question, weakTypes, weakKeywords));
+        item.put("focusArea", primaryFocus);
+        item.put("skillGap", buildSkillGap(normalizedType, primaryFocus));
+        item.put("estimatedMinutes", estimatePracticeMinutes(question.getDifficulty()));
+        item.put("practiceMethod", buildPracticeMethod(normalizedType, primaryFocus));
+        item.put("answerChecklist", buildAnswerChecklist(normalizedType, primaryFocus));
+        return item;
+    }
+
+    private List<Map<String, Object>> buildPracticePlan(
+            List<WeakAnswerSnapshot> weakAnswers,
+            List<String> weakTypes,
+            List<String> weakKeywords
+    ) {
+        List<Map<String, Object>> plan = new ArrayList<>();
+        plan.add(buildPracticePlanItem(
+                1,
+                "先补基础主干",
+                firstWeakFocus(weakTypes, weakKeywords, "核心概念"),
+                List.of(
+                        "先用 5 分钟复述这个知识点的定义、核心判断条件和典型误区",
+                        "对着纸写出 1 个标准答题骨架，再用口头讲一遍",
+                        "如果答题经常断层，补上复杂度、边界条件或 trade-off 这一个缺口"
+                ),
+                "能在 1 分钟内把核心思路讲完整，不再只停留在模糊印象。"
+        ));
+        plan.add(buildPracticePlanItem(
+                2,
+                "做同类专项题",
+                weakAnswers.isEmpty()
+                        ? firstWeakFocus(weakTypes, weakKeywords, "同类题型")
+                        : positionProfileService.resolveQuestionTypeDisplayName(weakAnswers.get(0).question().getQuestionType()),
+                List.of(
+                        "连续练 2-3 道同题型问题，强制用统一结构作答",
+                        "每道题都补一句“为什么这样做”或“还有什么替代方案”",
+                        "答完后对照参考答案，只改最薄弱的 1 个点，不要整段重写"
+                ),
+                "同类型题目能稳定答到关键点，减少被追问后卡壳。"
+        ));
+        plan.add(buildPracticePlanItem(
+                3,
+                "做一次模拟复盘",
+                weakAnswers.size() >= 2 ? summarizeWeakQuestion(weakAnswers.get(1).question()) : "综合表达",
+                List.of(
+                        "选 1 道最弱题目，完整模拟“回答 + 追问 + 复述”三轮",
+                        "把回答控制在“结论先行 + 关键依据 + 风险/边界”结构",
+                        "最后再用 30 秒总结这类题以后怎么答"
+                ),
+                "把零散知识点串成完整面试表达，下一次面试更稳。"
+        ));
+        return plan;
+    }
+
+    private Map<String, Object> buildPracticePlanItem(
+            int day,
+            String title,
+            String focus,
+            List<String> actions,
+            String expectedOutcome
+    ) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("day", day);
+        item.put("title", title);
+        item.put("focus", focus);
+        item.put("actions", actions);
+        item.put("expectedOutcome", expectedOutcome);
+        return item;
+    }
+
+    private int recommendationPriority(QuestionEntity question, List<String> weakTypes, List<String> weakKeywords) {
         int score = 0;
         if (question == null) {
             return score;
         }
-        if (weakTypes.contains(question.getQuestionType())) {
-            score += 4;
+        String normalizedType = normalizeQuestionTypeToken(question.getQuestionType());
+        if (weakTypes.contains(normalizedType)) {
+            score += 6;
         }
         if (question.getKeywordList() != null) {
             for (String keyword : question.getKeywordList()) {
                 if (weakKeywords.contains(keyword)) {
-                    score += 2;
+                    score += 3;
                 }
             }
         }
@@ -1239,21 +1372,173 @@ public class InterviewChatService {
         return score;
     }
 
-    private String buildPracticeReason(QuestionEntity question, Set<String> weakTypes, Set<String> weakKeywords) {
+    private String buildPracticeReason(QuestionEntity question, List<String> weakTypes, List<String> weakKeywords) {
         if (question == null) {
             return "建议继续进行专项训练。";
         }
-        if (weakTypes.contains(question.getQuestionType())) {
-            return "这道题和你本次表现较弱的题型一致，适合做针对性补强。";
+        String normalizedType = normalizeQuestionTypeToken(question.getQuestionType());
+        boolean typeMatched = weakTypes.contains(normalizedType);
+        boolean keywordMatched = question.getKeywordList() != null
+                && question.getKeywordList().stream().anyMatch(weakKeywords::contains);
+        if (typeMatched && keywordMatched) {
+            return "这道题同时命中了你本场较弱的题型和知识点，适合优先做针对性补强。";
         }
-        if (question.getKeywordList() != null) {
-            for (String keyword : question.getKeywordList()) {
-                if (weakKeywords.contains(keyword)) {
-                    return "这道题覆盖了你本次回答中暴露出的薄弱知识点，适合立即复练。";
-                }
-            }
+        if (typeMatched) {
+            return "这道题和你本次表现较弱的题型一致，适合先把答题主干练稳。";
         }
-        return "这道题仍属于当前岗位高频考点，可用于巩固核心知识框架。";
+        if (keywordMatched) {
+            return "这道题覆盖了你本次回答中暴露出的薄弱知识点，适合立即复练。";
+        }
+        return "这道题仍属于当前岗位高频考点，可用于把主干思路和表达结构串起来。";
+    }
+
+    private String buildPracticeSummary(String positionName, List<String> weakTypes, List<String> weakKeywords) {
+        String role = StrUtil.blankToDefault(positionName, "当前岗位");
+        String weakTypeText = weakTypes.isEmpty()
+                ? "高频核心题型"
+                : weakTypes.stream()
+                        .limit(2)
+                        .map(positionProfileService::resolveQuestionTypeDisplayName)
+                        .collect(Collectors.joining("、"));
+        String keywordText = weakKeywords.isEmpty()
+                ? "核心概念表达"
+                : String.join("、", weakKeywords.stream().limit(2).toList());
+        return String.format("%s 建议先补 %s 的主干思路，再围绕 %s 做专项复练，最后用一轮完整模拟把答案结构讲顺。", role, keywordText, weakTypeText);
+    }
+
+    private int weaknessSeverity(int score) {
+        if (score < 45) {
+            return 5;
+        }
+        if (score < 60) {
+            return 4;
+        }
+        if (score < 70) {
+            return 3;
+        }
+        return 2;
+    }
+
+    private String buildPriorityLabel(QuestionEntity question, List<String> weakTypes, List<String> weakKeywords) {
+        String normalizedType = normalizeQuestionTypeToken(question.getQuestionType());
+        boolean typeMatched = weakTypes.contains(normalizedType);
+        boolean keywordMatched = question.getKeywordList() != null
+                && question.getKeywordList().stream().anyMatch(weakKeywords::contains);
+        if (typeMatched && keywordMatched) {
+            return "立即补强";
+        }
+        if (typeMatched || keywordMatched) {
+            return "巩固提升";
+        }
+        return "综合串联";
+    }
+
+    private String buildSkillGap(String normalizedType, String focusArea) {
+        return switch (normalizedType) {
+            case "algorithm" -> "当前更需要把算法题的定义、核心思路、复杂度和边界条件讲完整";
+            case "project" -> "当前更需要把项目题讲成“背景-方案-取舍-结果”的完整闭环";
+            case "scenario" -> "当前更需要先澄清约束，再给方案和取舍，不要直接跳结论";
+            case "behavior" -> "当前更需要把经历讲具体，避免只给抽象描述";
+            default -> "当前更需要把 " + focusArea + " 的主干思路和关键细节说清楚";
+        };
+    }
+
+    private List<String> buildPracticeMethod(String normalizedType, String focusArea) {
+        return switch (normalizedType) {
+            case "algorithm" -> List.of(
+                    "先用一句话说清题目本质，再给出核心数据结构或递归状态",
+                    "补上时间复杂度、空间复杂度和 1 个边界条件",
+                    "最后用一个小例子验证思路是否成立"
+            );
+            case "project" -> List.of(
+                    "先交代项目目标和你的角色，不要一上来就堆技术名词",
+                    "中间重点讲方案为什么这么选，以及遇到过什么权衡",
+                    "结尾补结果指标或实际收益，让答案落地"
+            );
+            case "scenario" -> List.of(
+                    "先确认场景限制和目标，再分步骤给方案",
+                    "每一步都补一句风险点或替代方案",
+                    "最后说明为什么这个方案更适合当前场景"
+            );
+            case "behavior" -> List.of(
+                    "按 STAR 结构复述经历，保证动作和结果具体",
+                    "重点展开你做了什么，而不是团队做了什么",
+                    "结尾补一条复盘，体现成长"
+            );
+            default -> List.of(
+                    "先讲清 " + focusArea + " 的定义或核心结论",
+                    "再补 1 个实现细节、例子或常见误区",
+                    "最后用一句话收束，避免答案散掉"
+            );
+        };
+    }
+
+    private List<String> buildAnswerChecklist(String normalizedType, String focusArea) {
+        return switch (normalizedType) {
+            case "algorithm" -> List.of("核心思路", "关键状态/数据结构", "复杂度", "边界条件");
+            case "project" -> List.of("项目背景", "你的职责", "方案取舍", "结果指标");
+            case "scenario" -> List.of("约束澄清", "方案步骤", "风险与 trade-off", "落地性");
+            case "behavior" -> List.of("场景", "任务", "行动", "结果");
+            default -> List.of("定义/结论", "关键依据", "例子或实现细节", "常见误区");
+        };
+    }
+
+    private int estimatePracticeMinutes(Integer difficulty) {
+        int normalized = Optional.ofNullable(difficulty).orElse(3);
+        return switch (normalized) {
+            case 1, 2 -> 12;
+            case 3 -> 18;
+            default -> 25;
+        };
+    }
+
+    private String firstWeakFocus(List<String> weakTypes, List<String> weakKeywords, String fallback) {
+        if (!weakKeywords.isEmpty()) {
+            return weakKeywords.get(0);
+        }
+        if (!weakTypes.isEmpty()) {
+            return positionProfileService.resolveQuestionTypeDisplayName(weakTypes.get(0));
+        }
+        return fallback;
+    }
+
+    private String summarizeWeakQuestion(QuestionEntity question) {
+        if (question == null || StrUtil.isBlank(question.getQuestionText())) {
+            return "综合表达";
+        }
+        String text = question.getQuestionText().trim();
+        return text.length() <= 18 ? text : text.substring(0, 18) + "...";
+    }
+
+    private String normalizeQuestionTypeToken(String questionType) {
+        if (questionType == null) {
+            return "";
+        }
+        String normalized = questionType.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "technical", "技术题", "技术问题", "技术知识" -> "technical";
+            case "scenario", "场景题" -> "scenario";
+            case "project", "项目题", "项目深挖" -> "project";
+            case "behavior", "行为题" -> "behavior";
+            case "algorithm", "算法题" -> "algorithm";
+            case "advanced", "综合进阶", "综合题" -> "advanced";
+            default -> normalized;
+        };
+    }
+
+    private record PracticeRecommendationBundle(
+            String summary,
+            List<Map<String, Object>> plan,
+            List<Map<String, Object>> recommendedPractices
+    ) {
+    }
+
+    private record WeakAnswerSnapshot(
+            QuestionEntity question,
+            InterviewAnswerEntity answer,
+            int score,
+            int severity
+    ) {
     }
 
     private int average(List<Integer> values) {
