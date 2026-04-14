@@ -130,8 +130,8 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     },
     study: {
       label: "学习模式",
-      description: "使用当前 Chat 能力，检索知识库并结合模型回答",
-      placeholder: "输入知识点、项目问题或面试题复盘，例如：帮我讲解 Redis 持久化与高可用...",
+      description: "围绕知识点做讲解、出练习题并给复盘建议",
+      placeholder: "输入知识点、项目问题或错题复盘，例如：讲解 Redis 持久化，并给我两道后端面试题...",
       icon: BookOpen,
       activeClassName: "border-[#C7E9D5] bg-[#EAF8EF] text-[#15803D]"
     },

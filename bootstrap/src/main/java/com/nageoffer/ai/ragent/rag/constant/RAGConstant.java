@@ -105,6 +105,12 @@ public class RAGConstant {
     public static final String CHAT_SYSTEM_PROMPT_PATH = "prompt/answer-chat-system.st";
 
     /**
+     * 自由聊天提示词模板路径
+     * 用于不依赖知识库的开放式对话场景
+     */
+    public static final String FREE_CHAT_SYSTEM_PROMPT_PATH = "prompt/free-chat-system.st";
+
+    /**
      * 查询改写 + 多问句拆分提示词模板路径
      * 要求同时返回改写后的单条查询和子问题列表
      */

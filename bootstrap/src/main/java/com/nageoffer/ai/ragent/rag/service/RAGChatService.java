@@ -30,10 +30,11 @@ public interface RAGChatService {
      *
      * @param question       用户问题
      * @param conversationId 会话 ID（可选，空时创建新会话）
+     * @param chatMode       聊天模式：study/free/interview（普通聊天时使用）
      * @param deepThinking   是否开启深度思考模式
      * @param emitter        SSE 发射器
      */
-    void streamChat(String question, String conversationId, Boolean deepThinking, SseEmitter emitter);
+    void streamChat(String question, String conversationId, String chatMode, Boolean deepThinking, SseEmitter emitter);
 
     /**
      * 停止指定任务 ID 的流式会话

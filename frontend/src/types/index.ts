@@ -29,6 +29,7 @@ export interface Message {
   id: string;
   role: Role;
   content: string;
+  chatMode?: ChatMode;
   thinking?: string;
   thinkingDuration?: number;
   isDeepThinking?: boolean;
