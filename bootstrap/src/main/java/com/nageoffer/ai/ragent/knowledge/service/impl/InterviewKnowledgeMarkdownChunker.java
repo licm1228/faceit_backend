@@ -46,15 +46,21 @@ public class InterviewKnowledgeMarkdownChunker {
     private static final Pattern H2_PATTERN = Pattern.compile("(?m)^##\\s+(.+)$");
     private static final Pattern H3_PATTERN = Pattern.compile("(?m)^###\\s+(.+)$");
 
-    public boolean supports(KnowledgeDocumentDO documentDO, String text) {
-        if (documentDO == null || StrUtil.isBlank(text)) {
+    public boolean supports(KnowledgeDocumentDO documentDO) {
+        if (documentDO == null) {
             return false;
         }
         String sourceLocation = StrUtil.blankToDefault(documentDO.getSourceLocation(), "");
         String docName = StrUtil.blankToDefault(documentDO.getDocName(), "");
         return sourceLocation.startsWith(RAG_SOURCE_ROOT)
-                && docName.toLowerCase(Locale.ROOT).endsWith(".md")
-                && text.contains("## " + SECTION_FAQ);
+                && docName.toLowerCase(Locale.ROOT).endsWith(".md");
+    }
+
+    public boolean supports(KnowledgeDocumentDO documentDO, String text) {
+        if (!supports(documentDO) || StrUtil.isBlank(text)) {
+            return false;
+        }
+        return text.contains("## " + SECTION_FAQ);
     }
 
     public List<VectorChunk> chunk(KnowledgeDocumentDO documentDO, String kbName, String markdown) {

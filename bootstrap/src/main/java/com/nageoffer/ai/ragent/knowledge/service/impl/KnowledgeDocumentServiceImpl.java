@@ -84,6 +84,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.util.StringUtils;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
@@ -359,7 +360,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         long extractStart = System.currentTimeMillis();
         try (InputStream is = fileStorageService.openStream(documentDO.getFileUrl())) {
-            String text = parserSelector.select(ParserType.TIKA.getType()).extractText(is, documentDO.getDocName());
+            String text = extractDocumentText(documentDO, is);
             long extractDuration = System.currentTimeMillis() - extractStart;
 
             long chunkStart = System.currentTimeMillis();
@@ -379,6 +380,13 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     private record ChunkProcessResult(List<VectorChunk> chunks, long extractDuration, long chunkDuration) {
+    }
+
+    private String extractDocumentText(KnowledgeDocumentDO documentDO, InputStream inputStream) throws Exception {
+        if (interviewKnowledgeMarkdownChunker.supports(documentDO)) {
+            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        return parserSelector.select(ParserType.TIKA.getType()).extractText(inputStream, documentDO.getDocName());
     }
 
     /**
