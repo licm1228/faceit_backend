@@ -4,3 +4,7 @@ server:
 spring:
   application:
     name: ragent-mcp-server
+
+faceit:
+  backend:
+    base-url: http://localhost:9090/api/ragent
