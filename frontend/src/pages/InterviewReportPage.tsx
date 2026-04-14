@@ -289,9 +289,19 @@ export function InterviewReportPage() {
                                       <p className="mt-1 text-[11px] text-[#64748B]">
                                         {resource.knowledgeBaseName || "知识库"}{resource.matchedKeyword ? ` · 命中 ${resource.matchedKeyword}` : ""}
                                       </p>
+                                      {resource.snippet ? (
+                                        <p className="mt-2 rounded-xl bg-[#F8FAFC] px-3 py-2 text-xs leading-5 text-[#334155]">
+                                          命中片段：{resource.snippet}
+                                        </p>
+                                      ) : null}
                                       {resource.recommendationReason ? (
                                         <p className="mt-2 text-xs leading-5 text-[#334155]">
                                           {resource.recommendationReason}
+                                        </p>
+                                      ) : null}
+                                      {typeof resource.score === "number" ? (
+                                        <p className="mt-2 text-[11px] text-[#94A3B8]">
+                                          相关度 {resource.score.toFixed(3)}
                                         </p>
                                       ) : null}
                                     </div>

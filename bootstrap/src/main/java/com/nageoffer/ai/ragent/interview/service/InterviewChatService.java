@@ -28,6 +28,7 @@ import com.nageoffer.ai.ragent.interview.controller.request.SpeechAnalysisReques
 import com.nageoffer.ai.ragent.interview.controller.request.InterviewChatStartRequest;
 import com.nageoffer.ai.ragent.knowledge.controller.vo.KnowledgeDocumentSearchVO;
 import com.nageoffer.ai.ragent.knowledge.service.KnowledgeDocumentService;
+import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.interview.entity.InterviewAnswerEntity;
 import com.nageoffer.ai.ragent.interview.entity.InterviewSessionEntity;
 import com.nageoffer.ai.ragent.interview.entity.PositionEntity;
@@ -38,6 +39,8 @@ import com.nageoffer.ai.ragent.rag.dao.entity.ConversationDO;
 import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationMapper;
 import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationMessageMapper;
 import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationSummaryMapper;
+import com.nageoffer.ai.ragent.rag.core.retrieve.RetrieveRequest;
+import com.nageoffer.ai.ragent.rag.core.retrieve.RetrieverService;
 import com.nageoffer.ai.ragent.rag.dto.CompletionPayload;
 import com.nageoffer.ai.ragent.rag.dto.MessageDelta;
 import com.nageoffer.ai.ragent.rag.enums.SSEEventType;
@@ -84,6 +87,7 @@ public class InterviewChatService {
     private final QuestionService questionService;
     private final PositionProfileService positionProfileService;
     private final KnowledgeDocumentService knowledgeDocumentService;
+    private final RetrieverService retrieverService;
     private final PositionMapper positionMapper;
     private final AIEvaluationService aiEvaluationService;
     private final ConversationMapper conversationMapper;
@@ -1318,28 +1322,104 @@ public class InterviewChatService {
         Map<String, Map<String, Object>> resources = new LinkedHashMap<>();
         for (String query : queries.stream().filter(StrUtil::isNotBlank).distinct().limit(4).toList()) {
             try {
+                List<RetrievedChunk> retrievedChunks = retrievePracticeResourceChunks(question, query);
+                RetrievedChunk bestChunk = retrievedChunks.isEmpty() ? null : retrievedChunks.get(0);
                 for (KnowledgeDocumentSearchVO document : knowledgeDocumentService.search(query, 2)) {
-                    if (document == null || StrUtil.isBlank(document.getId()) || resources.containsKey(document.getId())) {
+                    if (document == null || StrUtil.isBlank(document.getId())) {
                         continue;
                     }
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("id", document.getId());
-                    item.put("kbId", document.getKbId());
-                    item.put("title", document.getDocName());
-                    item.put("knowledgeBaseName", document.getKbName());
-                    item.put("matchedKeyword", query);
-                    item.put("resourceType", "知识库资料");
-                    item.put("recommendationReason", "这份资料与推荐题的补强点“" + query + "”相关，建议答题前先快速复习。");
-                    resources.put(document.getId(), item);
+                    Map<String, Object> item = resources.computeIfAbsent(document.getId(), ignored -> buildKnowledgeDocumentResource(document));
+                    applyResourceMatch(item, query, bestChunk);
                     if (resources.size() >= 3) {
                         return new ArrayList<>(resources.values());
                     }
+                }
+                if (bestChunk != null && resources.size() < 3) {
+                    String chunkKey = "chunk-" + StrUtil.blankToDefault(bestChunk.getId(), String.valueOf(resources.size()));
+                    resources.computeIfAbsent(chunkKey, ignored -> buildChunkOnlyResource(query, bestChunk));
                 }
             } catch (Exception ex) {
                 log.debug("关联推荐练习知识库资料失败, query={}", query, ex);
             }
         }
         return new ArrayList<>(resources.values());
+    }
+
+    private Map<String, Object> buildKnowledgeDocumentResource(KnowledgeDocumentSearchVO document) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", document.getId());
+        item.put("kbId", document.getKbId());
+        item.put("title", document.getDocName());
+        item.put("knowledgeBaseName", document.getKbName());
+        item.put("resourceType", "知识库资料");
+        return item;
+    }
+
+    private void applyResourceMatch(Map<String, Object> resource, String query, RetrievedChunk chunk) {
+        resource.putIfAbsent("matchedKeyword", query);
+        resource.put("recommendationReason", "这份资料与推荐题的补强点“" + query + "”相关，建议答题前先快速复习。");
+        if (chunk == null) {
+            return;
+        }
+        resource.putIfAbsent("chunkId", chunk.getId());
+        resource.put("snippet", toPracticeSnippet(chunk.getText()));
+        resource.put("score", roundChunkScore(chunk.getScore()));
+    }
+
+    private Map<String, Object> buildChunkOnlyResource(String query, RetrievedChunk chunk) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", "chunk-" + StrUtil.blankToDefault(chunk.getId(), query));
+        item.put("title", "知识库命中片段");
+        item.put("matchedKeyword", query);
+        item.put("resourceType", "命中片段");
+        item.put("recommendationReason", "当前命中到与“" + query + "”直接相关的知识片段，适合答题前快速扫一遍。");
+        item.put("chunkId", chunk.getId());
+        item.put("snippet", toPracticeSnippet(chunk.getText()));
+        item.put("score", roundChunkScore(chunk.getScore()));
+        return item;
+    }
+
+    private List<RetrievedChunk> retrievePracticeResourceChunks(QuestionEntity question, String query) {
+        if (question == null || StrUtil.isBlank(query)) {
+            return List.of();
+        }
+        List<String> collections = new ArrayList<>(positionProfileService.resolvePreferredKnowledgeCollections(question.getPositionId(), null));
+        if (!collections.contains("rag_default_store")) {
+            collections.add("rag_default_store");
+        }
+        for (String collection : collections.stream().filter(StrUtil::isNotBlank).distinct().toList()) {
+            try {
+                RetrieveRequest request = RetrieveRequest.builder()
+                        .query(query)
+                        .topK(2)
+                        .collectionName(collection)
+                        .build();
+                List<RetrievedChunk> chunks = retrieverService.retrieve(request);
+                if (chunks != null && !chunks.isEmpty()) {
+                    return chunks;
+                }
+            } catch (Exception ex) {
+                log.debug("推荐练习片段检索失败, collection={}, query={}", collection, query, ex);
+            }
+        }
+        return List.of();
+    }
+
+    private String toPracticeSnippet(String text) {
+        String normalized = StrUtil.blankToDefault(text, "")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (normalized.length() <= 140) {
+            return normalized;
+        }
+        return normalized.substring(0, 140) + "...";
+    }
+
+    private Double roundChunkScore(Float score) {
+        if (score == null) {
+            return null;
+        }
+        return Math.round(score * 1000d) / 1000d;
     }
 
     private List<Map<String, Object>> buildPracticePlan(

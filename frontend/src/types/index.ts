@@ -149,6 +149,9 @@ export interface InterviewReport {
       matchedKeyword?: string;
       resourceType?: string;
       recommendationReason?: string;
+      chunkId?: string;
+      snippet?: string;
+      score?: number;
     }>;
   }>;
 }
