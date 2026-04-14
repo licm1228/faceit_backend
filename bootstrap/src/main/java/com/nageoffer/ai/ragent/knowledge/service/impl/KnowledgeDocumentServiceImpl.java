@@ -115,6 +115,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final KnowledgeDocumentChunkLogMapper chunkLogMapper;
     private final PlatformTransactionManager transactionManager;
     private final KnowledgeDocumentChunkProducer chunkProducer;
+    private final InterviewKnowledgeMarkdownChunker interviewKnowledgeMarkdownChunker;
 
 
     @Value("${kb.chunk.semantic.targetChars:1400}")
@@ -359,9 +360,14 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             String text = parserSelector.select(ParserType.TIKA.getType()).extractText(is, documentDO.getDocName());
             long extractDuration = System.currentTimeMillis() - extractStart;
 
-            ChunkingStrategy chunkingStrategy = chunkingStrategyFactory.requireStrategy(chunkingMode);
             long chunkStart = System.currentTimeMillis();
-            List<VectorChunk> chunks = chunkingStrategy.chunk(text, config);
+            List<VectorChunk> chunks;
+            if (interviewKnowledgeMarkdownChunker.supports(documentDO, text)) {
+                chunks = interviewKnowledgeMarkdownChunker.chunk(documentDO, kbDO.getName(), text);
+            } else {
+                ChunkingStrategy chunkingStrategy = chunkingStrategyFactory.requireStrategy(chunkingMode);
+                chunks = chunkingStrategy.chunk(text, config);
+            }
             long chunkDuration = System.currentTimeMillis() - chunkStart;
 
             return new ChunkProcessResult(chunks, extractDuration, chunkDuration);
