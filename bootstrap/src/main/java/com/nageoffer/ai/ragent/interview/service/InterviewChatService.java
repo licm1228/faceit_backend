@@ -80,7 +80,7 @@ public class InterviewChatService {
     private static final int DEFAULT_QUESTION_LIMIT = 5;
     private static final int MAX_FOLLOW_UPS = 3;
     private static final Pattern QUESTION_LIMIT_PATTERN = Pattern.compile("(\\d{1,2})\\s*(题|道)");
-    private static final Pattern TIME_LIMIT_PATTERN = Pattern.compile("(\\d{1,3})\\s*(分钟|min|mins)");
+    private static final Pattern TIME_LIMIT_PATTERN = Pattern.compile("(\\d{1,3})\\s*(分钟|分|min|mins)");
 
     private final InterviewSessionService interviewSessionService;
     private final InterviewAnswerService interviewAnswerService;
@@ -1070,14 +1070,14 @@ public class InterviewChatService {
         if (minutes == null) {
             return DEFAULT_TIME_LIMIT_MINUTES;
         }
-        return Math.max(10, Math.min(90, minutes));
+        return Math.max(5, Math.min(180, minutes));
     }
 
     private Integer normalizeQuestionLimit(Integer count) {
         if (count == null) {
             return DEFAULT_QUESTION_LIMIT;
         }
-        return Math.max(3, Math.min(10, count));
+        return Math.max(1, Math.min(20, count));
     }
 
     private PositionEntity requirePosition(String positionId) {
