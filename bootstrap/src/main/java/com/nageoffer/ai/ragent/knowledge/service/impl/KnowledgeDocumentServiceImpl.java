@@ -84,6 +84,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.util.StringUtils;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
@@ -115,6 +116,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final KnowledgeDocumentChunkLogMapper chunkLogMapper;
     private final PlatformTransactionManager transactionManager;
     private final KnowledgeDocumentChunkProducer chunkProducer;
+    private final InterviewKnowledgeMarkdownChunker interviewKnowledgeMarkdownChunker;
 
 
     @Value("${kb.chunk.semantic.targetChars:1400}")
@@ -286,6 +288,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             }
 
             long embeddingStart = System.currentTimeMillis();
+            KnowledgeBaseDO kbDO = kbMapper.selectById(documentDO.getKbId());
+            attachEmbeddingsIfMissing(chunkResults, kbDO.getEmbeddingModel());
             String collectionName = resolveCollectionName(documentDO.getKbId());
             int savedCount = persistChunksAndVectorsAtomically(collectionName, docId, chunkResults);
             embeddingDuration = System.currentTimeMillis() - embeddingStart;
@@ -356,21 +360,33 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         long extractStart = System.currentTimeMillis();
         try (InputStream is = fileStorageService.openStream(documentDO.getFileUrl())) {
-            String text = parserSelector.select(ParserType.TIKA.getType()).extractText(is, documentDO.getDocName());
+            String text = extractDocumentText(documentDO, is);
             long extractDuration = System.currentTimeMillis() - extractStart;
 
-            ChunkingStrategy chunkingStrategy = chunkingStrategyFactory.requireStrategy(chunkingMode);
             long chunkStart = System.currentTimeMillis();
-            List<VectorChunk> chunks = chunkingStrategy.chunk(text, config);
+            List<VectorChunk> chunks;
+            if (interviewKnowledgeMarkdownChunker.supports(documentDO, text)) {
+                chunks = interviewKnowledgeMarkdownChunker.chunk(documentDO, kbDO.getName(), text);
+            } else {
+                ChunkingStrategy chunkingStrategy = chunkingStrategyFactory.requireStrategy(chunkingMode);
+                chunks = chunkingStrategy.chunk(text, config);
+            }
             long chunkDuration = System.currentTimeMillis() - chunkStart;
 
             return new ChunkProcessResult(chunks, extractDuration, chunkDuration);
         } catch (Exception e) {
-            throw new RuntimeException("文档内容提取或分块失败", e);
+            throw new RuntimeException("文档内容提取或分块失败: " + e.getMessage(), e);
         }
     }
 
     private record ChunkProcessResult(List<VectorChunk> chunks, long extractDuration, long chunkDuration) {
+    }
+
+    private String extractDocumentText(KnowledgeDocumentDO documentDO, InputStream inputStream) throws Exception {
+        if (interviewKnowledgeMarkdownChunker.supports(documentDO)) {
+            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        return parserSelector.select(ParserType.TIKA.getType()).extractText(inputStream, documentDO.getDocName());
     }
 
     /**
@@ -639,6 +655,23 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
     private String resolveCollectionName(String kbId) {
         return kbMapper.selectById(kbId).getCollectionName();
+    }
+
+    private void attachEmbeddingsIfMissing(List<VectorChunk> chunks, String embeddingModel) {
+        if (CollUtil.isEmpty(chunks)) {
+            return;
+        }
+
+        chunks.parallelStream().forEach(chunk -> {
+            if (chunk.getEmbedding() != null && chunk.getEmbedding().length > 0) {
+                return;
+            }
+            List<Float> embed = embedContent(chunk.getContent(), embeddingModel);
+            if (CollUtil.isEmpty(embed)) {
+                throw new IllegalStateException("向量化结果为空: chunkId=" + chunk.getChunkId());
+            }
+            chunk.setEmbedding(toArray(embed));
+        });
     }
 
     private List<Float> embedContent(String content, String embeddingModel) {

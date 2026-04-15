@@ -69,8 +69,8 @@ public class InterviewController {
      */
     @PostMapping("/create-session")
     public Map<String, Object> createSession(
-            @RequestParam String userId,
-            @RequestParam String positionId) {
+            @RequestParam("userId") String userId,
+            @RequestParam("positionId") String positionId) {
 
         InterviewSessionEntity session = interviewSessionService.createSession(userId, positionId);
 
@@ -90,10 +90,10 @@ public class InterviewController {
      */
     @PostMapping("/create-session-with-options")
     public Map<String, Object> createSessionWithOptions(
-            @RequestParam String userId,
-            @RequestParam String positionId,
-            @RequestParam(required = false) Integer timeLimit,
-            @RequestParam(required = false) Integer totalQuestions) {
+            @RequestParam("userId") String userId,
+            @RequestParam("positionId") String positionId,
+            @RequestParam(value = "timeLimit", required = false) Integer timeLimit,
+            @RequestParam(value = "totalQuestions", required = false) Integer totalQuestions) {
 
         InterviewSessionEntity session = interviewSessionService.createSession(userId, positionId, timeLimit, totalQuestions);
 
@@ -110,7 +110,7 @@ public class InterviewController {
      */
     @PostMapping("/start-session")
     public Map<String, Object> startSession(
-            @RequestParam String sessionId) {
+            @RequestParam("sessionId") String sessionId) {
 
         InterviewSessionEntity session = interviewSessionService.startSession(sessionId);
 
@@ -128,8 +128,8 @@ public class InterviewController {
      */
     @GetMapping("/get-question")
     public Map<String, Object> getQuestion(
-            @RequestParam String sessionId,
-            @RequestParam(required = false) Integer difficulty) {
+            @RequestParam("sessionId") String sessionId,
+            @RequestParam(value = "difficulty", required = false) Integer difficulty) {
 
         InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
         if (session == null) {
@@ -180,8 +180,8 @@ public class InterviewController {
      */
     @PostMapping("/submit-answer")
     public Map<String, Object> submitAnswer(
-            @RequestParam String sessionId,
-            @RequestParam String questionId,
+            @RequestParam("sessionId") String sessionId,
+            @RequestParam("questionId") String questionId,
             @RequestBody InterviewAnswerSubmitRequest request) {
 
         String userAnswer = request == null ? null : request.getContent();
@@ -219,8 +219,8 @@ public class InterviewController {
 
     @PostMapping(value = "/submit-answer/stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter submitAnswerStream(
-            @RequestParam String sessionId,
-            @RequestParam String questionId,
+            @RequestParam("sessionId") String sessionId,
+            @RequestParam("questionId") String questionId,
             @RequestBody InterviewAnswerSubmitRequest request) {
 
         SseEmitter emitter = new SseEmitter(0L);
@@ -237,8 +237,8 @@ public class InterviewController {
      */
     @PostMapping("/ask-follow-up")
     public Map<String, Object> askFollowUp(
-            @RequestParam String sessionId,
-            @RequestParam String questionId,
+            @RequestParam("sessionId") String sessionId,
+            @RequestParam("questionId") String questionId,
             @RequestBody String userAnswer) {
 
         // 获取原题目
@@ -255,8 +255,8 @@ public class InterviewController {
 
     @PostMapping(value = "/ask-follow-up/stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter askFollowUpStream(
-            @RequestParam String sessionId,
-            @RequestParam String questionId,
+            @RequestParam("sessionId") String sessionId,
+            @RequestParam("questionId") String questionId,
             @RequestBody String userAnswer) {
 
         SseEmitter emitter = new SseEmitter(0L);
@@ -271,7 +271,7 @@ public class InterviewController {
      */
     @PostMapping("/complete-session")
     public Map<String, Object> completeSession(
-            @RequestParam String sessionId) {
+            @RequestParam("sessionId") String sessionId) {
 
         // 获取所有回答
         List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(sessionId);
@@ -320,7 +320,7 @@ public class InterviewController {
 
     @PostMapping(value = "/complete-session/stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter completeSessionStream(
-            @RequestParam String sessionId) {
+            @RequestParam("sessionId") String sessionId) {
 
         SseEmitter emitter = new SseEmitter(0L);
         CompletableFuture.runAsync(() -> doCompleteSessionStream(sessionId, emitter), modelStreamExecutor);
@@ -334,7 +334,7 @@ public class InterviewController {
      */
     @GetMapping("/history")
     public Map<String, Object> getInterviewHistory(
-            @RequestParam String userId) {
+            @RequestParam("userId") String userId) {
 
         List<InterviewSessionEntity> sessions = interviewSessionService.getSessionsByUserId(userId);
 
@@ -351,7 +351,7 @@ public class InterviewController {
      */
     @GetMapping("/session-detail")
     public Map<String, Object> getSessionDetail(
-            @RequestParam String sessionId) {
+            @RequestParam("sessionId") String sessionId) {
 
         InterviewSessionEntity session = interviewSessionService.getSessionById(sessionId);
         List<InterviewAnswerEntity> answers = interviewAnswerService.getAnswersBySessionId(sessionId);
@@ -397,8 +397,8 @@ public class InterviewController {
      */
     @GetMapping("/select-question")
     public Map<String, Object> selectQuestion(
-            @RequestParam String positionId,
-            @RequestParam(required = false) Integer difficulty) {
+            @RequestParam("positionId") String positionId,
+            @RequestParam(value = "difficulty", required = false) Integer difficulty) {
 
         QuestionEntity question = questionService.selectRandomQuestion(positionId, difficulty);
 
@@ -416,8 +416,8 @@ public class InterviewController {
      */
     @GetMapping("/select-question-with-retrieve")
     public Map<String, Object> selectQuestionWithRetrieve(
-            @RequestParam String positionId,
-            @RequestParam(required = false) Integer difficulty) {
+            @RequestParam("positionId") String positionId,
+            @RequestParam(value = "difficulty", required = false) Integer difficulty) {
 
         Map<String, Object> result = interviewRetrieveService.selectQuestionAndRetrieve(positionId, difficulty);
 

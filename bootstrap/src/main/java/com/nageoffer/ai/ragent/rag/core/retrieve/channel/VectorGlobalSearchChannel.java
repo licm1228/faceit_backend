@@ -31,8 +31,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
@@ -107,8 +109,8 @@ public class VectorGlobalSearchChannel implements SearchChannel {
         try {
             log.info("执行向量全局检索，问题：{}", context.getMainQuestion());
 
-            // 获取所有 KB 类型的 collection
-            List<String> collections = getAllKBCollections();
+            List<String> collections = getCollectionsForSearch(context);
+            boolean preferredOnly = CollUtil.isNotEmpty(context.getPreferredCollections());
 
             if (collections.isEmpty()) {
                 log.warn("未找到任何 KB collection，跳过全局检索");
@@ -129,6 +131,17 @@ public class VectorGlobalSearchChannel implements SearchChannel {
                     context.getTopK() * topKMultiplier
             );
 
+            if (preferredOnly && CollUtil.isEmpty(allChunks)) {
+                List<String> fallbackCollections = getAllKBCollections();
+                log.info("岗位定向 collection 未命中结果，回退全局检索：{}", fallbackCollections);
+                allChunks = retrieveFromAllCollections(
+                        context.getMainQuestion(),
+                        fallbackCollections,
+                        context.getTopK() * topKMultiplier
+                );
+                collections = fallbackCollections;
+            }
+
             long latency = System.currentTimeMillis() - startTime;
 
             log.info("向量全局检索完成，检索到 {} 个 Chunk，耗时 {}ms", allChunks.size(), latency);
@@ -139,6 +152,7 @@ public class VectorGlobalSearchChannel implements SearchChannel {
                     .chunks(allChunks)
                     .confidence(0.7)  // 全局检索置信度中等
                     .latencyMs(latency)
+                    .metadata(Map.of("collectionCount", collections.size()))
                     .build();
 
         } catch (Exception e) {
@@ -151,6 +165,19 @@ public class VectorGlobalSearchChannel implements SearchChannel {
                     .latencyMs(System.currentTimeMillis() - startTime)
                     .build();
         }
+    }
+
+    /**
+     * 优先使用岗位/问题定向出的 collection，没有结果时再回退全量 KB collection。
+     */
+    private List<String> getCollectionsForSearch(SearchContext context) {
+        List<String> preferredCollections = context.getPreferredCollections();
+        if (CollUtil.isNotEmpty(preferredCollections)) {
+            log.info("命中岗位定向 collection，优先检索：{}", preferredCollections);
+            return new ArrayList<>(new LinkedHashSet<>(preferredCollections));
+        }
+
+        return getAllKBCollections();
     }
 
     /**

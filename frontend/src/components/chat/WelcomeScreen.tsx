@@ -16,6 +16,16 @@ interface WelcomeScreenProps {
   disabled?: boolean;
 }
 
+const INTERVIEW_LIMITS = {
+  difficulty: { min: 1, max: 5 },
+  timeLimitMinutes: { min: 5, max: 180 },
+  questionLimit: { min: 1, max: 20 }
+} as const;
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
   const navigate = useNavigate();
   const [value, setValue] = React.useState("");
@@ -48,6 +58,34 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     []
   );
   const isVoiceBusy = isRecording || isRecognizingSpeech;
+  const handleInterviewOptionChange = React.useCallback(
+    (field: "timeLimitMinutes" | "questionLimit", rawValue: string) => {
+      const digitsOnly = rawValue.replace(/[^\d]/g, "");
+      if (!digitsOnly) {
+        setInterviewOptions((prev) => ({
+          ...prev,
+          [field]: 0
+        }));
+        return;
+      }
+      setInterviewOptions((prev) => ({
+        ...prev,
+        [field]: Number(digitsOnly)
+      }));
+    },
+    []
+  );
+
+  const normalizeInterviewOption = React.useCallback(
+    (field: "timeLimitMinutes" | "questionLimit") => {
+      const limits = INTERVIEW_LIMITS[field];
+      setInterviewOptions((prev) => ({
+        ...prev,
+        [field]: clampValue(prev[field], limits.min, limits.max)
+      }));
+    },
+    []
+  );
 
   const focusInput = React.useCallback(() => {
     const el = textareaRef.current;
@@ -130,8 +168,8 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     },
     study: {
       label: "学习模式",
-      description: "使用当前 Chat 能力，检索知识库并结合模型回答",
-      placeholder: "输入知识点、项目问题或面试题复盘，例如：帮我讲解 Redis 持久化与高可用...",
+      description: "围绕知识点做讲解、出练习题并给复盘建议",
+      placeholder: "输入知识点、项目问题或错题复盘，例如：讲解 Redis 持久化，并给我两道后端面试题...",
       icon: BookOpen,
       activeClassName: "border-[#C7E9D5] bg-[#EAF8EF] text-[#15803D]"
     },
@@ -319,6 +357,17 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     return resolveInterviewPresetPosition(positions, selectedJob);
   }, [positions, selectedJob]);
 
+  const effectiveTimeLimitMinutes = clampValue(
+    interviewOptions.timeLimitMinutes,
+    INTERVIEW_LIMITS.timeLimitMinutes.min,
+    INTERVIEW_LIMITS.timeLimitMinutes.max
+  );
+  const effectiveQuestionLimit = clampValue(
+    interviewOptions.questionLimit,
+    INTERVIEW_LIMITS.questionLimit.min,
+    INTERVIEW_LIMITS.questionLimit.max
+  );
+
   const startPresetInterview = React.useCallback(() => {
     if (!selectedJob) return;
     if (!resolvedPosition) {
@@ -328,8 +377,8 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
     startInterviewSession({
       positionId: resolvedPosition.id,
       difficulty: interviewOptions.difficulty,
-      timeLimitMinutes: interviewOptions.timeLimitMinutes,
-      questionLimit: interviewOptions.questionLimit
+      timeLimitMinutes: effectiveTimeLimitMinutes,
+      questionLimit: effectiveQuestionLimit
     })
       .then((sessionId) => {
         setSelectedJob(null);
@@ -338,8 +387,8 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
       .catch(() => null);
   }, [
     interviewOptions.difficulty,
-    interviewOptions.questionLimit,
-    interviewOptions.timeLimitMinutes,
+    effectiveQuestionLimit,
+    effectiveTimeLimitMinutes,
     navigate,
     resolvedPosition,
     selectedJob,
@@ -616,7 +665,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
           }
         }}
       >
-        <DialogContent className="max-w-xl border border-[#DBEAFE] bg-[#F8FBFF] p-0 shadow-[0_24px_60px_rgba(37,99,235,0.16)]">
+        <DialogContent className="max-w-xl border border-[#E5E7EB] bg-white p-0 shadow-[0_28px_80px_rgba(15,23,42,0.12)]">
           {selectedJob ? (
             <div className="p-6 sm:p-7">
                 <DialogHeader>
@@ -637,7 +686,7 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                           difficulty: Number(event.target.value)
                         }))
                       }
-                      className="h-11 rounded-2xl border border-[#BFDBFE] bg-white px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA] focus:bg-[#F8FBFF]"
+                      className="h-11 rounded-2xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#94A3B8]"
                     >
                       {[1, 2, 3, 4, 5].map((level) => (
                         <option key={level} value={level}>
@@ -649,50 +698,46 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
 
                   <label className="flex flex-col gap-2 text-sm text-[#475569]">
                     时长
-                    <select
-                      value={interviewOptions.timeLimitMinutes}
-                      onChange={(event) =>
-                        setInterviewOptions((prev) => ({
-                          ...prev,
-                          timeLimitMinutes: Number(event.target.value)
-                        }))
-                      }
-                      className="h-11 rounded-2xl border border-[#BFDBFE] bg-white px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA] focus:bg-[#F8FBFF]"
-                    >
-                      {[10, 15, 20, 30, 45].map((minute) => (
-                        <option key={minute} value={minute}>
-                          {minute} 分钟
-                        </option>
-                      ))}
-                    </select>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={INTERVIEW_LIMITS.timeLimitMinutes.min}
+                      max={INTERVIEW_LIMITS.timeLimitMinutes.max}
+                      step={1}
+                      value={interviewOptions.timeLimitMinutes === 0 ? "" : interviewOptions.timeLimitMinutes}
+                      onChange={(event) => handleInterviewOptionChange("timeLimitMinutes", event.target.value)}
+                      onBlur={() => normalizeInterviewOption("timeLimitMinutes")}
+                      className="h-11 rounded-2xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#94A3B8]"
+                      placeholder={`${INTERVIEW_LIMITS.timeLimitMinutes.min}-${INTERVIEW_LIMITS.timeLimitMinutes.max}`}
+                    />
                   </label>
 
                   <label className="flex flex-col gap-2 text-sm text-[#475569]">
                     题量
-                    <select
-                      value={interviewOptions.questionLimit}
-                      onChange={(event) =>
-                        setInterviewOptions((prev) => ({
-                          ...prev,
-                          questionLimit: Number(event.target.value)
-                        }))
-                      }
-                      className="h-11 rounded-2xl border border-[#BFDBFE] bg-white px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#60A5FA] focus:bg-[#F8FBFF]"
-                    >
-                      {[3, 5, 8, 10].map((count) => (
-                        <option key={count} value={count}>
-                          {count} 题
-                        </option>
-                      ))}
-                    </select>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={INTERVIEW_LIMITS.questionLimit.min}
+                      max={INTERVIEW_LIMITS.questionLimit.max}
+                      step={1}
+                      value={interviewOptions.questionLimit === 0 ? "" : interviewOptions.questionLimit}
+                      onChange={(event) => handleInterviewOptionChange("questionLimit", event.target.value)}
+                      onBlur={() => normalizeInterviewOption("questionLimit")}
+                      className="h-11 rounded-2xl border border-[#E2E8F0] bg-white px-3 text-sm text-[#0F172A] outline-none transition-colors focus:border-[#94A3B8]"
+                      placeholder={`${INTERVIEW_LIMITS.questionLimit.min}-${INTERVIEW_LIMITS.questionLimit.max}`}
+                    />
                   </label>
                 </div>
 
-                <div className="mt-5 rounded-2xl border border-[#DBEAFE] bg-[#EFF6FF] px-4 py-3 text-sm text-[#475569]">
-                  当前配置：难度 {interviewOptions.difficulty}，时长 {interviewOptions.timeLimitMinutes} 分钟，题量 {interviewOptions.questionLimit} 题。
+                <div className="mt-5 rounded-2xl border border-[#E5E7EB] bg-[#FAFAFA] px-4 py-3 text-sm text-[#475569]">
+                  当前配置：难度 {interviewOptions.difficulty}，时长 {effectiveTimeLimitMinutes} 分钟，题量 {effectiveQuestionLimit} 题。
                 </div>
 
-                <div className="mt-3 rounded-2xl border border-[#DBEAFE] bg-white px-4 py-3 text-sm text-[#475569]">
+                <div className="mt-3 rounded-2xl border border-[#E5E7EB] bg-[#FAFAFA] px-4 py-3 text-xs leading-6 text-[#64748B]">
+                  时长支持 {INTERVIEW_LIMITS.timeLimitMinutes.min}-{INTERVIEW_LIMITS.timeLimitMinutes.max} 分钟，题量支持 {INTERVIEW_LIMITS.questionLimit.min}-{INTERVIEW_LIMITS.questionLimit.max} 题。输入区里也支持直接说“45 分 8 题面试”。
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-[#475569] shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
                   {positionsLoading
                     ? "正在匹配岗位配置..."
                     : resolvedPosition
@@ -703,14 +748,14 @@ export function WelcomeScreen({ disabled = false }: WelcomeScreenProps) {
                 <DialogFooter className="mt-6 flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                   <button
                     type="button"
-                    className="h-11 rounded-2xl border border-[#BFDBFE] bg-white px-4 text-sm font-medium text-[#475569] transition-colors hover:bg-[#EFF6FF]"
+                    className="h-11 rounded-2xl border border-[#E2E8F0] bg-white px-4 text-sm font-medium text-[#475569] transition-colors hover:bg-[#F8FAFC]"
                     onClick={() => setSelectedJob(null)}
                   >
                     取消
                   </button>
                   <button
                     type="button"
-                    className="h-11 rounded-2xl bg-[#60A5FA] px-5 text-sm font-medium text-white transition-colors hover:bg-[#3B82F6]"
+                    className="h-11 rounded-2xl bg-[#0F172A] px-5 text-sm font-medium text-white transition-colors hover:bg-[#111827]"
                     onClick={startPresetInterview}
                     disabled={positionsLoading || !resolvedPosition}
                   >

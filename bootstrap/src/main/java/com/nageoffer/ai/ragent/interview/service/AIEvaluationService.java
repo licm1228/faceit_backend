@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -45,16 +44,6 @@ import java.util.regex.Pattern;
 public class AIEvaluationService {
 
     private static final Pattern FIRST_NUMBER_PATTERN = Pattern.compile("\\d+");
-    private static final List<String> LOW_SIGNAL_PHRASES = List.of(
-            "不知道",
-            "不会",
-            "不太清楚",
-            "不清楚",
-            "没了解过",
-            "没学过",
-            "不了解",
-            "答不上来"
-    );
 
     private final LLMService llmService;
     private final ObjectMapper objectMapper;
@@ -403,10 +392,8 @@ public class AIEvaluationService {
                 "4. 知识覆盖度（0-20分）\n" +
                 "总分为各项之和（0-100分）\n" +
                 "同时提供详细的反馈和改进建议，并判断是否应该继续追问。\n" +
-                "你还需要给候选人一句可以直接说出口的即时反馈，要求只有 1 句，口语化、克制、自然，不要像报告，也不要像老师批改作业。\n" +
+                "你还需要给候选人一句可以直接说出口的即时反馈，要求 1-2 句，先点出亮点，再指出一个最需要改进的问题，语气自然，不要像报告。\n" +
                 "你必须像真实技术面试官一样追问，而不是像题库老师出补全题。\n" +
-                "请先判断本次回答信号强弱：good 表示回答基本完整且可继续深挖；partial 表示答到一部分但缺关键点；low 表示信息量很低、明显不会或严重跑偏。\n" +
-                "再判断下一步动作：follow_up 表示值得追问一个点；redirect 表示只适合降阶问一个更小的问题；move_on 表示这题不再纠缠，直接切题。\n" +
                 "追问规则：\n" +
                 "1. 每轮最多只追问一个关键点，只能有一个追问意图和一个追问聚焦点。\n" +
                 "2. 如果候选人已经提到某个点，不得要求其完整复述或重新列举。\n" +
@@ -416,26 +403,21 @@ public class AIEvaluationService {
                 "6. 如果上一轮已经围绕某个聚焦点追问，本轮不得重复同一聚焦点，也不得延续同一追问意图。\n" +
                 "7. 追问语气必须像口头面试，短、自然、针对性强。\n" +
                 "8. 如果回答已经足够完整，就直接进入下一题，不要为了互动而强行追问。\n" +
-                "9. 如果候选人明显不会或只回答“不知道/不太清楚”，最多只允许一次降阶重问，之后应 move_on。\n" +
-                "追问意图只能从以下枚举中选择一个：clarify_definition, verify_understanding, scenario, tradeoff, implementation_detail\n" +
+                "追问意图只能从以下枚举中选择一个：missing_fact, deeper_understanding, scenario_application, tradeoff_reasoning, implementation_detail\n" +
                 "请按照以下格式输出：\n" +
                 "评分：[总分]\n" +
                 "技术准确性：[分数]\n" +
                 "岗位匹配度：[分数]\n" +
                 "逻辑清晰度：[分数]\n" +
                 "知识覆盖度：[分数]\n" +
-                "回答信号：[good/partial/low]\n" +
-                "下一步动作：[follow_up/redirect/move_on]\n" +
                 "即时反馈：[1-2句口语化反馈]\n" +
-                "实时反馈：[给聊天界面的1句短反馈]\n" +
                 "反馈：[详细反馈]\n" +
-                "书面反馈：[给报告使用的详细反馈，没有就复用反馈]\n" +
                 "建议：[改进建议]\n" +
                 "已覆盖要点：[逗号分隔]\n" +
                 "缺失要点：[逗号分隔]\n" +
                 "避免重复：[逗号分隔]\n" +
                 "继续追问：[是/否]\n" +
-                "追问意图：[clarify_definition/verify_understanding/scenario/tradeoff/implementation_detail，如不追问留空]\n" +
+                "追问意图：[missing_fact/deeper_understanding/scenario_application/tradeoff_reasoning/implementation_detail，如不追问留空]\n" +
                 "追问聚焦点：[只写一个最关键的缺口或主题，如不追问留空]\n" +
                 "追问问题：[如需追问则输出具体问题，否则留空]";
     }
@@ -528,7 +510,7 @@ public class AIEvaluationService {
                 "题目：" + question.getQuestionText() + "\n" +
                 "学生回答：" + userAnswer + "\n" +
                 "当前追问轮次：" + followUpCount + "\n" +
-                "指定追问意图：" + blankDefault(followUpIntent, "verify_understanding") + "\n" +
+                "指定追问意图：" + blankDefault(followUpIntent, "deeper_understanding") + "\n" +
                 "指定追问聚焦点：" + blankDefault(followUpFocus, "回答中最关键的薄弱点") + "\n" +
                 "本题历史追问：" + stringifyList(followUpHistory) + "\n" +
                 "要求：\n" +
@@ -537,8 +519,7 @@ public class AIEvaluationService {
                 "3. 追问应该简洁明了，像真实口头面试，不要像考试题\n" +
                 "4. 禁止出现“请完整列举”“请分别说明”“请详细说明以下几点”等措辞\n" +
                 "5. 禁止重复历史追问中的主题\n" +
-                "6. 如果指定意图是 clarify_definition，就把问题降到最小定义或判断层，不要继续拷问原题完整解法\n" +
-                "7. 只输出一句追问内容，不要添加任何其他说明";
+                "6. 只输出一句追问内容，不要添加任何其他说明";
     }
 
     private String buildFollowUpRewritePrompt(
@@ -554,7 +535,7 @@ public class AIEvaluationService {
                 "题目：" + question.getQuestionText() + "\n" +
                 "学生回答：" + userAnswer + "\n" +
                 "当前追问轮次：" + followUpCount + "\n" +
-                "追问意图：" + blankDefault(followUpIntent, "verify_understanding") + "\n" +
+                "追问意图：" + blankDefault(followUpIntent, "deeper_understanding") + "\n" +
                 "追问聚焦点：" + blankDefault(followUpFocus, "回答中的关键薄弱点") + "\n" +
                 "历史追问：" + stringifyList(followUpHistory) + "\n" +
                 "原始追问：" + blankDefault(followUpQuestion, "无") + "\n" +
@@ -632,14 +613,10 @@ public class AIEvaluationService {
             extractScore(result, "岗位匹配度：", "positionMatchScore", evaluation);
             extractScore(result, "逻辑清晰度：", "logicScore", evaluation);
             extractScore(result, "知识覆盖度：", "knowledgeScore", evaluation);
-            extractText(result, "回答信号：", "answerSignal", evaluation, "下一步动作：");
-            extractText(result, "下一步动作：", "feedbackMode", evaluation, "即时反馈：");
-            extractText(result, "即时反馈：", "instantFeedback", evaluation, "实时反馈：");
-            extractText(result, "实时反馈：", "liveFeedback", evaluation, "反馈：");
-            extractText(result, "书面反馈：", "writtenFeedback", evaluation, "建议：");
+            extractText(result, "即时反馈：", "instantFeedback", evaluation, "反馈：");
 
             // 尝试提取反馈
-            int feedbackIndex = indexOfStandaloneLabel(result, "反馈：");
+            int feedbackIndex = result.indexOf("反馈：");
             if (feedbackIndex != -1) {
                 int feedbackEndIndex = result.indexOf("建议：", feedbackIndex);
                 if (feedbackEndIndex == -1) feedbackEndIndex = result.length();
@@ -710,13 +687,9 @@ public class AIEvaluationService {
         evaluation.put("expressionFeedback", "");
         evaluation.put("expressionAnalysis", Map.of());
         evaluation.put("shouldFollowUp", false);
-        evaluation.put("answerSignal", "");
-        evaluation.put("feedbackMode", "");
         evaluation.put("followUpQuestion", "");
         evaluation.put("followUpIntent", "");
         evaluation.put("followUpFocus", "");
-        evaluation.put("liveFeedback", "");
-        evaluation.put("writtenFeedback", "");
         evaluation.put("answeredPoints", List.of());
         evaluation.put("missingPoints", List.of());
         evaluation.put("avoidRepeat", List.of());
@@ -744,127 +717,7 @@ public class AIEvaluationService {
         mutable.put("expressionAnalysis", buildExpressionAnalysisMap(speechAnalysis, expressionScore));
         mutable.put("expressionFeedback", buildExpressionFeedback(speechAnalysis, expressionScore));
         mutable.put("score", recomputeOverallScore(question, technicalScore, positionMatchScore, logicScore, knowledgeScore));
-        String answerSignal = normalizeAnswerSignal(toSafeText(mutable.get("answerSignal"), ""));
-        if (answerSignal.isBlank()) {
-            answerSignal = inferAnswerSignal(userAnswer, mutable);
-        }
-        mutable.put("answerSignal", answerSignal);
-
-        String feedbackMode = normalizeFeedbackMode(toSafeText(mutable.get("feedbackMode"), ""));
-        if (feedbackMode.isBlank()) {
-            feedbackMode = inferFeedbackMode(answerSignal, mutable);
-        }
-        mutable.put("feedbackMode", feedbackMode);
-        mutable.put("shouldFollowUp", inferShouldFollowUp(feedbackMode, answerSignal, mutable));
-
-        String liveFeedback = toSafeText(mutable.get("liveFeedback"), "");
-        if (liveFeedback.isBlank()) {
-            liveFeedback = buildLiveFeedback(answerSignal, feedbackMode, mutable);
-        }
-        mutable.put("liveFeedback", liveFeedback);
-
-        String instantFeedback = toSafeText(mutable.get("instantFeedback"), "");
-        if (instantFeedback.isBlank()) {
-            instantFeedback = liveFeedback;
-        }
-        mutable.put("instantFeedback", instantFeedback);
-
-        String writtenFeedback = toSafeText(mutable.get("writtenFeedback"), "");
-        if (writtenFeedback.isBlank()) {
-            writtenFeedback = toSafeText(mutable.get("feedback"), "");
-        }
-        mutable.put("writtenFeedback", writtenFeedback);
         return mutable;
-    }
-
-    String inferAnswerSignal(String userAnswer, Map<String, Object> evaluation) {
-        String normalized = toSafeText(userAnswer, "").replaceAll("\\s+", "");
-        if (normalized.isBlank()) {
-            return "low";
-        }
-        String lower = normalized.toLowerCase(Locale.ROOT);
-        if (LOW_SIGNAL_PHRASES.stream().anyMatch(lower::contains)) {
-            return "low";
-        }
-        int score = clampNumber(evaluation.get("score"));
-        if (score >= 80) {
-            return "good";
-        }
-        if (score >= 55 && normalized.length() >= 12) {
-            return "partial";
-        }
-        return "low";
-    }
-
-    String inferFeedbackMode(String answerSignal, Map<String, Object> evaluation) {
-        String normalizedSignal = normalizeAnswerSignal(answerSignal);
-        if ("good".equals(normalizedSignal)) {
-            return "move_on";
-        }
-        if ("partial".equals(normalizedSignal)) {
-            return clampNumber(evaluation.get("score")) >= 70 ? "move_on" : "follow_up";
-        }
-        return "redirect";
-    }
-
-    boolean inferShouldFollowUp(String feedbackMode, String answerSignal, Map<String, Object> evaluation) {
-        String mode = normalizeFeedbackMode(feedbackMode);
-        if ("follow_up".equals(mode) || "redirect".equals(mode)) {
-            return true;
-        }
-        if ("move_on".equals(mode)) {
-            return false;
-        }
-        return "partial".equals(normalizeAnswerSignal(answerSignal)) && clampNumber(evaluation.get("score")) < 70;
-    }
-
-    String buildLiveFeedback(String answerSignal, String feedbackMode, Map<String, Object> evaluation) {
-        String signal = normalizeAnswerSignal(answerSignal);
-        String mode = normalizeFeedbackMode(feedbackMode);
-        String feedback = firstSentence(toSafeText(evaluation.get("feedback"), ""));
-        String suggestions = firstSentence(toSafeText(evaluation.get("suggestions"), ""));
-
-        if ("good".equals(signal)) {
-            if (!feedback.isBlank()) {
-                return feedback;
-            }
-            return "这个回答基本到位，我们先继续下一个点。";
-        }
-        if ("partial".equals(signal)) {
-            if ("follow_up".equals(mode)) {
-                if (!feedback.isBlank()) {
-                    return feedback;
-                }
-                return "主干思路有了，但关键点还差一截。";
-            }
-            if (!feedback.isBlank()) {
-                return feedback;
-            }
-            return "思路基本对了，我们先切下一题。";
-        }
-        if ("redirect".equals(mode)) {
-            if (!suggestions.isBlank()) {
-                return suggestions;
-            }
-            return "先不展开太深，我换个更小的点确认一下。";
-        }
-        return "这题我先记到这里，我们继续下一题。";
-    }
-
-    private String normalizeAnswerSignal(String answerSignal) {
-        String normalized = blankDefault(answerSignal, "").trim().toLowerCase(Locale.ROOT);
-        return switch (normalized) {
-            case "good", "partial", "low" -> normalized;
-            default -> "";
-        };
-    }
-
-    private String normalizeFeedbackMode(String feedbackMode) {
-        String normalized = blankDefault(feedbackMode, "").trim().toLowerCase(Locale.ROOT);
-        return switch (normalized) {
-            case "follow_up", "redirect", "move_on" -> normalized;
-            default -> "";
-        };
     }
 
     private int computeExpressionScore(String userAnswer, SpeechAnalysisRequest speechAnalysis) {
@@ -1024,22 +877,7 @@ public class AIEvaluationService {
         evaluation.put(key, value);
     }
 
-    private int indexOfStandaloneLabel(String result, String label) {
-        int index = result.indexOf(label);
-        while (index >= 0) {
-            if (index == 0 || result.charAt(index - 1) == '\n' || result.charAt(index - 1) == '\r') {
-                return index;
-            }
-            index = result.indexOf(label, index + label.length());
-        }
-        return -1;
-    }
-
     private String buildFallbackInstantFeedback(Map<String, Object> evaluation) {
-        String liveFeedback = toSafeText(evaluation.get("liveFeedback"), "");
-        if (!liveFeedback.isBlank()) {
-            return liveFeedback;
-        }
         String feedback = toSafeText(evaluation.get("feedback"), "");
         String suggestions = toSafeText(evaluation.get("suggestions"), "");
         String feedbackSentence = firstSentence(feedback);
@@ -1054,7 +892,7 @@ public class AIEvaluationService {
         if (!suggestionSentence.isBlank()) {
             return suggestionSentence;
         }
-        return "这题我先记到这里，我们继续下一题。";
+        return "这题回答有一定基础，但还可以再把关键概念和推导过程说得更完整一些。";
     }
 
     private String firstSentence(String text) {

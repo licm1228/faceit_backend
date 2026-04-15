@@ -600,6 +600,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const query = buildQuery({
       question: trimmed,
       conversationId: conversationId || undefined,
+      chatMode: get().chatMode,
       deepThinking: deepThinkingEnabled ? true : undefined
     });
     const url = `${API_BASE_URL}/rag/v3/chat${query}`;

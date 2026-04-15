@@ -128,7 +128,7 @@ ai:
     open-duration-ms: 30000
 
   stream:
-    message-chunk-size: 1
+    message-chunk-size: 5
 
   features:
     use-gpt: ${USE_GPT:false}
