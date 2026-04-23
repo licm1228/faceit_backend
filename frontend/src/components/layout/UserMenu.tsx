@@ -16,7 +16,12 @@ interface UserMenuProps {
   className?: string;
 }
 
-export function UserMenu({ align = "end", side = "bottom", sideOffset = 8, className }: UserMenuProps) {
+export function UserMenu({
+  align = "end",
+  side = "bottom",
+  sideOffset = 8,
+  className
+}: UserMenuProps) {
   const { user, logout } = useAuthStore();
   const [avatarFailed, setAvatarFailed] = React.useState(false);
 
@@ -70,25 +75,9 @@ export function UserMenu({ align = "end", side = "bottom", sideOffset = 8, class
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem asChild>
-          <a
-            href="https://nageoffer.com/ragent"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center"
-          >
+          <a href="/" className="flex items-center">
             <BookOpen className="mr-2 h-4 w-4" />
-            使用文档
-          </a>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <a
-            href="https://space.bilibili.com/352177376"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center"
-          >
-            <PlayCircle className="mr-2 h-4 w-4" />
-            视频教程
+            FaceIt 项目主页
           </a>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => logout()} className="text-rose-600 focus:text-rose-600">
