@@ -2,10 +2,15 @@
 /* eslint-disable */
 
 import { create } from "zustand";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import type { User } from "@/types";
-import { getCurrentUser, login as loginRequest, logout as logoutRequest } from "@/services/authService";
+import {
+  getCurrentUser,
+  login as loginRequest,
+  logout as logoutRequest,
+  register as registerRequest
+} from "@/services/authService";
 import { setAuthToken } from "@/services/api";
 import { useChatStore } from "@/stores/chatStore";
 import { storage } from "@/utils/storage";
@@ -16,9 +21,49 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   fetchCurrentUser: () => Promise<void>;
+}
+
+function buildAuthUser(data: User, fallbackUsername: string) {
+  return {
+    userId: data.userId,
+    username: data.username || fallbackUsername,
+    role: data.role,
+    token: data.token,
+    avatar: data.avatar
+  };
+}
+
+function resetChatState() {
+  useChatStore.getState().cancelGeneration();
+  useChatStore.setState({
+    sessions: [],
+    currentSessionId: null,
+    messages: [],
+    isLoading: false,
+    sessionsLoaded: false,
+    currentSessionType: null,
+    currentInterviewState: null,
+    interviewDraftConfig: {
+      positionId: "",
+      difficulty: 3,
+      timeLimitMinutes: 20,
+      questionLimit: 5
+    },
+    chatMode: "interview",
+    isStreaming: false,
+    isCreatingNew: false,
+    deepThinkingEnabled: false,
+    thinkingStartAt: null,
+    streamTaskId: null,
+    streamAbort: null,
+    streamingMessageId: null,
+    cancelRequested: false,
+    inputFocusKey: 0
+  });
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -30,36 +75,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       const data = await loginRequest(username, password);
-      const user = {
-        userId: data.userId,
-        username: data.username || username,
-        role: data.role,
-        token: data.token,
-        avatar: data.avatar
-      };
+      const user = buildAuthUser(data, username);
       storage.setToken(user.token);
       storage.setUser(user);
       setAuthToken(user.token);
       set({ user, token: user.token, isAuthenticated: true });
       get().fetchCurrentUser().catch(() => null);
-      useChatStore.getState().cancelGeneration();
-      useChatStore.setState({
-        sessions: [],
-        currentSessionId: null,
-        messages: [],
-        isLoading: false,
-        isStreaming: false,
-        isCreatingNew: true,
-        deepThinkingEnabled: false,
-        thinkingStartAt: null,
-        streamTaskId: null,
-        streamAbort: null,
-        streamingMessageId: null,
-        cancelRequested: false
-      });
-      toast.success("登录成功");
+      resetChatState();
+      feedback.success("登录成功");
     } catch (error) {
-      toast.error((error as Error).message || "登录失败");
+      feedback.error((error as Error).message || "登录失败");
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+  register: async (username, password) => {
+    set({ isLoading: true });
+    try {
+      const data = await registerRequest(username, password);
+      const user = buildAuthUser(data, username);
+      storage.setToken(user.token);
+      storage.setUser(user);
+      setAuthToken(user.token);
+      set({ user, token: user.token, isAuthenticated: true });
+      get().fetchCurrentUser().catch(() => null);
+      resetChatState();
+      feedback.success("注册成功");
+    } catch (error) {
+      feedback.error((error as Error).message || "注册失败");
       throw error;
     } finally {
       set({ isLoading: false });
@@ -77,6 +121,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentSessionId: null,
       messages: [],
       isLoading: false,
+      sessionsLoaded: false,
+      currentSessionType: null,
+      currentInterviewState: null,
+      interviewDraftConfig: {
+        positionId: "",
+        difficulty: 3,
+        timeLimitMinutes: 20,
+        questionLimit: 5
+      },
+      chatMode: "interview",
       isStreaming: false,
       isCreatingNew: false,
       deepThinkingEnabled: false,
@@ -84,12 +138,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       streamTaskId: null,
       streamAbort: null,
       streamingMessageId: null,
-      cancelRequested: false
+      cancelRequested: false,
+      inputFocusKey: 0
     });
     storage.clearAuth();
     setAuthToken(null);
     set({ user: null, token: null, isAuthenticated: false });
-    toast.success("已退出登录");
+    feedback.success("已退出登录");
   },
   checkAuth: async () => {
     const token = storage.getToken();

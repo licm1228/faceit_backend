@@ -53,6 +53,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SiliconFlowEmbeddingClient implements EmbeddingClient {
 
+    private static final int MAX_RETRIES = 3;
     private final OkHttpClient httpClient;
     private final Gson gson = new Gson();
 
@@ -78,7 +79,7 @@ public class SiliconFlowEmbeddingClient implements EmbeddingClient {
             int end = Math.min(i + maxBatch, n);
             List<String> slice = texts.subList(i, end);
             try {
-                List<List<Float>> part = doEmbedOnce(slice, target);
+                List<List<Float>> part = doEmbedWithRetry(slice, target);
                 for (int k = 0; k < part.size(); k++) {
                     results.set(i + k, part.get(k));
                 }
@@ -94,6 +95,26 @@ public class SiliconFlowEmbeddingClient implements EmbeddingClient {
             }
         }
         return results;
+    }
+
+    private List<List<Float>> doEmbedWithRetry(List<String> slice, ModelTarget target) {
+        ModelClientException lastRetryable = null;
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                return doEmbedOnce(slice, target);
+            } catch (ModelClientException e) {
+                if (!isRetryable(e) || attempt == MAX_RETRIES) {
+                    throw e;
+                }
+                lastRetryable = e;
+                long backoffMillis = 300L * attempt;
+                log.warn("SiliconFlow embeddings 第{}次调用失败，将在{}ms后重试: {}", attempt, backoffMillis, e.getMessage());
+                sleepQuietly(backoffMillis);
+            }
+        }
+        throw lastRetryable == null
+                ? new ModelClientException("SiliconFlow Embedding 重试失败", ModelClientErrorType.SERVER_ERROR, null)
+                : lastRetryable;
     }
 
     private List<List<Float>> doEmbedOnce(List<String> slice, ModelTarget target) {
@@ -201,5 +222,20 @@ public class SiliconFlowEmbeddingClient implements EmbeddingClient {
             return ModelClientErrorType.SERVER_ERROR;
         }
         return ModelClientErrorType.CLIENT_ERROR;
+    }
+
+    private boolean isRetryable(ModelClientException exception) {
+        ModelClientErrorType errorType = exception.getErrorType();
+        return errorType == ModelClientErrorType.SERVER_ERROR
+                || errorType == ModelClientErrorType.NETWORK_ERROR
+                || errorType == ModelClientErrorType.RATE_LIMITED;
+    }
+
+    private void sleepQuietly(long backoffMillis) {
+        try {
+            Thread.sleep(backoffMillis);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

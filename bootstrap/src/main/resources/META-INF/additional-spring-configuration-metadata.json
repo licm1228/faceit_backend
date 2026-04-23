@@ -1,8 +1,14 @@
 {
   "properties": [
     {
-      "name": "rag.vector.type",
+      "name": "ai.providers.iflytek.app-id",
       "type": "java.lang.String",
-      "description": "Description for rag.vector.type."
-  }
-] }
+      "description": "讯飞应用ID"
+    },
+    {
+      "name": "ai.providers.iflytek.api-secret",
+      "type": "java.lang.String",
+      "description": "讯飞API密钥"
+    }
+  ]
+}

@@ -44,6 +44,11 @@ public enum ModelProvider {
     SILICON_FLOW("siliconflow"),
 
     /**
+     * OpenAI 兼容接口提供商
+     */
+    OPENAI("openai"),
+
+    /**
      * 空实现，用于测试或占位
      */
     NOOP("noop");

@@ -47,4 +47,19 @@ public class ConversationVO {
      * 最后活动时间
      */
     private Date lastTime;
+
+    /**
+     * 会话类型：chat / interview
+     */
+    private String sessionType;
+
+    /**
+     * 面试状态：in_progress / completed
+     */
+    private String interviewStatus;
+
+    /**
+     * 面试岗位名称
+     */
+    private String positionName;
 }

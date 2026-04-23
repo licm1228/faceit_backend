@@ -67,6 +67,11 @@ public class AIModelProperties {
     private Stream stream = new Stream();
 
     /**
+     * 功能开关配置
+     */
+    private Features features = new Features();
+
+    /**
      * 模型组配置类
      * 包含默认模型、深度思考模型以及候选模型列表
      */
@@ -142,7 +147,6 @@ public class AIModelProperties {
      */
     @Data
     public static class ProviderConfig {
-
         /**
          * 提供商基础 URL
          */
@@ -154,12 +158,21 @@ public class AIModelProperties {
         private String apiKey;
 
         /**
+         * 应用 ID（用于讯飞等需要的提供商）
+         */
+        private String appId;
+
+        /**
+         * API 密钥（用于讯飞等需要的提供商）
+         */
+        private String apiSecret;
+
+        /**
          * 端点映射配置
          * key: 端点类型，value: 端点路径
          */
         private Map<String, String> endpoints = new HashMap<>();
     }
-
     /**
      * 模型选择策略配置类
      * 用于配置模型故障转移和熔断策略
@@ -189,5 +202,18 @@ public class AIModelProperties {
          * 消息分块大小
          */
         private Integer messageChunkSize = 5;
+    }
+
+    @Data
+    public static class Features {
+        /**
+         * 是否启用 GPT 聊天模型
+         */
+        private Boolean useGpt = false;
+
+        /**
+         * GPT 候选模型 ID
+         */
+        private String gptModelId = "gpt-5.4";
     }
 }

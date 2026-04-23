@@ -1,3 +1,20 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.nageoffer.ai.ragent.rag.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
@@ -10,6 +27,7 @@ import com.nageoffer.ai.ragent.framework.trace.RagTraceContext;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
 import com.nageoffer.ai.ragent.infra.chat.StreamCancellationHandle;
+import com.nageoffer.ai.ragent.infra.config.AIModelProperties;
 import com.nageoffer.ai.ragent.rag.aop.ChatRateLimit;
 import com.nageoffer.ai.ragent.rag.core.guidance.GuidanceDecision;
 import com.nageoffer.ai.ragent.rag.core.guidance.IntentGuidanceService;
@@ -25,7 +43,9 @@ import com.nageoffer.ai.ragent.rag.dto.IntentGroup;
 import com.nageoffer.ai.ragent.rag.dto.RetrievalContext;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
 import com.nageoffer.ai.ragent.rag.service.RAGChatService;
+import com.nageoffer.ai.ragent.rag.service.StudyModeService;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamCallbackFactory;
+import com.nageoffer.ai.ragent.rag.service.handler.StreamChatEventHandler;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamTaskManager;
 import com.nageoffer.ai.ragent.interview.service.InterviewRetrieveService;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +59,7 @@ import java.util.Map;
 
 import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.CHAT_SYSTEM_PROMPT_PATH;
 import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.DEFAULT_TOP_K;
+import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.FREE_CHAT_SYSTEM_PROMPT_PATH;
 
 /**
  * RAG 对话服务默认实现
@@ -62,21 +83,30 @@ public class RAGChatServiceImpl implements RAGChatService {
     private final IntentResolver intentResolver;
     private final RetrievalEngine retrievalEngine;
     private final InterviewRetrieveService interviewRetrieveService;
+    private final StudyModeService studyModeService;
+    private final AIModelProperties aiModelProperties;
 
     @Override
     @ChatRateLimit
-    public void streamChat(String question, String conversationId, Boolean deepThinking, SseEmitter emitter) {
+    public void streamChat(String question, String conversationId, String chatMode, Boolean deepThinking, SseEmitter emitter) {
         String actualConversationId = StrUtil.isBlank(conversationId) ? IdUtil.getSnowflakeNextIdStr() : conversationId;
         String taskId = StrUtil.isBlank(RagTraceContext.getTaskId())
                 ? IdUtil.getSnowflakeNextIdStr()
                 : RagTraceContext.getTaskId();
         log.info("开始流式对话，会话ID：{}，任务ID：{}", actualConversationId, taskId);
         boolean thinkingEnabled = Boolean.TRUE.equals(deepThinking);
+        String normalizedChatMode = normalizeChatMode(chatMode);
 
-        StreamCallback callback = callbackFactory.createChatEventHandler(emitter, actualConversationId, taskId);
+        StreamChatEventHandler callback = callbackFactory.createChatEventHandler(emitter, actualConversationId, taskId);
 
         String userId = UserContext.getUserId();
         List<ChatMessage> history = memoryService.loadAndAppend(actualConversationId, userId, ChatMessage.user(question));
+
+        if ("free".equals(normalizedChatMode)) {
+            StreamCancellationHandle handle = streamFreeChatResponse(question, history, thinkingEnabled, callback);
+            taskManager.bindHandle(taskId, handle);
+            return;
+        }
 
         RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(question, history);
         List<SubQuestionIntent> subIntents = intentResolver.resolve(rewriteResult);
@@ -117,6 +147,11 @@ public class RAGChatServiceImpl implements RAGChatService {
         }
 
         RetrievalContext ctx = retrievalEngine.retrieve(subIntents, DEFAULT_TOP_K);
+        if ("study".equals(normalizedChatMode)) {
+            StreamCancellationHandle handle = handleStudyMode(question, history, ctx, thinkingEnabled, callback);
+            taskManager.bindHandle(taskId, handle);
+            return;
+        }
         if (ctx.isEmpty()) {
             String emptyReply = "未检索到与问题相关的文档内容。";
             callback.onContent(emptyReply);
@@ -161,9 +196,63 @@ public class RAGChatServiceImpl implements RAGChatService {
         ChatRequest req = ChatRequest.builder()
                 .messages(messages)
                 .temperature(0.7D)
+                .preferredModelId(resolvePreferredStreamModelId(false))
                 .thinking(false)
                 .build();
         return llmService.streamChat(req, callback);
+    }
+
+    private StreamCancellationHandle handleStudyMode(String question,
+                                                     List<ChatMessage> history,
+                                                     RetrievalContext retrievalContext,
+                                                     boolean deepThinking,
+                                                     StreamChatEventHandler callback) {
+        try {
+            StudyModeService.StudyContext studyContext = studyModeService.buildStudyContext(
+                    question,
+                    history,
+                    retrievalContext,
+                    resolvePreferredStreamModelId(deepThinking)
+            );
+            callback.setCompletionSuffix(studyContext.payloadSuffix());
+            return llmService.streamChat(studyContext.request(), callback);
+        } catch (Exception ex) {
+            log.error("学习模式生成失败", ex);
+            callback.onContent("学习模式暂时不可用，请稍后再试。");
+            callback.onComplete();
+            return null;
+        }
+    }
+
+    private StreamCancellationHandle streamFreeChatResponse(String question, List<ChatMessage> history,
+                                                            boolean deepThinking, StreamCallback callback) {
+        String systemPrompt = promptTemplateLoader.load(FREE_CHAT_SYSTEM_PROMPT_PATH);
+
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(ChatMessage.system(systemPrompt));
+        if (CollUtil.isNotEmpty(history)) {
+            messages.addAll(history);
+        }
+        messages.add(ChatMessage.user(question));
+
+        ChatRequest req = ChatRequest.builder()
+                .messages(messages)
+                .temperature(0.7D)
+                .preferredModelId(resolvePreferredStreamModelId(deepThinking))
+                .thinking(deepThinking)
+                .build();
+        return llmService.streamChat(req, callback);
+    }
+
+    private String normalizeChatMode(String chatMode) {
+        if (StrUtil.isBlank(chatMode)) {
+            return "study";
+        }
+        String normalized = chatMode.trim().toLowerCase();
+        if ("free".equals(normalized) || "study".equals(normalized) || "interview".equals(normalized)) {
+            return normalized;
+        }
+        return "study";
     }
 
     private StreamCancellationHandle streamLLMResponse(RewriteResult rewriteResult, RetrievalContext ctx,
@@ -186,12 +275,24 @@ public class RAGChatServiceImpl implements RAGChatService {
         );
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(messages)
+                .preferredModelId(resolvePreferredStreamModelId(deepThinking))
                 .thinking(deepThinking)
                 .temperature(ctx.hasMcp() ? 0.3D : 0D)  // MCP 场景稍微放宽温度
                 .topP(ctx.hasMcp() ? 0.8D : 1D)
                 .build();
 
         return llmService.streamChat(chatRequest, callback);
+    }
+
+    private String resolvePreferredStreamModelId(boolean deepThinking) {
+        if (deepThinking) {
+            return null;
+        }
+        AIModelProperties.Features features = aiModelProperties.getFeatures();
+        if (features == null || !Boolean.TRUE.equals(features.getUseGpt())) {
+            return null;
+        }
+        return StrUtil.blankToDefault(features.getGptModelId(), null);
     }
 
     /**
@@ -322,13 +423,13 @@ public class RAGChatServiceImpl implements RAGChatService {
     private String extractPositionId(String question) {
         String lowerQuestion = question.toLowerCase();
         if (lowerQuestion.contains("python") && lowerQuestion.contains("算法")) {
-            return "pos_python_001";
+            return "8";
         } else if (lowerQuestion.contains("java")) {
-            return "pos_java_001";
+            return "1";
         } else if (lowerQuestion.contains("前端") || lowerQuestion.contains("web")) {
-            return "pos_web_001";
+            return "2";
         } else {
-            return "pos_java_001";
+            return "1";
         }
     }
 }

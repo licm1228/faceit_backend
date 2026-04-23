@@ -21,11 +21,14 @@ import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.user.controller.request.LoginRequest;
+import com.nageoffer.ai.ragent.user.controller.request.RegisterRequest;
+import com.nageoffer.ai.ragent.user.controller.request.UserCreateRequest;
 import com.nageoffer.ai.ragent.user.controller.vo.LoginVO;
 import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
 import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.user.service.AuthService;
+import com.nageoffer.ai.ragent.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -36,6 +39,7 @@ public class AuthServiceImpl implements AuthService {
     private static final String DEFAULT_AVATAR_URL = "https://avatars.githubusercontent.com/u/583231?v=4";
 
     private final UserMapper userMapper;
+    private final UserService userService;
 
     @Override
     public LoginVO login(LoginRequest requestParam) {
@@ -48,7 +52,27 @@ public class AuthServiceImpl implements AuthService {
         if (user == null || !passwordMatches(password, user.getPassword())) {
             throw new ClientException("用户名或密码错误");
         }
-        if (user.getId() == null) {
+        return issueLogin(user);
+    }
+
+    @Override
+    public LoginVO register(RegisterRequest requestParam) {
+        String username = StrUtil.trim(requestParam.getUsername());
+        String password = StrUtil.trim(requestParam.getPassword());
+        if (StrUtil.isBlank(username) || StrUtil.isBlank(password)) {
+            throw new ClientException("用户名或密码不能为空");
+        }
+        UserCreateRequest createRequest = new UserCreateRequest();
+        createRequest.setUsername(username);
+        createRequest.setPassword(password);
+        userService.create(createRequest);
+
+        UserDO user = findByUsername(username);
+        return issueLogin(user);
+    }
+
+    private LoginVO issueLogin(UserDO user) {
+        if (user == null || user.getId() == null) {
             throw new ClientException("用户信息异常");
         }
         String loginId = user.getId().toString();

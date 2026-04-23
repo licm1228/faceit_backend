@@ -16,7 +16,7 @@ spring:
     driver-class-name: org.postgresql.Driver
     type: com.zaxxer.hikari.HikariDataSource
     username: postgres
-    password: 123456
+    password: furina
     url: jdbc:postgresql://127.0.0.1:5432/ragent?client_encoding=UTF8
     hikari:
       connection-timeout: 5000
@@ -30,7 +30,7 @@ spring:
     redis:
       host: 127.0.0.1
       port: 6379
-      password: 123456
+      password: furina
 
 milvus:
   uri: http://localhost:19530
@@ -97,31 +97,52 @@ ai:
       endpoints:
         chat: /api/chat
         embedding: /api/embed
+    openai:
+      url: http://new.xem8k5.top:3000
+      api-key: ${OPENAI_API_KEY:}
+      endpoints:
+        chat: /v1/chat/completions
     bailian:
       url: https://dashscope.aliyuncs.com
-
-      api-key: sk-30d5eaf3dcaa464a930a2ada383414dd
+      api-key: ${BAILIAN_API_KEY:}
       endpoints:
         chat: /compatible-mode/v1/chat/completions
         rerank: /api/v1/services/rerank/text-rerank/text-rerank
     siliconflow:
       url: https://api.siliconflow.cn
-      api-key: sk-qkzmitcckbgdsoiurxxhghgwligkplxajdvyqnhtchiqdzag
+      api-key: ${SILICONFLOW_API_KEY:}
       endpoints:
         chat: /v1/chat/completions
         embedding: /v1/embeddings
+        rerank: /v1/rerank
+    iflytek:
+      url: wss://iat.xf-yun.com
+      app-id: ${IFLYTEK_APP_ID:}
+      api-key: ${IFLYTEK_API_KEY:}
+      api-secret: ${IFLYTEK_API_SECRET:}
+      endpoints:
+        iat: /v1
 
   selection:
     failure-threshold: 2
     open-duration-ms: 30000
 
   stream:
-    message-chunk-size: 1
+    message-chunk-size: 5
+
+  features:
+    use-gpt: ${USE_GPT:false}
+    gpt-model-id: gpt-5.4
 
   chat:
     default-model: qwen3-max
     deep-thinking-model: qwen3-max
     candidates:
+      - id: gpt-5.4
+        provider: openai
+        model: gpt-5.4
+        supports-thinking: true
+        priority: 0
       - id: qwen-plus
         provider: bailian
         model: qwen-plus-latest
@@ -135,7 +156,7 @@ ai:
         provider: siliconflow
         model: Pro/zai-org/GLM-4.7
         supports-thinking: true
-        priority: 0
+        priority: 4
       - id: qwen3-local
         provider: ollama
         model: qwen3:8b-fp16
@@ -156,11 +177,11 @@ ai:
         priority: 2
 
   rerank:
-    default-model: qwen3-rerank
+    default-model: qwen3-rerank-8b
     candidates:
-      - id: qwen3-rerank
-        provider: bailian
-        model: qwen3-rerank
+      - id: qwen3-rerank-8b
+        provider: siliconflow
+        model: Qwen/Qwen3-Reranker-8B
         priority: 1
       - id: rerank-noop
         provider: noop

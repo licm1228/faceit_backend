@@ -31,6 +31,9 @@ import software.amazon.awssdk.services.s3.S3Client;
 
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.UUID;
 
 @Service
@@ -72,7 +75,12 @@ public class LocalFileStorageServiceImpl implements FileStorageService {
     }
 
     @Override
+    @SneakyThrows
     public InputStream openStream(String url) {
+        Path localPath = resolveLocalPath(url);
+        if (localPath != null) {
+            return Files.newInputStream(localPath);
+        }
         S3Location loc = parseS3Url(url);
         return s3Client.getObject(b -> b.bucket(loc.bucket()).key(loc.key()));
     }
@@ -86,6 +94,26 @@ public class LocalFileStorageServiceImpl implements FileStorageService {
 
     private String toS3Url(String bucket, String key) {
         return "s3://" + bucket + "/" + key;
+    }
+
+    private Path resolveLocalPath(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+
+        Path directPath = Paths.get(url);
+        if (directPath.isAbsolute() && Files.exists(directPath)) {
+            return directPath;
+        }
+
+        if (url.startsWith("file:")) {
+            Path fileUriPath = Paths.get(URI.create(url));
+            if (Files.exists(fileUriPath)) {
+                return fileUriPath;
+            }
+        }
+
+        return null;
     }
 
     private S3Location parseS3Url(String url) {

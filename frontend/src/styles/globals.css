@@ -1,3 +1,4 @@
+@import "./vendor/google-fonts.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -154,6 +155,10 @@ body {
   overflow: hidden;
 }
 
+a {
+  text-decoration: none;
+}
+
 /* 只在键盘导航时显示 focus 光晕，鼠标点击后不显示 */
 button:focus:not(:focus-visible),
 select:focus:not(:focus-visible),
@@ -193,10 +198,126 @@ select:focus:not(:focus-visible),
   color: transparent;
 }
 
+.font-poppins {
+  font-family: "Poppins", sans-serif;
+}
+
 .glass {
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid #e2e8f0;
   backdrop-filter: blur(20px);
+}
+
+.btn,
+.btn-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
+  font-weight: 500;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.btn {
+  min-height: 2.75rem;
+  padding: 0.75rem 1.25rem;
+}
+
+.btn-sm {
+  min-height: 2.25rem;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
+}
+
+@keyframes code-1 {
+  0% { opacity: 0; }
+  2.5% { opacity: 1; }
+  97.5% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes code-2 {
+  16.2% { opacity: 0; }
+  18.75% { opacity: 1; }
+  97.5% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes code-3 {
+  32.5% { opacity: 0; }
+  35% { opacity: 1; }
+  97.5% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes code-4 {
+  48.75% { opacity: 0; }
+  51.25% { opacity: 1; }
+  97.5% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes voice-eq-bounce {
+  0%, 100% { transform: scaleY(0.38); opacity: 0.5; }
+  45% { transform: scaleY(1); opacity: 1; }
+}
+
+.voice-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  width: 14px;
+  height: 14px;
+}
+
+.voice-eq__bar {
+  width: 3px;
+  height: 100%;
+  border-radius: 999px;
+  background: currentColor;
+  transform-origin: center bottom;
+  animation: voice-eq-bounce 1s ease-in-out infinite;
+}
+
+@keyframes code-5 {
+  65% { opacity: 0; }
+  72.5% { opacity: 1; }
+  97.5% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes code-6 {
+  81.25% { opacity: 0; }
+  83.75% { opacity: 1; }
+  97.5% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes breath {
+  0%, 100% { transform: scale(0.95); }
+  50% { transform: scale(1.1); }
+}
+
+@keyframes line {
+  0%, 100% {
+    left: 0;
+    opacity: 0;
+  }
+  50% {
+    left: 100%;
+    transform: translateX(-100%);
+  }
+  10%, 40%, 60%, 90% {
+    opacity: 0;
+  }
+  25%, 75% {
+    opacity: 1;
+  }
 }
 
 .prose code {

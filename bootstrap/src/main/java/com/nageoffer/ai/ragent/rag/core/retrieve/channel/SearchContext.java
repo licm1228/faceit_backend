@@ -24,6 +24,7 @@ import lombok.Data;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
 
 /**
  * 检索上下文
@@ -64,6 +65,12 @@ public class SearchContext {
      */
     @Builder.Default
     private Map<String, Object> metadata = new HashMap<>();
+
+    /**
+     * 优先检索的知识库 collection
+     */
+    @Builder.Default
+    private List<String> preferredCollections = Collections.emptyList();
 
     /**
      * 获取主问题（优先使用重写后的问题）

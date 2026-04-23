@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,7 +32,7 @@ export function SystemSettingsPage() {
       const data = await getSystemSettings();
       setSettings(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载系统配置失败"));
+      feedback.error(getErrorMessage(error, "加载系统配置失败"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -73,7 +73,7 @@ export function SystemSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>RAG 默认配置</CardTitle>
+          <CardTitle>知识检索默认配置</CardTitle>
           <CardDescription>向量空间与检索基础参数</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">

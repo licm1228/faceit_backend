@@ -44,12 +44,18 @@ public class ModelSelector {
     private final ModelHealthStore healthStore;
 
     public List<ModelTarget> selectChatCandidates(Boolean deepThinking) {
+        return selectChatCandidates(deepThinking, null);
+    }
+
+    public List<ModelTarget> selectChatCandidates(Boolean deepThinking, String preferredModelId) {
         AIModelProperties.ModelGroup group = properties.getChat();
         if (group == null) {
             return List.of();
         }
 
-        String firstChoiceModelId = resolveFirstChoiceModel(group, deepThinking);
+        String firstChoiceModelId = StrUtil.isNotBlank(preferredModelId)
+                ? preferredModelId
+                : resolveFirstChoiceModel(group, deepThinking);
         return selectCandidates(group, firstChoiceModelId, deepThinking);
     }
 
@@ -108,6 +114,7 @@ public class ModelSelector {
             Boolean deepThinking) {
         List<AIModelProperties.ModelCandidate> enabled = candidates.stream()
                 .filter(c -> c != null && !Boolean.FALSE.equals(c.getEnabled()))
+                .filter(this::isEnabledByFeature)
                 .filter(c -> !Boolean.TRUE.equals(deepThinking) || Boolean.TRUE.equals(c.getSupportsThinking()))
                 .sorted(Comparator
                         .comparing(AIModelProperties.ModelCandidate::getPriority,
@@ -126,6 +133,20 @@ public class ModelSelector {
         return enabled;
     }
 
+    private boolean isEnabledByFeature(AIModelProperties.ModelCandidate candidate) {
+        if (candidate == null) {
+            return false;
+        }
+        AIModelProperties.Features features = properties.getFeatures();
+        if (features == null) {
+            return true;
+        }
+        if (!StrUtil.equals(features.getGptModelId(), candidate.getId())) {
+            return true;
+        }
+        return Boolean.TRUE.equals(features.getUseGpt());
+    }
+
     private void promoteFirstChoiceModel(
             List<AIModelProperties.ModelCandidate> candidates,
             String firstChoiceModelId) {
@@ -135,6 +156,9 @@ public class ModelSelector {
         }
 
         AIModelProperties.ModelCandidate firstChoice = findCandidate(candidates, firstChoiceModelId);
+        if (firstChoice == null) {
+            return;
+        }
         candidates.remove(firstChoice);
         candidates.add(0, firstChoice);
     }

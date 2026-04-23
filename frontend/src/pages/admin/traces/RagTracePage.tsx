@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, Clock3, Layers, RefreshCw, Search, TrendingUp } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,7 +55,7 @@ export function RagTracePage() {
       setPageData(result);
     } catch (error) {
       if (runsRequestRef.current !== requestId) return;
-      toast.error(getErrorMessage(error, "加载链路运行列表失败"));
+      feedback.error(getErrorMessage(error, "加载链路运行列表失败"));
       console.error(error);
     } finally {
       if (runsRequestRef.current !== requestId) return;
@@ -149,16 +149,16 @@ export function RagTracePage() {
       <div className="trace-list-shell">
         <div className="admin-page-header">
           <div>
-            <h1 className="admin-page-title">链路追踪</h1>
+            <h1 className="admin-page-title">对话运行追踪</h1>
             <p className="admin-page-subtitle">
-              独立列表页聚焦运行检索，点击任意运行记录进入详情页分析慢节点与失败节点
+              查看每次对话运行记录，快速定位慢响应、异常节点和失败原因
             </p>
           </div>
           <div className="admin-page-actions">
             <Input
               value={traceIdFilter}
               onChange={(event) => setTraceIdFilter(event.target.value)}
-              placeholder="搜索 Trace Id"
+              placeholder="搜索运行 ID"
               className="w-[300px]"
             />
             <Button className="admin-primary-gradient" onClick={handleSearch}>

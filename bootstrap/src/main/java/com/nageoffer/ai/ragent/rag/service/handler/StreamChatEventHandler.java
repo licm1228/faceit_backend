@@ -49,6 +49,7 @@ public class StreamChatEventHandler implements StreamCallback {
     private final StreamTaskManager taskManager;
     private final boolean sendTitleOnComplete;
     private final StringBuilder answer = new StringBuilder();
+    private volatile String completionSuffix = "";
 
     /**
      * 使用参数对象构造（推荐）
@@ -104,7 +105,7 @@ public class StreamChatEventHandler implements StreamCallback {
      * 构造取消时的完成载荷（如果有内容则先落库）
      */
     private CompletionPayload buildCompletionPayloadOnCancel() {
-        String content = answer.toString();
+        String content = buildStoredContent();
         String messageId = null;
         if (StrUtil.isNotBlank(content)) {
             messageId = memoryService.append(conversationId, userId, ChatMessage.assistant(content));
@@ -142,13 +143,17 @@ public class StreamChatEventHandler implements StreamCallback {
             return;
         }
         String messageId = memoryService.append(conversationId, UserContext.getUserId(),
-                ChatMessage.assistant(answer.toString()));
+                ChatMessage.assistant(buildStoredContent()));
         String title = resolveTitleForEvent();
         String messageIdText = StrUtil.isBlank(messageId)? null : messageId;
         sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(messageIdText, title));
         sender.sendEvent(SSEEventType.DONE.value(), "[DONE]");
         taskManager.unregister(taskId);
         sender.complete();
+    }
+
+    public void setCompletionSuffix(String completionSuffix) {
+        this.completionSuffix = StrUtil.blankToDefault(completionSuffix, "");
     }
 
     @Override
@@ -190,5 +195,9 @@ public class StreamChatEventHandler implements StreamCallback {
             return conversation.getTitle();
         }
         return "新对话";
+    }
+
+    private String buildStoredContent() {
+        return answer + completionSuffix;
     }
 }

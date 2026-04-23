@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import {
   Dialog,
@@ -112,12 +112,12 @@ export function CreateKnowledgeBaseDialog({
     try {
       setLoading(true);
       await createKnowledgeBase(values);
-      toast.success("创建成功");
+      feedback.success("创建成功");
       form.reset();
       onOpenChange(false);
       onSuccess();
     } catch (error) {
-      toast.error(getErrorMessage(error, "创建失败"));
+      feedback.error(getErrorMessage(error, "创建失败"));
       console.error(error);
     } finally {
       setLoading(false);

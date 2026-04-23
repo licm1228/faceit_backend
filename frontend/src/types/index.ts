@@ -4,6 +4,8 @@ export type FeedbackValue = "like" | "dislike" | null;
 
 export type MessageStatus = "streaming" | "done" | "cancelled" | "error";
 
+export type ChatMode = "interview" | "study" | "free";
+
 export interface User {
   userId: string;
   username?: string;
@@ -18,12 +20,16 @@ export interface Session {
   id: string;
   title: string;
   lastTime?: string;
+  type?: "chat" | "interview";
+  status?: "pending" | "in_progress" | "completed";
+  positionName?: string;
 }
 
 export interface Message {
   id: string;
   role: Role;
   content: string;
+  chatMode?: ChatMode;
   thinking?: string;
   thinkingDuration?: number;
   isDeepThinking?: boolean;
@@ -31,6 +37,7 @@ export interface Message {
   createdAt?: string;
   feedback?: FeedbackValue;
   status?: MessageStatus;
+  sessionType?: "chat" | "interview";
 }
 
 export interface StreamMetaPayload {
@@ -46,4 +53,106 @@ export interface MessageDeltaPayload {
 export interface CompletionPayload {
   messageId?: string | null;
   title?: string | null;
+}
+
+export interface InterviewPosition {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface InterviewQuestion {
+  id: string;
+  positionId: string;
+  questionType?: string;
+  difficulty?: number;
+  questionText: string;
+  referenceAnswer?: string;
+}
+
+export interface InterviewDraftConfig {
+  positionId: string;
+  difficulty: number;
+  timeLimitMinutes: number;
+  questionLimit: number;
+}
+
+export interface InterviewRuntimeState extends InterviewDraftConfig {
+  positionName?: string;
+  currentQuestionId?: string;
+  currentQuestionText?: string;
+  questionIndex?: number;
+  followUpCount?: number;
+  askedQuestionIds?: string[];
+}
+
+export interface InterviewSessionState {
+  id: string;
+  status: "pending" | "in_progress" | "completed";
+  positionId: string;
+  positionName?: string;
+  reportStatus?: "pending" | "ready";
+  totalScore?: number;
+  currentQuestionCount?: number;
+  startTime?: string;
+  endTime?: string;
+  difficulty: number;
+  timeLimitMinutes: number;
+  questionLimit: number;
+}
+
+export interface InterviewReport {
+  reportStatus?: "pending" | "ready";
+  overallScore: number;
+  positionName?: string;
+  questionLimit?: number;
+  timeLimitMinutes?: number;
+  summary?: string;
+  practiceSummary?: string;
+  dimensionScores: {
+    technicalCorrectness: number;
+    knowledgeDepth: number;
+    logicRigor: number;
+    positionMatch: number;
+    expressionDelivery: number;
+  };
+  expressionSummary?: string;
+  highlights: string[];
+  weaknesses: string[];
+  improvementSuggestions: string[];
+  practicePlan?: Array<{
+    day: number;
+    title: string;
+    focus?: string;
+    actions?: string[];
+    expectedOutcome?: string;
+  }>;
+  recommendedPractices: Array<{
+    id: string;
+    questionText: string;
+    difficulty?: number;
+    questionType?: string;
+    knowledgeTags?: string[];
+    knowledgeSource?: string;
+    recommendationReason?: string;
+    referenceAnswerPreview?: string;
+    priorityLabel?: string;
+    focusArea?: string;
+    skillGap?: string;
+    estimatedMinutes?: number;
+    practiceMethod?: string[];
+    answerChecklist?: string[];
+    relatedResources?: Array<{
+      id: string;
+      kbId?: string;
+      title?: string;
+      knowledgeBaseName?: string;
+      matchedKeyword?: string;
+      resourceType?: string;
+      recommendationReason?: string;
+      chunkId?: string;
+      snippet?: string;
+      score?: number;
+    }>;
+  }>;
 }

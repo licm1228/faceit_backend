@@ -21,7 +21,7 @@ import {
   TrendingUp,
   Zap
 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import {
   SimpleLineChart,
@@ -1451,7 +1451,7 @@ export function DashboardPage() {
   const { health, metricStatus } = useHealthStatus(performance, overview);
 
   useEffect(() => {
-    if (error) toast.error(error);
+    if (error) feedback.error(error);
   }, [error]);
 
   return (

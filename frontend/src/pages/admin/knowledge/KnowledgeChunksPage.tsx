@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PenSquare, Plus, RefreshCw, ShieldCheck, ShieldX, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { feedback } from "@/stores/useFeedbackStore";
 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -73,7 +73,7 @@ export function KnowledgeChunksPage() {
       const data = await getDocument(docId);
       setDoc(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载文档失败"));
+      feedback.error(getErrorMessage(error, "加载文档失败"));
       console.error(error);
     }
   };
@@ -89,7 +89,7 @@ export function KnowledgeChunksPage() {
       });
       setPageData(data);
     } catch (error) {
-      toast.error(getErrorMessage(error, "加载分块失败"));
+      feedback.error(getErrorMessage(error, "加载分块失败"));
       console.error(error);
     } finally {
       setLoading(false);
@@ -135,16 +135,16 @@ export function KnowledgeChunksPage() {
   const handleBatchEnable = async () => {
     if (!docId) return;
     if (selectedList.length === 0) {
-      toast.error("请选择需要操作的分块");
+      feedback.error("请选择需要操作的分块");
       return;
     }
     try {
       await batchEnableChunks(docId, selectedList);
-      toast.success("批量启用成功");
+      feedback.success("批量启用成功");
       setSelectedIds(new Set());
       await loadChunks(pageNo, enabledFilter);
     } catch (error) {
-      toast.error(getErrorMessage(error, "批量启用失败"));
+      feedback.error(getErrorMessage(error, "批量启用失败"));
       console.error(error);
     }
   };
@@ -152,16 +152,16 @@ export function KnowledgeChunksPage() {
   const handleBatchDisable = async () => {
     if (!docId) return;
     if (selectedList.length === 0) {
-      toast.error("请选择需要操作的分块");
+      feedback.error("请选择需要操作的分块");
       return;
     }
     try {
       await batchDisableChunks(docId, selectedList);
-      toast.success("批量禁用成功");
+      feedback.success("批量禁用成功");
       setSelectedIds(new Set());
       await loadChunks(pageNo, enabledFilter);
     } catch (error) {
-      toast.error(getErrorMessage(error, "批量禁用失败"));
+      feedback.error(getErrorMessage(error, "批量禁用失败"));
       console.error(error);
     }
   };
@@ -174,12 +174,12 @@ export function KnowledgeChunksPage() {
       } else {
         await batchDisableChunks(docId);
       }
-      toast.success(batchAllAction === "enable" ? "全量启用完成" : "全量禁用完成");
+      feedback.success(batchAllAction === "enable" ? "全量启用完成" : "全量禁用完成");
       setBatchAllAction(null);
       setPageNo(1);
       await loadChunks(1, enabledFilter);
     } catch (error) {
-      toast.error(getErrorMessage(error, "批量操作失败"));
+      feedback.error(getErrorMessage(error, "批量操作失败"));
       console.error(error);
     }
   };
@@ -188,11 +188,11 @@ export function KnowledgeChunksPage() {
     if (!docId || !deleteTarget) return;
     try {
       await deleteChunk(docId, String(deleteTarget.id));
-      toast.success("删除成功");
+      feedback.success("删除成功");
       setDeleteTarget(null);
       await loadChunks(pageNo, enabledFilter);
     } catch (error) {
-      toast.error(getErrorMessage(error, "删除失败"));
+      feedback.error(getErrorMessage(error, "删除失败"));
       console.error(error);
     }
   };
@@ -201,10 +201,10 @@ export function KnowledgeChunksPage() {
     if (!docId) return;
     try {
       await rebuildChunks(docId);
-      toast.success("重建完成");
+      feedback.success("重建完成");
       setRebuildOpen(false);
     } catch (error) {
-      toast.error(getErrorMessage(error, "重建失败"));
+      feedback.error(getErrorMessage(error, "重建失败"));
       console.error(error);
     }
   };
@@ -214,14 +214,14 @@ export function KnowledgeChunksPage() {
     try {
       if (chunk.enabled === 1) {
         await disableChunk(docId, String(chunk.id));
-        toast.success("已禁用");
+        feedback.success("已禁用");
       } else {
         await enableChunk(docId, String(chunk.id));
-        toast.success("已启用");
+        feedback.success("已启用");
       }
       await loadChunks(pageNo, enabledFilter);
     } catch (error) {
-      toast.error(getErrorMessage(error, "操作失败"));
+      feedback.error(getErrorMessage(error, "操作失败"));
       console.error(error);
     }
   };
@@ -396,7 +396,7 @@ export function KnowledgeChunksPage() {
         onSubmit={async (payload) => {
           if (!docId) return;
           await createChunk(docId, payload);
-          toast.success("创建成功");
+          feedback.success("创建成功");
           setCreateOpen(false);
           await loadChunks(pageNo, enabledFilter);
         }}
@@ -410,7 +410,7 @@ export function KnowledgeChunksPage() {
         onSubmit={async (payload) => {
           if (!docId || !editDialog.chunk) return;
           await updateChunk(docId, String(editDialog.chunk.id), { content: payload.content });
-          toast.success("更新成功");
+          feedback.success("更新成功");
           setEditDialog({ open: false, chunk: null });
           await loadChunks(pageNo, enabledFilter);
         }}
@@ -489,7 +489,7 @@ function ChunkDialog({ mode, open, chunk, onOpenChange, onSubmit }: ChunkDialogP
   const handleSubmit = async () => {
     const trimmed = content.trim();
     if (!trimmed) {
-      toast.error("请输入内容");
+      feedback.error("请输入内容");
       return;
     }
 
@@ -499,7 +499,7 @@ function ChunkDialog({ mode, open, chunk, onOpenChange, onSubmit }: ChunkDialogP
     };
 
     if (payload.index !== undefined && Number.isNaN(payload.index)) {
-      toast.error("索引必须是数字");
+      feedback.error("索引必须是数字");
       return;
     }
 
@@ -507,7 +507,7 @@ function ChunkDialog({ mode, open, chunk, onOpenChange, onSubmit }: ChunkDialogP
     try {
       await onSubmit(payload);
     } catch (error) {
-      toast.error(getErrorMessage(error, mode === "create" ? "创建失败" : "更新失败"));
+      feedback.error(getErrorMessage(error, mode === "create" ? "创建失败" : "更新失败"));
       console.error(error);
     } finally {
       setSaving(false);

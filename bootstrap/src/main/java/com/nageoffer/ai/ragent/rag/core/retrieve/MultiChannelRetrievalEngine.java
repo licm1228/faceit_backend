@@ -52,6 +52,7 @@ public class MultiChannelRetrievalEngine {
 
     private final List<SearchChannel> searchChannels;
     private final List<SearchResultPostProcessor> postProcessors;
+    private final PreferredKnowledgeBaseResolver preferredKnowledgeBaseResolver;
     @Qualifier("ragRetrievalThreadPoolExecutor")
     private final Executor ragRetrievalExecutor;
 
@@ -222,6 +223,7 @@ public class MultiChannelRetrievalEngine {
                 .rewrittenQuestion(question)
                 .intents(subIntents)
                 .topK(topK)
+                .preferredCollections(preferredKnowledgeBaseResolver.resolvePreferredCollections(question))
                 .build();
     }
 }
